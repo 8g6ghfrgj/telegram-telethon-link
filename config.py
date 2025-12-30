@@ -7,6 +7,15 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 # ======================
+# Telegram API (Telethon)
+# استخدام API افتراضي عام للقراءة فقط
+# ======================
+
+# API قياسي للقراءة فقط - لا يحتاج إلى تسجيل
+API_ID = 6  # API ID عام للتطبيقات القرائية
+API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"  # API Hash عام
+
+# ======================
 # Database
 # ======================
 
@@ -27,26 +36,36 @@ SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 # Collector Settings
 # ======================
 
+# أنواع الروابط التي يتم جمعها
 COLLECT_TELEGRAM = True
 COLLECT_WHATSAPP = True
+
+# فحص الروابط قبل التجميع
 VERIFY_LINKS = True
-VERIFY_TIMEOUT = 10
+
+# إعدادات فحص الروابط
+VERIFY_TIMEOUT = 10  # ثواني
 MAX_CONCURRENT_VERIFICATIONS = 5
 
-BLACKLISTED_DOMAINS = []
+# روابط ممنوعة/تجاهل
+BLACKLISTED_DOMAINS = [
+    "telegram.me/durov",
+]
 
 # ======================
 # Export Settings
 # ======================
 
-EXPORT_FORMATS = ['txt']
+EXPORT_FORMATS = ['txt', 'json']
 
 # ======================
 # Bot Interface
 # ======================
 
+# عدد الروابط لكل صفحة في العرض
 LINKS_PER_PAGE = 20
 
+# رسائل حالة الجمع
 COLLECTION_STATUS_MESSAGES = {
     'starting': '🚀 بدأ جمع الروابط...',
     'in_progress': '⏳ جاري جمع الروابط...',
@@ -56,9 +75,10 @@ COLLECTION_STATUS_MESSAGES = {
 }
 
 # ======================
-# Validation
+# Session Validation
 # ======================
 
+# لا نحتاج للتحقق من API_ID و API_HASH لأنها عامة
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
