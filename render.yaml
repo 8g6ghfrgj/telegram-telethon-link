@@ -1,5 +1,0 @@
-services:
-  - type: web
-    name: telegram-link-manager
-    env: docker
-    plan: free
