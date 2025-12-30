@@ -369,15 +369,57 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == "back_to_main":
             await show_main_menu(query)
         
-        # إضافة جلسة
-        elif data == "menu_add_session":
-            context.user_data['awaiting_session'] = True
-            await query.message.edit_text(
-                "📥 *إضافة جلسة جديدة*\n\n"
-                "أرسل لي Session String الآن:\n\n"
-                "⚠️ *ملاحظة:* سيتم التحقق من صحة الجلسة تلقائياً",
-                parse_mode="Markdown"
-            )
+        # في handle_message function، عدل جزء إضافة الجلسة:
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الرسائل النصية"""
+    message = update.message
+    text = message.text.strip()
+    
+    # إضافة جلسة جديدة
+    if context.user_data.get('awaiting_session'):
+        context.user_data['awaiting_session'] = False
+        
+        await message.reply_text("🔍 جاري التحقق من الجلسة...")
+        
+        try:
+            # التحقق من الجلسة
+            is_valid, account_info = await validate_session(text)
+            
+            if not is_valid:
+                error_msg = account_info.get('error', 'خطأ غير معروف')
+                await message.reply_text(f"❌ الجلسة غير صالحة: {error_msg}")
+                return
+            
+            # إضافة الجلسة
+            success = add_session_to_db(text, account_info)
+            
+            if success:
+                phone = account_info.get('phone', 'غير معروف')
+                username = account_info.get('username', 'غير معروف')
+                user_id = account_info.get('user_id', 'غير معروف')
+                
+                await message.reply_text(
+                    f"✅ *تمت إضافة الجلسة بنجاح*\n\n"
+                    f"• رقم الهاتف: `{phone}`\n"
+                    f"• اسم المستخدم: @{username}\n"
+                    f"• المعرف: {user_id}\n\n"
+                    f"يمكنك الآن عرض الجلسات من القائمة الرئيسية.",
+                    parse_mode="Markdown",
+                    reply_markup=main_menu_keyboard()
+                )
+            else:
+                await message.reply_text("❌ حدث خطأ أثناء حفظ الجلسة")
+        
+        except Exception as e:
+            logger.error(f"Error adding session: {e}")
+            await message.reply_text(f"❌ حدث خطأ: {str(e)[:100]}")
+    
+    else:
+        await message.reply_text(
+            "👋 استخدم الأزرار للتحكم في البوت",
+            reply_markup=main_menu_keyboard()
+        )
         
         # عرض الجلسات
         elif data == "menu_list_sessions":
@@ -481,13 +523,59 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Menu Handlers
 # ======================
 
-async def show_main_menu(query):
-    """عرض القائمة الرئيسية"""
-    await query.message.edit_text(
-        "📱 *القائمة الرئيسية*\n\n"
-        "اختر من الخيارات:",
-        reply_markup=main_menu_keyboard(),
-        parse_mode="Markdown"
+async def show_sessions_list(query):
+    """عرض قائمة الجلسات"""
+    try:
+        sessions = get_all_sessions()
+        
+        if not sessions:
+            await query.message.edit_text(
+                "📭 *لا توجد جلسات مضافة*\n\n"
+                "اضغط ➕ إضافة جلسة لإضافة جلسة جديدة",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("➕ إضافة جلسة", callback_data="menu_add_session"),
+                    InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+                ]]),
+                parse_mode="Markdown"
+            )
+            return
+        
+        # عد الجلسات النشطة
+        active_sessions = [s for s in sessions if s.get('is_active')]
+        
+        # إنشاء أزرار للجلسات
+        keyboard = []
+        
+        for session in sessions:
+            session_id = session.get('id')
+            display_name = session.get('display_name', f'جلسة {session_id}')
+            status = "🟢" if session.get('is_active') else "🔴"
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{status} {display_name}",
+                    callback_data=f"session_info_{session_id}"
+                )
+            ])
+        
+        # أزرار إضافية
+        keyboard.append([
+            InlineKeyboardButton("✅ اختبار الجلسات", callback_data="test_all_sessions"),
+            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+        ])
+        
+        await query.message.edit_text(
+            f"👥 *الجلسات المضافة*\n\n"
+            f"• الإجمالي: {len(sessions)}\n"
+            f"• النشطة: {len(active_sessions)}\n\n"
+            f"اختر جلسة للتفاصيل:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error showing sessions: {e}")
+        await query.message.edit_text("❌ حدث خطأ في عرض الجلسات")
     )
 
 
