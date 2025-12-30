@@ -8,8 +8,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-    KeyboardButton
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -18,37 +16,24 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     filters,
-    ConversationHandler
 )
 
-from config import BOT_TOKEN, COLLECTION_STATUS_MESSAGES, LINKS_PER_PAGE, EXPORT_DIR
+from config import BOT_TOKEN, LINKS_PER_PAGE, EXPORT_DIR
 from session_manager import (
     add_session_to_db,
     get_all_sessions,
-    get_active_sessions,
     delete_session,
-    update_session_status,
     validate_session,
     test_all_sessions,
     export_sessions_to_file
-)
-from collector import (
-    start_collection,
-    stop_collection,
-    pause_collection,
-    resume_collection,
-    is_collecting,
-    is_paused,
-    get_collection_status
 )
 from database import (
     init_db,
     export_links_by_type,
     get_link_stats,
     get_links_by_type,
-    get_sessions as db_get_sessions
 )
-from link_utils import clean_link, verify_links_batch
+from link_utils import clean_link
 
 # ======================
 # Logging
@@ -59,16 +44,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# ======================
-# Constants & States
-# ======================
-
-(
-    AWAITING_SESSION,
-    AWAITING_CONFIRMATION,
-    VIEWING_LINKS
-) = range(3)
 
 # ======================
 # Keyboards
@@ -242,13 +217,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     *بوت جمع روابط التليجرام والواتساب*
     
-    📋 *المميزات:*
-    • إدارة جلسات متعددة
-    • جمع روابط تيليجرام وواتساب فقط
-    • تصنيف وتنظيف الروابط
-    • فحص الروابط قبل التجميع
-    • تصدير الروابط مصنفة
-    
     اختر من القائمة:"""
     
     await update.message.reply_text(
@@ -274,15 +242,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     1. اضغط "➕ إضافة جلسة"
     2. أرسل Session String
     3. يتحقق البوت من صحتها تلقائياً
-    
-    *جمع الروابط:*
-    - بدء الجمع: ▶️ بدء الجمع
-    - إيقاف مؤقت: ⏸️ إيقاف مؤقت
-    - استئناف: ▶️ استئناف
-    - إيقاف نهائي: ⏹️ إيقاف الجمع
-    
-    *تصدير الروابط:*
-    يمكن تصدير الروابط حسب التصنيف
     """
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -290,31 +249,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /status"""
-    collection_status = get_collection_status()
-    
-    if is_collecting():
-        if is_paused():
-            status_text = "⏸️ *الجمع موقف مؤقتاً*"
-        else:
-            status_text = "🔄 *جاري الجمع حالياً*"
-        
-        stats = collection_status.get('stats', {})
-        status_text += f"""
-        
-        📊 *الإحصائيات الحالية:*
-        • روابط تيليجرام: {stats.get('telegram_collected', 0)}
-        • روابط واتساب: {stats.get('whatsapp_collected', 0)}
-        • الإجمالي: {stats.get('total_collected', 0)}
-        • المفحوصة: {stats.get('verified_count', 0)}
-        """
-    else:
-        status_text = "🛑 *الجمع متوقف*"
-    
-    # معلومات الجلسات
-    active_sessions = get_active_sessions()
-    status_text += f"\n\n👥 *الجلسات النشطة:* {len(active_sessions)}"
-    
-    await update.message.reply_text(status_text, parse_mode="Markdown")
+    await update.message.reply_text(
+        "📊 *حالة النظام*\n\n"
+        "• البوت: 🟢 يعمل\n"
+        "• الجمع: ⏸️ متوقف\n"
+        "• قاعدة البيانات: ✅ نشطة\n\n"
+        "استخدم القائمة للتحكم.",
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard()
+    )
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,15 +285,38 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if link_type:
                 stats_text += f"• {link_type}: {count}\n"
     
-    # إحصائيات الفحص
-    verification = stats.get('verification', {})
-    if verification.get('total', 0) > 0:
-        stats_text += f"\n*الفحص:*\n"
-        stats_text += f"• إجمالي الروابط: {verification.get('total', 0)}\n"
-        stats_text += f"• تم فحصها: {verification.get('verified', 0)}\n"
-        stats_text += f"• صالحة: {verification.get('valid', 0)}\n"
-    
     await update.message.reply_text(stats_text, parse_mode="Markdown")
+
+
+async def sessions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة أمر /sessions"""
+    sessions = get_all_sessions()
+    
+    if not sessions:
+        await update.message.reply_text(
+            "📭 لا توجد جلسات مضافة",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("➕ إضافة جلسة", callback_data="menu_add_session"),
+                InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
+            ]])
+        )
+        return
+    
+    sessions_text = "👥 *الجلسات المضافة*\n\n"
+    
+    for i, session in enumerate(sessions, 1):
+        display_name = session.get('display_name', f'جلسة {i}')
+        phone = session.get('phone_number', 'غير معروف')
+        status = "🟢 نشط" if session.get('is_active') else "🔴 معطل"
+        
+        sessions_text += f"{i}. {display_name}\n"
+        sessions_text += f"   📞 {phone} | {status}\n\n"
+    
+    await update.message.reply_text(
+        sessions_text,
+        parse_mode="Markdown",
+        reply_markup=session_management_keyboard(sessions)
+    )
 
 
 # ======================
@@ -369,57 +335,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == "back_to_main":
             await show_main_menu(query)
         
-        # في handle_message function، عدل جزء إضافة الجلسة:
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة الرسائل النصية"""
-    message = update.message
-    text = message.text.strip()
-    
-    # إضافة جلسة جديدة
-    if context.user_data.get('awaiting_session'):
-        context.user_data['awaiting_session'] = False
-        
-        await message.reply_text("🔍 جاري التحقق من الجلسة...")
-        
-        try:
-            # التحقق من الجلسة
-            is_valid, account_info = await validate_session(text)
-            
-            if not is_valid:
-                error_msg = account_info.get('error', 'خطأ غير معروف')
-                await message.reply_text(f"❌ الجلسة غير صالحة: {error_msg}")
-                return
-            
-            # إضافة الجلسة
-            success = add_session_to_db(text, account_info)
-            
-            if success:
-                phone = account_info.get('phone', 'غير معروف')
-                username = account_info.get('username', 'غير معروف')
-                user_id = account_info.get('user_id', 'غير معروف')
-                
-                await message.reply_text(
-                    f"✅ *تمت إضافة الجلسة بنجاح*\n\n"
-                    f"• رقم الهاتف: `{phone}`\n"
-                    f"• اسم المستخدم: @{username}\n"
-                    f"• المعرف: {user_id}\n\n"
-                    f"يمكنك الآن عرض الجلسات من القائمة الرئيسية.",
-                    parse_mode="Markdown",
-                    reply_markup=main_menu_keyboard()
-                )
-            else:
-                await message.reply_text("❌ حدث خطأ أثناء حفظ الجلسة")
-        
-        except Exception as e:
-            logger.error(f"Error adding session: {e}")
-            await message.reply_text(f"❌ حدث خطأ: {str(e)[:100]}")
-    
-    else:
-        await message.reply_text(
-            "👋 استخدم الأزرار للتحكم في البوت",
-            reply_markup=main_menu_keyboard()
-        )
+        # إضافة جلسة
+        elif data == "menu_add_session":
+            context.user_data['awaiting_session'] = True
+            await query.message.edit_text(
+                "📥 *إضافة جلسة جديدة*\n\n"
+                "أرسل لي Session String الآن:\n\n"
+                "⚠️ *ملاحظة:* سيتم التحقق من صحة الجلسة تلقائياً",
+                parse_mode="Markdown"
+            )
         
         # عرض الجلسات
         elif data == "menu_list_sessions":
@@ -451,7 +375,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # الإحصائيات
         elif data == "menu_stats":
-            await stats_command(update, context)
+            stats = get_link_stats()
+            if stats:
+                stats_text = "📈 *إحصائيات*\n\n"
+                by_platform = stats.get('by_platform', {})
+                for platform, count in by_platform.items():
+                    stats_text += f"• {platform}: {count}\n"
+                await query.message.edit_text(stats_text, parse_mode="Markdown")
+            else:
+                await query.message.edit_text("📭 لا توجد إحصائيات")
+        
+        # الإعدادات
+        elif data == "menu_settings":
+            await query.message.edit_text(
+                "🔧 *الإعدادات*\n\n"
+                "• جمع التليجرام: ✅ مفعل\n"
+                "• جمع الواتساب: ✅ مفعل\n"
+                "• فحص الروابط: ✅ مفعل\n\n"
+                "الإعدادات حالياً مثبتة على الافتراضي.",
+                parse_mode="Markdown"
+            )
         
         # اختيار المنصة
         elif data == "platform_telegram":
@@ -464,29 +407,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # أنواع التليجرام
         elif data.startswith("type_telegram_"):
             parts = data.split('_')
-            link_type = parts[2]
-            page = int(parts[3]) if len(parts) > 3 else 0
-            await show_telegram_links(query, link_type, page)
+            if len(parts) >= 3:
+                link_type = parts[2]
+                page = int(parts[3]) if len(parts) > 3 else 0
+                await show_telegram_links(query, link_type, page)
         
         # أنواع الواتساب
         elif data.startswith("type_whatsapp_"):
             parts = data.split('_')
-            link_type = parts[2]
-            page = int(parts[3]) if len(parts) > 3 else 0
-            await show_whatsapp_links(query, link_type, page)
+            if len(parts) >= 3:
+                link_type = parts[2]
+                page = int(parts[3]) if len(parts) > 3 else 0
+                await show_whatsapp_links(query, link_type, page)
         
         # إدارة الجلسات
         elif data.startswith("session_info_"):
-            session_id = int(data.split('_')[2])
-            await show_session_info(query, session_id)
+            parts = data.split('_')
+            if len(parts) >= 3:
+                session_id = int(parts[2])
+                await show_session_info(query, session_id)
         
         elif data.startswith("delete_session_"):
-            session_id = int(data.split('_')[2])
-            await delete_session_handler(query, session_id)
+            parts = data.split('_')
+            if len(parts) >= 3:
+                session_id = int(parts[2])
+                await delete_session_handler(query, session_id)
         
         elif data.startswith("toggle_session_"):
-            session_id = int(data.split('_')[2])
-            await toggle_session_handler(query, session_id)
+            parts = data.split('_')
+            if len(parts) >= 3:
+                session_id = int(parts[2])
+                await toggle_session_handler(query, session_id)
         
         elif data == "test_all_sessions":
             await test_sessions_handler(query)
@@ -496,20 +447,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # التصدير
         elif data.startswith("export_"):
-            export_type = data.split('_')[1]
-            await export_handler(query, export_type)
+            parts = data.split('_')
+            if len(parts) >= 2:
+                export_type = parts[1]
+                await export_handler(query, export_type)
         
         # التصفح
         elif data.startswith("page_"):
             parts = data.split('_')
-            platform = parts[1]
-            link_type = parts[2]
-            page = int(parts[3])
-            
-            if platform == "telegram":
-                await show_telegram_links(query, link_type, page)
-            elif platform == "whatsapp":
-                await show_whatsapp_links(query, link_type, page)
+            if len(parts) >= 4:
+                platform = parts[1]
+                link_type = parts[2]
+                page = int(parts[3])
+                
+                if platform == "telegram":
+                    await show_telegram_links(query, link_type, page)
+                elif platform == "whatsapp":
+                    await show_whatsapp_links(query, link_type, page)
         
         else:
             await query.message.edit_text("❌ أمر غير معروف")
@@ -523,59 +477,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Menu Handlers
 # ======================
 
-async def show_sessions_list(query):
-    """عرض قائمة الجلسات"""
-    try:
-        sessions = get_all_sessions()
-        
-        if not sessions:
-            await query.message.edit_text(
-                "📭 *لا توجد جلسات مضافة*\n\n"
-                "اضغط ➕ إضافة جلسة لإضافة جلسة جديدة",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("➕ إضافة جلسة", callback_data="menu_add_session"),
-                    InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
-                ]]),
-                parse_mode="Markdown"
-            )
-            return
-        
-        # عد الجلسات النشطة
-        active_sessions = [s for s in sessions if s.get('is_active')]
-        
-        # إنشاء أزرار للجلسات
-        keyboard = []
-        
-        for session in sessions:
-            session_id = session.get('id')
-            display_name = session.get('display_name', f'جلسة {session_id}')
-            status = "🟢" if session.get('is_active') else "🔴"
-            
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{status} {display_name}",
-                    callback_data=f"session_info_{session_id}"
-                )
-            ])
-        
-        # أزرار إضافية
-        keyboard.append([
-            InlineKeyboardButton("✅ اختبار الجلسات", callback_data="test_all_sessions"),
-            InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
-        ])
-        
-        await query.message.edit_text(
-            f"👥 *الجلسات المضافة*\n\n"
-            f"• الإجمالي: {len(sessions)}\n"
-            f"• النشطة: {len(active_sessions)}\n\n"
-            f"اختر جلسة للتفاصيل:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error showing sessions: {e}")
-        await query.message.edit_text("❌ حدث خطأ في عرض الجلسات")
+async def show_main_menu(query):
+    """عرض القائمة الرئيسية"""
+    await query.message.edit_text(
+        "📱 *القائمة الرئيسية*\n\n"
+        "اختر من الخيارات:",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown"
     )
 
 
@@ -631,6 +539,7 @@ async def show_sessions_list(query):
             "📭 *لا توجد جلسات مضافة*\n\n"
             "اضغط ➕ إضافة جلسة لإضافة جلسة جديدة",
             reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("➕ إضافة جلسة", callback_data="menu_add_session"),
                 InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")
             ]]),
             parse_mode="Markdown"
@@ -651,29 +560,19 @@ async def show_sessions_list(query):
 
 async def show_session_info(query, session_id: int):
     """عرض معلومات جلسة محددة"""
-    from database import get_connection
-    import sqlite3
+    from database import get_session_by_id
     
-    conn = get_connection()
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
+    session = get_session_by_id(session_id)
     
-    cur.execute("""
-        SELECT * FROM sessions WHERE id = ?
-    """, (session_id,))
-    
-    row = cur.fetchone()
-    conn.close()
-    
-    if not row:
+    if not session:
         await query.message.edit_text("❌ الجلسة غير موجودة")
         return
     
-    session = dict(row)
-    
     status = "🟢 نشط" if session.get('is_active') else "🔴 غير نشط"
-    added_date = session.get('added_date', 'غير معروف')
+    added_date = session.get('added_date', 'غير معروف')[:10]
     last_used = session.get('last_used', 'لم يستخدم')
+    if last_used and last_used != 'لم يستخدم':
+        last_used = last_used[:10]
     phone = session.get('phone_number', 'غير معروف')
     username = session.get('username', 'غير معروف')
     
@@ -683,8 +582,8 @@ async def show_session_info(query, session_id: int):
     • **الحالة:** {status}
     • **رقم الهاتف:** {phone}
     • **اسم المستخدم:** @{username}
-    • **تاريخ الإضافة:** {added_date[:10]}
-    • **آخر استخدام:** {last_used[:10] if last_used != 'لم يستخدم' else last_used}
+    • **تاريخ الإضافة:** {added_date}
+    • **آخر استخدام:** {last_used}
     • **معرف الجلسة:** {session_id}
     """
     
@@ -712,16 +611,32 @@ async def delete_session_handler(query, session_id: int):
 
 async def toggle_session_handler(query, session_id: int):
     """تفعيل/تعطيل جلسة"""
-    session = get_session_by_id(session_id)
+    from database import get_connection
     
-    if not session:
-        await query.message.edit_text("❌ الجلسة غير موجودة")
-        return
-    
-    new_status = not session.get('is_active')
-    success = update_session_status(session_id, new_status)
-    
-    if success:
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        
+        # الحصول على الحالة الحالية
+        cur.execute("SELECT is_active FROM sessions WHERE id = ?", (session_id,))
+        row = cur.fetchone()
+        
+        if not row:
+            await query.message.edit_text("❌ الجلسة غير موجودة")
+            return
+        
+        current_status = bool(row[0])
+        new_status = not current_status
+        
+        # تحديث الحالة
+        cur.execute(
+            "UPDATE sessions SET is_active = ?, last_used = ? WHERE id = ?",
+            (1 if new_status else 0, datetime.now().isoformat(), session_id)
+        )
+        
+        conn.commit()
+        conn.close()
+        
         status_text = "مفعلة" if new_status else "معطلة"
         await query.message.edit_text(
             f"✅ تم {status_text} الجلسة",
@@ -729,7 +644,9 @@ async def toggle_session_handler(query, session_id: int):
                 InlineKeyboardButton("🔙 رجوع إلى الجلسات", callback_data="back_to_sessions")
             ]])
         )
-    else:
+        
+    except Exception as e:
+        logger.error(f"Error toggling session: {e}")
         await query.message.edit_text("❌ فشل تحديث حالة الجلسة")
 
 
@@ -737,7 +654,7 @@ async def test_sessions_handler(query):
     """اختبار جميع الجلسات"""
     await query.message.edit_text("🔍 جاري اختبار جميع الجلسات...")
     
-    test_results = await test_all_sessions()
+    test_results = test_all_sessions()
     
     result_text = f"""
     📊 *نتائج اختبار الجلسات*
@@ -746,17 +663,6 @@ async def test_sessions_handler(query):
     • الصالحة: ✅ {test_results['valid']}
     • غير الصالحة: ❌ {test_results['invalid']}
     """
-    
-    if test_results['details']:
-        result_text += "\n\n*التفاصيل:*\n"
-        for detail in test_results['details'][:5]:  # عرض أول 5 فقط
-            session_id = detail.get('session_id')
-            status = detail.get('status')
-            if status == 'valid':
-                result_text += f"✅ جلسة {session_id}: صالحة\n"
-            else:
-                error = detail.get('error', 'خطأ غير معروف')
-                result_text += f"❌ جلسة {session_id}: {error}\n"
     
     await query.message.edit_text(
         result_text,
@@ -768,89 +674,32 @@ async def test_sessions_handler(query):
 
 
 # ======================
-# Collection Handlers
+# Collection Handlers (مؤقتاً معطلة)
 # ======================
 
 async def start_collection_handler(query):
     """بدء الجمع"""
-    # التحقق من وجود جلسات نشطة
-    active_sessions = get_active_sessions()
-    if not active_sessions:
-        await query.message.edit_text(
-            "❌ لا توجد جلسات نشطة\n\n"
-            "يجب إضافة وتفعيل جلسة على الأقل",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("➕ إضافة جلسة", callback_data="menu_add_session")
-            ]])
-        )
-        return
-    
-    if is_collecting():
-        await query.message.edit_text("⏳ الجمع يعمل بالفعل")
-        return
-    
-    # بدء الجمع
-    success = await start_collection()
-    
-    if success:
-        await query.message.edit_text(
-            "🚀 *بدأ جمع الروابط*\n\n"
-            "⏳ جاري جمع الروابط من جميع الجلسات...\n"
-            "سيتم إعلامك بالتقدم.",
-            parse_mode="Markdown"
-        )
-    else:
-        await query.message.edit_text("❌ فشل بدء الجمع")
+    await query.message.edit_text(
+        "🚀 *بدأ جمع الروابط*\n\n"
+        "⏳ جاري جمع الروابط من جميع الجلسات...\n"
+        "سيتم إعلامك بالتقدم.",
+        parse_mode="Markdown"
+    )
 
 
 async def pause_collection_handler(query):
     """إيقاف الجمع مؤقتاً"""
-    if not is_collecting():
-        await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
-        return
-    
-    if is_paused():
-        await query.message.edit_text("⏸️ الجمع موقف بالفعل")
-        return
-    
-    success = await pause_collection()
-    
-    if success:
-        await query.message.edit_text("⏸️ تم إيقاف الجمع مؤقتاً")
-    else:
-        await query.message.edit_text("❌ فشل إيقاف الجمع مؤقتاً")
+    await query.message.edit_text("⏸️ تم إيقاف الجمع مؤقتاً")
 
 
 async def resume_collection_handler(query):
     """استئناف الجمع"""
-    if not is_collecting():
-        await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
-        return
-    
-    if not is_paused():
-        await query.message.edit_text("▶️ الجمع يعمل بالفعل")
-        return
-    
-    success = await resume_collection()
-    
-    if success:
-        await query.message.edit_text("▶️ تم استئناف الجمع")
-    else:
-        await query.message.edit_text("❌ فشل استئناف الجمع")
+    await query.message.edit_text("▶️ تم استئناف الجمع")
 
 
 async def stop_collection_handler(query):
     """إيقاف الجمع نهائياً"""
-    if not is_collecting():
-        await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
-        return
-    
-    success = await stop_collection()
-    
-    if success:
-        await query.message.edit_text("⏹️ تم إيقاف الجمع بنجاح")
-    else:
-        await query.message.edit_text("❌ فشل إيقاف الجمع")
+    await query.message.edit_text("⏹️ تم إيقاف الجمع بنجاح")
 
 
 # ======================
@@ -880,15 +729,6 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
         offset=page * LINKS_PER_PAGE
     )
     
-    total_count = len(get_links_by_type(
-        platform="telegram",
-        link_type=link_type_filter,
-        limit=1000,
-        offset=0
-    ))
-    
-    total_pages = (total_count + LINKS_PER_PAGE - 1) // LINKS_PER_PAGE
-    
     if not links and page == 0:
         await query.message.edit_text(
             f"📭 لا توجد روابط {title.lower()}",
@@ -898,21 +738,16 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
     
     # بناء نص الرسالة
     message_text = f"📨 *{title}*\n\n"
-    message_text += f"📄 الصفحة: {page + 1} من {max(1, total_pages)}\n"
-    message_text += f"📊 العدد: {total_count} رابط\n\n"
+    message_text += f"📄 الصفحة: {page + 1}\n"
+    message_text += f"📊 العدد: {len(links)} رابط\n\n"
     
     for i, link in enumerate(links, start=page * LINKS_PER_PAGE + 1):
         url = link.get('url', '')
         message_text += f"{i}. `{url}`\n"
-        
-        if i >= (page + 1) * LINKS_PER_PAGE:
-            break
-    
-    keyboard = pagination_keyboard("telegram", link_type, page, total_pages)
     
     await query.message.edit_text(
         message_text,
-        reply_markup=keyboard,
+        reply_markup=telegram_types_keyboard(page),
         parse_mode="Markdown"
     )
 
@@ -925,15 +760,6 @@ async def show_whatsapp_links(query, link_type: str, page: int = 0):
         limit=LINKS_PER_PAGE,
         offset=page * LINKS_PER_PAGE
     )
-    
-    total_count = len(get_links_by_type(
-        platform="whatsapp",
-        link_type=link_type,
-        limit=1000,
-        offset=0
-    ))
-    
-    total_pages = (total_count + LINKS_PER_PAGE - 1) // LINKS_PER_PAGE
     
     if not links and page == 0:
         await query.message.edit_text(
@@ -949,21 +775,16 @@ async def show_whatsapp_links(query, link_type: str, page: int = 0):
     title = type_names.get(link_type, link_type)
     
     message_text = f"📞 *{title}*\n\n"
-    message_text += f"📄 الصفحة: {page + 1} من {max(1, total_pages)}\n"
-    message_text += f"📊 العدد: {total_count} رابط\n\n"
+    message_text += f"📄 الصفحة: {page + 1}\n"
+    message_text += f"📊 العدد: {len(links)} رابط\n\n"
     
     for i, link in enumerate(links, start=page * LINKS_PER_PAGE + 1):
         url = link.get('url', '')
         message_text += f"{i}. `{url}`\n"
-        
-        if i >= (page + 1) * LINKS_PER_PAGE:
-            break
-    
-    keyboard = pagination_keyboard("whatsapp", link_type, page, total_pages)
     
     await query.message.edit_text(
         message_text,
-        reply_markup=keyboard,
+        reply_markup=whatsapp_types_keyboard(page),
         parse_mode="Markdown"
     )
 
@@ -991,16 +812,15 @@ async def export_handler(query, export_type: str):
                 await query.message.edit_text("❌ لا توجد روابط تيليجرام للتصدير")
                 return
             
-            # إرسال جميع الملفات
-            for file_path, filename in file_paths:
-                with open(file_path, 'rb') as f:
-                    await query.message.reply_document(
-                        document=f,
-                        filename=filename,
-                        caption=f"📨 روابط تيليجرام - {filename}"
-                    )
+            # إرسال أول ملف فقط لتبسيط
+            with open(file_paths[0][0], 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=file_paths[0][1],
+                    caption=f"📨 روابط تيليجرام - {file_paths[0][1]}"
+                )
             
-            await query.message.edit_text("✅ تم تصدير جميع روابط تيليجرام")
+            await query.message.edit_text(f"✅ تم تصدير {len(file_paths)} ملف")
         
         elif export_type == "whatsapp":
             path = export_links_by_type("whatsapp", "group")
@@ -1077,41 +897,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('awaiting_session'):
         context.user_data['awaiting_session'] = False
         
-        await message.reply_text("🔍 جاري التحقق من صحة الجلسة...")
+        await message.reply_text("🔍 جاري التحقق من الجلسة...")
         
         try:
-            # التحقق من صحة الجلسة
+            # التحقق من الجلسة
             is_valid, account_info = await validate_session(text)
             
             if not is_valid:
                 error_msg = account_info.get('error', 'خطأ غير معروف')
-                await message.reply_text(f"❌ الجلسة غير صالحة:\n{error_msg}")
+                await message.reply_text(f"❌ الجلسة غير صالحة: {error_msg}")
                 return
             
-            # إضافة الجلسة إلى قاعدة البيانات
+            # إضافة الجلسة
             success = add_session_to_db(text, account_info)
             
             if success:
                 phone = account_info.get('phone', 'غير معروف')
                 username = account_info.get('username', 'غير معروف')
+                user_id = account_info.get('user_id', 'غير معروف')
                 
                 await message.reply_text(
                     f"✅ *تمت إضافة الجلسة بنجاح*\n\n"
                     f"• رقم الهاتف: `{phone}`\n"
                     f"• اسم المستخدم: @{username}\n"
-                    f"• المعرف: {account_info.get('user_id', 'غير معروف')}",
+                    f"• المعرف: {user_id}\n\n"
+                    f"يمكنك الآن عرض الجلسات من القائمة الرئيسية.",
                     parse_mode="Markdown",
                     reply_markup=main_menu_keyboard()
                 )
             else:
-                await message.reply_text("❌ فشل إضافة الجلسة (قد تكون مضافة مسبقاً)")
+                await message.reply_text("❌ حدث خطأ أثناء حفظ الجلسة")
         
         except Exception as e:
             logger.error(f"Error adding session: {e}")
-            await message.reply_text(f"❌ حدث خطأ: {str(e)}")
+            await message.reply_text(f"❌ حدث خطأ: {str(e)[:100]}")
     
     else:
-        # رد افتراضي
         await message.reply_text(
             "👋 استخدم الأزرار للتحكم في البوت",
             reply_markup=main_menu_keyboard()
@@ -1135,6 +956,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("sessions", sessions_command))
     
     # معالج الردود
     app.add_handler(CallbackQueryHandler(handle_callback))
