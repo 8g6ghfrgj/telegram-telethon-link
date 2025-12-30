@@ -1,3 +1,4 @@
 python-telegram-bot==20.7
 telethon==1.34.0
-python-dotenv
+PyPDF2==3.0.1
+python-docx==1.1.0
