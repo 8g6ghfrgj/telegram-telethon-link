@@ -1,31 +1,23 @@
 import asyncio
 import logging
 from typing import List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.types import Message, Channel, Chat, User
 from telethon.errors import FloodWaitError
 
-from config import API_ID, API_HASH, COLLECT_TELEGRAM, COLLECT_WHATSAPP, MAX_HISTORY_DAYS, MAX_WHATSAPP_DAYS
+from config import API_ID, API_HASH
 from database import save_link, get_sessions
-from link_utils import extract_links_from_message, clean_link, is_allowed_link, classify_platform
-
-# ======================
-# Logging
-# ======================
+from session_manager import get_active_sessions
+from link_utils import extract_links_from_message, clean_link, classify_platform, classify_telegram_link
 
 logger = logging.getLogger(__name__)
-
-# ======================
-# Global State
-# ======================
 
 _collection_status = {
     "running": False,
     "paused": False,
-    "current_session": None,
     "stats": {
         "telegram_collected": 0,
         "whatsapp_collected": 0,
@@ -33,13 +25,12 @@ _collection_status = {
     }
 }
 
+_collection_lock = asyncio.Lock()
 _stop_event = asyncio.Event()
 _pause_event = asyncio.Event()
 _pause_event.set()
 
-# ======================
-# Public API
-# ======================
+_clients = []
 
 def get_collection_status() -> Dict:
     return _collection_status.copy()
@@ -51,33 +42,36 @@ def is_paused() -> bool:
     return _collection_status["paused"]
 
 async def start_collection():
-    """بدء الجمع فعلياً"""
     global _collection_status
     
     if _collection_status["running"]:
+        logger.warning("Collection is already running")
         return False
     
-    # الحصول على الجلسات النشطة
-    sessions = get_sessions(active_only=True)
-    if not sessions:
-        logger.error("لا توجد جلسات نشطة")
-        return False
-    
-    _collection_status["running"] = True
-    _collection_status["paused"] = False
-    _collection_status["stats"] = {
-        "telegram_collected": 0,
-        "whatsapp_collected": 0,
-        "total_collected": 0
-    }
-    
-    _stop_event.clear()
-    _pause_event.set()
-    
-    # بدء الجمع في الخلفية
-    asyncio.create_task(_collect_all_sessions(sessions))
-    
-    return True
+    async with _collection_lock:
+        _collection_status["running"] = True
+        _collection_status["paused"] = False
+        _collection_status["stats"] = {
+            "telegram_collected": 0,
+            "whatsapp_collected": 0,
+            "total_collected": 0
+        }
+        
+        _stop_event.clear()
+        _pause_event.set()
+        
+        sessions = get_sessions(active_only=True)
+        if not sessions:
+            logger.error("No active sessions found")
+            _collection_status["running"] = False
+            return False
+        
+        logger.info(f"🚀 Starting collection with {len(sessions)} sessions")
+        
+        # بدء الجمع في الخلفية
+        asyncio.create_task(_run_collection())
+        
+        return True
 
 async def pause_collection():
     if not _collection_status["running"] or _collection_status["paused"]:
@@ -85,6 +79,7 @@ async def pause_collection():
     
     _collection_status["paused"] = True
     _pause_event.clear()
+    logger.info("Collection paused")
     return True
 
 async def resume_collection():
@@ -93,6 +88,7 @@ async def resume_collection():
     
     _collection_status["paused"] = False
     _pause_event.set()
+    logger.info("Collection resumed")
     return True
 
 async def stop_collection():
@@ -106,246 +102,192 @@ async def stop_collection():
     _stop_event.set()
     _pause_event.set()
     
+    # إيقاف جميع العملاء
+    for client in _clients:
+        try:
+            await client.disconnect()
+        except:
+            pass
+    
+    _clients.clear()
+    logger.info("Collection stopped completely")
     return True
 
-# ======================
-# Collection Functions
-# ======================
-
-async def _collect_all_sessions(sessions: List[Dict]):
-    """الجمع من جميع الجلسات"""
+async def _run_collection():
     try:
-        logger.info(f"🚀 بدأ جمع الروابط من {len(sessions)} جلسة")
+        logger.info("🚀 Starting link collection...")
         
-        tasks = []
+        sessions = get_active_sessions()
+        collection_tasks = []
+        
         for session in sessions:
             task = asyncio.create_task(_collect_from_session(session))
-            tasks.append(task)
+            collection_tasks.append(task)
         
-        # انتظار جميع المهام
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.wait(collection_tasks, return_when=asyncio.FIRST_COMPLETED)
         
-        logger.info("✅ اكتمل جمع الروابط")
+        for task in collection_tasks:
+            task.cancel()
+        
+        logger.info("✅ Collection completed")
         
     except Exception as e:
-        logger.error(f"خطأ في الجمع: {e}")
+        logger.error(f"Error in collection loop: {e}")
     finally:
         _collection_status["running"] = False
+        _collection_status["paused"] = False
 
 async def _collect_from_session(session_data: Dict):
-    """الجمع من جلسة واحدة"""
     session_string = session_data.get("session_string")
     session_id = session_data.get("id")
     
     if not session_string:
+        logger.error("No session string provided")
         return
     
     client = None
     try:
-        # إنشاء العميل
-        client = TelegramClient(
-            StringSession(session_string),
-            API_ID,
-            API_HASH
-        )
-        
+        client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
         await client.connect()
         
         if not await client.is_user_authorized():
-            logger.error(f"الجلسة {session_id} غير مصرح بها")
+            logger.error(f"Session {session_id} is not authorized")
             return
         
-        logger.info(f"✅ متصل بالجلسة {session_id}")
+        _clients.append(client)
+        logger.info(f"Connected to session {session_id}")
         
-        # جمع التاريخ القديم
+        # جمع التاريخ
         await _collect_history(client, session_id)
         
-        # الاستماع للجديد
-        await _listen_for_messages(client, session_id)
-        
-        # انتظار حتى التوقف
+        # الانتظار حتى التوقف
         await _stop_event.wait()
         
     except FloodWaitError as e:
-        logger.warning(f"انتظر {e.seconds} ثانية...")
+        logger.warning(f"Flood wait for {e.seconds} seconds")
         await asyncio.sleep(e.seconds)
     except Exception as e:
-        logger.error(f"خطأ في الجلسة {session_id}: {e}")
+        logger.error(f"Error in session {session_id}: {e}")
     finally:
+        if client and client in _clients:
+            _clients.remove(client)
+        
         if client:
-            await client.disconnect()
-            logger.info(f"✅ انقطع عن الجلسة {session_id}")
+            try:
+                await client.disconnect()
+            except:
+                pass
 
 async def _collect_history(client: TelegramClient, session_id: int):
-    """جمع التاريخ القديم"""
     if not _collection_status["running"]:
         return
     
-    logger.info(f"جمع التاريخ من الجلسة {session_id}")
+    logger.info(f"Collecting history from session {session_id}")
     
     try:
-        # حساب التواريخ
-        telegram_cutoff = datetime.now() - timedelta(days=MAX_HISTORY_DAYS)
-        whatsapp_cutoff = datetime.now() - timedelta(days=MAX_WHATSAPP_DAYS)
-        
-        # جمع من جميع الدردشات
-        async for dialog in client.iter_dialogs(limit=100):  # 100 دردشة كحد أقصى
+        async for dialog in client.iter_dialogs(limit=100):
             if not _collection_status["running"]:
                 break
             
             await _pause_event.wait()
             
             try:
-                await _collect_from_dialog(client, dialog, session_id, telegram_cutoff, whatsapp_cutoff)
+                await _process_dialog(client, dialog, session_id)
             except Exception as e:
-                logger.error(f"خطأ في {dialog.name}: {e}")
+                logger.error(f"Error processing dialog {dialog.name}: {e}")
                 continue
             
-            await asyncio.sleep(1)  # منع Flood
-        
+            await asyncio.sleep(0.5)
+    
     except Exception as e:
-        logger.error(f"خطأ في جمع التاريخ: {e}")
+        logger.error(f"Error collecting history: {e}")
 
-async def _collect_from_dialog(client: TelegramClient, dialog, session_id: int, 
-                              telegram_cutoff, whatsapp_cutoff):
-    """جمع من دردشة واحدة"""
+async def _process_dialog(client: TelegramClient, dialog, session_id: int):
     entity = dialog.entity
     
-    # تحديد تاريخ القطع حسب المنصة
-    is_telegram = True  # نفترض تليجرام أولاً
-    
-    # الحصول على الرسائل
     try:
+        # جمع جميع الرسائل من البداية
         async for message in client.iter_messages(entity, reverse=True, limit=10000):
             if not _collection_status["running"]:
                 break
             
             await _pause_event.wait()
             
-            # معالجة الرسالة
-            await _process_message_for_collection(client, message, session_id, 
-                                                 telegram_cutoff, whatsapp_cutoff)
+            await _process_message(client, message, session_id)
             
-            # تأخير لمنع Flood
-            await asyncio.sleep(0.1)
-            
+            await asyncio.sleep(0.05)
+    
     except Exception as e:
-        logger.error(f"خطأ في قراءة الرسائل: {e}")
+        logger.error(f"Error processing messages in dialog {dialog.name}: {e}")
 
-async def _listen_for_messages(client: TelegramClient, session_id: int):
-    """الاستماع للرسائل الجديدة"""
-    @client.on(events.NewMessage)
-    async def handler(event):
-        if not _collection_status["running"]:
-            return
-        
-        await _pause_event.wait()
-        
-        await _process_message_for_collection(
-            client, event.message, session_id,
-            datetime.now() - timedelta(days=MAX_HISTORY_DAYS),
-            datetime.now() - timedelta(days=MAX_WHATSAPP_DAYS)
-        )
-    
-    logger.info(f"👂 يستمع للجديد في الجلسة {session_id}")
-    
-    # البقاء نشطاً حتى التوقف
-    await _stop_event.wait()
-
-async def _process_message_for_collection(client: TelegramClient, message: Message, 
-                                         session_id: int, telegram_cutoff, whatsapp_cutoff):
-    """معالجة رسالة للجمع"""
+async def _process_message(client: TelegramClient, message: Message, session_id: int):
     try:
-        if not message or not message.text:
+        if not message:
             return
         
-        # استخراج الروابط
         raw_links = extract_links_from_message(message)
         
         if not raw_links:
             return
         
-        # معالجة كل رابط
         for link in raw_links:
-            # تنظيف الرابط
-            cleaned_link = clean_link(link)
-            if not cleaned_link:
+            cleaned = clean_link(link)
+            if not cleaned:
                 continue
             
-            # التحقق إذا كان مسموحاً به
-            if not is_allowed_link(cleaned_link):
-                continue
+            platform = classify_platform(cleaned)
             
-            # تصنيف المنصة
-            platform = classify_platform(cleaned_link)
-            
-            # التحقق من تاريخ القطع
-            message_date = message.date
-            if platform == "telegram" and message_date < telegram_cutoff:
-                continue
-            elif platform == "whatsapp" and message_date < whatsapp_cutoff:
-                continue
-            
-            # تحديد النوع
-            link_type = "unknown"
             if platform == "telegram":
-                if "t.me/joinchat/" in cleaned_link:
-                    link_type = "private_group"
-                elif "t.me/+" in cleaned_link:
-                    link_type = "public_group"
-                elif "t.me/" in cleaned_link and "/" in cleaned_link.split("t.me/")[1]:
-                    # تحقق إذا كان رابط رسالة
-                    if cleaned_link.count("/") >= 2:
-                        link_type = "message"
-                    else:
-                        link_type = "channel"
-                elif "bot" in cleaned_link.lower():
-                    link_type = "bot"
+                link_type = classify_telegram_link(cleaned)
+                
+                async with _collection_lock:
+                    _collection_status["stats"]["telegram_collected"] += 1
+                    _collection_status["stats"]["total_collected"] += 1
+                
+                save_link(
+                    url=cleaned,
+                    platform=platform,
+                    link_type=link_type,
+                    source_account=f"session_{session_id}",
+                    chat_id=str(message.chat_id) if message.chat_id else None,
+                    message_date=message.date
+                )
+                
+                logger.debug(f"📨 Telegram link saved: {cleaned}")
             
             elif platform == "whatsapp":
-                if "chat.whatsapp.com" in cleaned_link:
-                    link_type = "group"
-                elif "wa.me" in cleaned_link:
-                    link_type = "phone"
+                # تحقق من تاريخ رسالة الواتساب (آخر 6 أشهر)
+                if message.date:
+                    six_months_ago = datetime.now().timestamp() - (6 * 30 * 24 * 60 * 60)
+                    message_timestamp = message.date.timestamp()
+                    
+                    if message_timestamp >= six_months_ago:
+                        async with _collection_lock:
+                            _collection_status["stats"]["whatsapp_collected"] += 1
+                            _collection_status["stats"]["total_collected"] += 1
+                        
+                        save_link(
+                            url=cleaned,
+                            platform=platform,
+                            link_type="group" if "chat.whatsapp.com" in cleaned else "phone",
+                            source_account=f"session_{session_id}",
+                            chat_id=str(message.chat_id) if message.chat_id else None,
+                            message_date=message.date
+                        )
+                        
+                        logger.debug(f"📞 WhatsApp link saved: {cleaned}")
             
-            # حفظ الرابط
-            save_link(
-                url=cleaned_link,
-                platform=platform,
-                link_type=link_type,
-                source_account=f"session_{session_id}",
-                chat_id=str(message.chat_id) if message.chat_id else None,
-                message_date=message.date,
-                is_verified=False,
-                verification_result=None,
-                metadata={}
-            )
-            
-            # تحديث الإحصائيات
-            if platform == "telegram":
-                _collection_status["stats"]["telegram_collected"] += 1
-            elif platform == "whatsapp":
-                _collection_status["stats"]["whatsapp_collected"] += 1
-            
-            _collection_status["stats"]["total_collected"] += 1
-            
-            logger.debug(f"جمع رابط: {cleaned_link}")
-            
+            if _collection_status["stats"]["total_collected"] % 100 == 0:
+                logger.info(f"📊 Progress: {_collection_status['stats']['total_collected']} links collected")
+    
     except Exception as e:
-        logger.error(f"خطأ في معالجة الرسالة: {e}")
-
-# ======================
-# Test Function
-# ======================
+        logger.error(f"Error processing message: {e}")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     
     async def test():
-        print("اختبار المجمع...")
-        result = await start_collection()
-        print(f"النتيجة: {result}")
-        await asyncio.sleep(5)
-        await stop_collection()
+        print("Testing collector...")
+        print(f"Is collecting: {is_collecting()}")
     
     asyncio.run(test())
