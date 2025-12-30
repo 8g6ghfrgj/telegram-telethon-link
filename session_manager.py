@@ -3,10 +3,6 @@ import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
-from telethon import TelegramClient
-from telethon.sessions import StringSession
-
-from config import API_ID, API_HASH, DATABASE_PATH, SESSIONS_DIR
 from database import get_connection
 
 # ======================
@@ -31,10 +27,10 @@ async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
     if not session_string.startswith("1"):
         return False, {"error": "تنسيق Session String غير صحيح"}
     
-    # قبول الجلسة بدون اتصال بالخادم
+    # قبول الجلسة
     return True, {
         "user_id": 0,
-        "first_name": "Unknown User",
+        "first_name": "User",
         "username": "",
         "phone": "",
         "is_bot": False,
@@ -46,89 +42,74 @@ async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
 # Session Database Operations
 # ======================
 
-def add_session_to_db(session_string: str, account_info: Dict) -> bool:
+def add_session_to_db(session_string: str, account_info: Dict = None) -> bool:
     """
     إضافة جلسة جديدة إلى قاعدة البيانات
-    بدون تحقق مسبق
+    """
+    try:
+        from database import add_session
+        
+        # تنظيف Session String
+        cleaned_session = session_string.strip()
+        
+        # استخدام دالة add_session من database.py
+        phone_number = account_info.get("phone", "") if account_info else ""
+        success = add_session(cleaned_session, phone_number)
+        
+        if success:
+            logger.info(f"✅ Session added successfully: {cleaned_session[:30]}...")
+        else:
+            logger.info(f"ℹ️ Session already exists or error: {cleaned_session[:30]}...")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"❌ Error in add_session_to_db: {e}")
+        return False
+
+
+def get_all_sessions(active_only: bool = True) -> List[Dict]:
+    """
+    الحصول على جميع الجلسات
+    """
+    try:
+        from database import get_sessions
+        return get_sessions(active_only)
+        
+    except Exception as e:
+        logger.error(f"Error getting sessions: {e}")
+        return []
+
+
+def get_active_sessions() -> List[Dict]:
+    """
+    الحصول على الجلسات النشطة فقط
+    """
+    return get_all_sessions(active_only=True)
+
+
+def delete_session(session_id: int) -> bool:
+    """
+    حذف جلسة من قاعدة البيانات
     """
     try:
         conn = get_connection()
         cur = conn.cursor()
         
-        phone_number = account_info.get("phone", "") or ""
-        user_id = account_info.get("user_id", 0) or 0
-        username = account_info.get("username", "") or ""
-        first_name = account_info.get("first_name", "") or "Unknown"
+        cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         
-        # إنشاء اسم عرضي للحساب
-        if username:
-            display_name = f"@{username}"
-        elif first_name != "Unknown":
-            display_name = first_name
-        else:
-            display_name = f"User_{user_id if user_id else 'New'}"
-        
-        # تنظيف Session String
-        cleaned_session = session_string.strip()
-        
-        # محاولة إدراج الجلسة
-        try:
-            cur.execute(
-                """
-                INSERT INTO sessions 
-                (session_string, phone_number, user_id, username, display_name, added_date, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    cleaned_session,
-                    phone_number,
-                    user_id,
-                    username,
-                    display_name,
-                    datetime.now().isoformat(),
-                    1
-                )
-            )
-            conn.commit()
-            success = True
-            logger.info(f"✅ Session added: {display_name}")
-            
-        except sqlite3.IntegrityError:
-            # الجلسة موجودة مسبقاً
-            conn.rollback()
-            
-            # محاولة تحديث الجلسة الموجودة
-            try:
-                cur.execute(
-                    """
-                    UPDATE sessions 
-                    SET phone_number = ?, user_id = ?, username = ?, 
-                        display_name = ?, last_used = ?, is_active = 1
-                    WHERE session_string = ?
-                    """,
-                    (
-                        phone_number,
-                        user_id,
-                        username,
-                        display_name,
-                        datetime.now().isoformat(),
-                        cleaned_session
-                    )
-                )
-                conn.commit()
-                success = cur.rowcount > 0
-                logger.info(f"🔄 Session updated: {display_name}")
-            except Exception as update_error:
-                logger.error(f"Update error: {update_error}")
-                success = False
-        
+        conn.commit()
+        success = cur.rowcount > 0
         conn.close()
+        
+        if success:
+            logger.info(f"Session {session_id} deleted")
+        
         return success
         
     except Exception as e:
-        logger.error(f"❌ Error adding session to DB: {e}")
+        logger.error(f"Error deleting session: {e}")
         return False
-
 
 def get_all_sessions(active_only: bool = True) -> List[Dict]:
     """
