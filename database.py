@@ -2,32 +2,17 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 import logging
 
 from config import DATABASE_PATH
 
-# ======================
-# Logging
-# ======================
-
 logger = logging.getLogger(__name__)
 
-# ======================
-# Connection
-# ======================
-
 def get_connection():
-    """الحصول على اتصال بقاعدة البيانات"""
     return sqlite3.connect(DATABASE_PATH, check_same_thread=False)
 
-
-# ======================
-# Init Database
-# ======================
-
 def init_db():
-    """إنشاء الجداول"""
     try:
         dir_name = os.path.dirname(DATABASE_PATH)
         if dir_name:
@@ -61,40 +46,23 @@ def init_db():
                 source_account TEXT,
                 chat_id TEXT,
                 message_date TEXT,
-                is_verified INTEGER DEFAULT 0,
-                verification_date TEXT,
-                verification_result TEXT,
-                metadata TEXT,
                 collected_date TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
-        # إنشاء الفهارس
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sessions_active 
-            ON sessions(is_active)
-        """)
-        
         conn.commit()
         conn.close()
-        logger.info("✅ Database initialized successfully")
+        logger.info("✅ Database initialized")
         
     except Exception as e:
         logger.error(f"❌ Error initializing database: {e}")
 
-
-# ======================
-# Session Management
-# ======================
-
 def add_session(session_string: str, phone: str = "", user_id: int = 0, 
                 username: str = "", display_name: str = "") -> bool:
-    """إضافة جلسة جديدة"""
     try:
         conn = get_connection()
         cur = conn.cursor()
         
-        # إذا لم يكن هناك اسم عرضي، أنشئ واحداً
         if not display_name:
             if username:
                 display_name = f"@{username}"
@@ -103,50 +71,34 @@ def add_session(session_string: str, phone: str = "", user_id: int = 0,
             else:
                 display_name = f"Session_{datetime.now().strftime('%H%M%S')}"
         
-        # استخدم INSERT OR REPLACE
         cur.execute("""
             INSERT OR REPLACE INTO sessions 
             (session_string, phone_number, user_id, username, display_name, added_date, is_active)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            session_string, 
-            phone, 
-            user_id, 
-            username, 
-            display_name,
-            datetime.now().isoformat(),
-            1  # نشط
-        ))
+        """, (session_string, phone, user_id, username, display_name,
+              datetime.now().isoformat(), 1))
         
         conn.commit()
         success = cur.rowcount > 0
+        conn.close()
         
         if success:
             logger.info(f"✅ Session added: {display_name}")
-        else:
-            logger.warning(f"⚠️ Session already exists: {display_name}")
         
-        conn.close()
         return success
         
     except Exception as e:
         logger.error(f"❌ Error adding session: {e}")
         return False
 
-
 def get_sessions(active_only: bool = True) -> List[Dict]:
-    """الحصول على الجلسات"""
     try:
         conn = get_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
         if active_only:
-            cur.execute("""
-                SELECT * FROM sessions 
-                WHERE is_active = 1 
-                ORDER BY added_date DESC
-            """)
+            cur.execute("SELECT * FROM sessions WHERE is_active = 1 ORDER BY added_date DESC")
         else:
             cur.execute("SELECT * FROM sessions ORDER BY added_date DESC")
         
@@ -173,9 +125,7 @@ def get_sessions(active_only: bool = True) -> List[Dict]:
         logger.error(f"❌ Error getting sessions: {e}")
         return []
 
-
 def get_session_by_id(session_id: int) -> Optional[Dict]:
-    """الحصول على جلسة بالـ ID"""
     try:
         conn = get_connection()
         conn.row_factory = sqlite3.Row
@@ -206,9 +156,7 @@ def get_session_by_id(session_id: int) -> Optional[Dict]:
         logger.error(f"❌ Error getting session by ID: {e}")
         return None
 
-
 def delete_session(session_id: int) -> bool:
-    """حذف جلسة"""
     try:
         conn = get_connection()
         cur = conn.cursor()
@@ -216,46 +164,30 @@ def delete_session(session_id: int) -> bool:
         cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
         success = cur.rowcount > 0
+        conn.close()
         
         if success:
             logger.info(f"✅ Session {session_id} deleted")
         
-        conn.close()
         return success
         
     except Exception as e:
         logger.error(f"❌ Error deleting session: {e}")
         return False
 
-
-# ======================
-# Link Management
-# ======================
-
 def save_link(url: str, platform: str, link_type: str = None, 
               source_account: str = None, chat_id: str = None,
-              message_date=None, is_verified: bool = False,
-              verification_result: str = None, metadata: Dict = None) -> bool:
-    """حفظ رابط"""
+              message_date=None) -> bool:
     try:
         conn = get_connection()
         cur = conn.cursor()
         
-        # تحويل metadata إلى JSON
-        metadata_json = json.dumps(metadata) if metadata else None
-        
         cur.execute("""
             INSERT OR IGNORE INTO links 
-            (url, platform, link_type, source_account, chat_id, 
-             message_date, is_verified, verification_result, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            url, platform, link_type, source_account, chat_id,
-            message_date.isoformat() if message_date else None,
-            1 if is_verified else 0,
-            verification_result,
-            metadata_json
-        ))
+            (url, platform, link_type, source_account, chat_id, message_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (url, platform, link_type, source_account, chat_id,
+              message_date.isoformat() if message_date else None))
         
         conn.commit()
         success = cur.rowcount > 0
@@ -270,10 +202,8 @@ def save_link(url: str, platform: str, link_type: str = None,
         logger.error(f"❌ Error saving link: {e}")
         return False
 
-
 def get_links_by_type(platform: str, link_type: str = None, 
                      limit: int = 100, offset: int = 0) -> List[Dict]:
-    """جلب الروابط حسب النوع"""
     try:
         conn = get_connection()
         conn.row_factory = sqlite3.Row
@@ -314,26 +244,17 @@ def get_links_by_type(platform: str, link_type: str = None,
         logger.error(f"❌ Error getting links: {e}")
         return []
 
-
 def get_link_stats() -> Dict:
-    """إحصائيات الروابط"""
     try:
         conn = get_connection()
         cur = conn.cursor()
         
         stats = {}
         
-        # حسب المنصة
         cur.execute("SELECT platform, COUNT(*) FROM links GROUP BY platform")
         stats['by_platform'] = dict(cur.fetchall())
         
-        # حسب نوع التليجرام
-        cur.execute("""
-            SELECT link_type, COUNT(*) 
-            FROM links 
-            WHERE platform = 'telegram' 
-            GROUP BY link_type
-        """)
+        cur.execute("SELECT link_type, COUNT(*) FROM links WHERE platform = 'telegram' GROUP BY link_type")
         stats['telegram_by_type'] = dict(cur.fetchall())
         
         conn.close()
@@ -343,13 +264,7 @@ def get_link_stats() -> Dict:
         logger.error(f"❌ Error getting stats: {e}")
         return {}
 
-
-# ======================
-# Export Functions
-# ======================
-
 def export_links_by_type(platform: str, link_type: str = None) -> Optional[str]:
-    """تصدير الروابط"""
     try:
         from config import EXPORT_DIR
         os.makedirs(EXPORT_DIR, exist_ok=True)
@@ -376,11 +291,6 @@ def export_links_by_type(platform: str, link_type: str = None) -> Optional[str]:
     except Exception as e:
         logger.error(f"❌ Error exporting links: {e}")
         return None
-
-
-# ======================
-# Initialize
-# ======================
 
 if __name__ == "__main__":
     init_db()
