@@ -2,6 +2,7 @@ import sqlite3
 import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+import os
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -16,50 +17,41 @@ from database import get_connection
 logger = logging.getLogger(__name__)
 
 # ======================
-# Session Validation (مبسطة للغاية)
+# Session Validation
 # ======================
 
 async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
     """
-    التحقق البسيط من Session String بدون أي تعقيد
+    التحقق البسيط من Session String
     """
     if not session_string or len(session_string) < 50:
         return False, {"error": "Session String قصير جداً"}
     
-    # التحقق من تنسيق Session String الأساسي
     try:
-        # محاولة إنشاء StringSession للتحقق فقط
-        session = StringSession(session_string)
+        # إنشاء العميل
+        client = TelegramClient(
+            StringSession(session_string),
+            API_ID,
+            API_HASH
+        )
         
-        # إنشاء عميل للتحقق
-        client = TelegramClient(session, API_ID, API_HASH)
-        
-        # الاتصال فقط بدون تحقق دقيق
+        # الاتصال
         await client.connect()
         
-        # محاولة بسيطة للحصول على معلومات الحساب
-        try:
-            me = await client.get_me()
-            
-            if me:
-                account_info = {
-                    "user_id": me.id,
-                    "first_name": me.first_name or "",
-                    "last_name": me.last_name or "",
-                    "username": me.username or "",
-                    "phone": me.phone or "",
-                    "is_bot": me.bot if hasattr(me, 'bot') else False,
-                }
-            else:
-                account_info = {
-                    "user_id": 0,
-                    "first_name": "Unknown",
-                    "username": "",
-                    "phone": ""
-                }
-            
-        except:
-            # حتى لو فشل، نعود بمعلومات افتراضية
+        # الحصول على معلومات الحساب
+        me = await client.get_me()
+        
+        if me:
+            account_info = {
+                "user_id": me.id,
+                "first_name": me.first_name or "",
+                "last_name": me.last_name or "",
+                "username": me.username or "",
+                "phone": me.phone or "",
+                "is_bot": me.bot,
+                "premium": me.premium if hasattr(me, 'premium') else False
+            }
+        else:
             account_info = {
                 "user_id": 0,
                 "first_name": "Unknown",
@@ -68,18 +60,17 @@ async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
             }
         
         await client.disconnect()
-        
-        # نعتبر الجلسة صالحة إذا وصلنا لهذه المرحلة
         return True, account_info
         
     except Exception as e:
-        logger.error(f"Session validation error: {str(e)[:100]}")
-        # نحاول إضافة الجلسة حتى مع وجود أخطاء طفيفة
+        logger.error(f"Error validating session: {e}")
+        # نرجع معلومات افتراضية حتى مع الخطأ
         return True, {
             "user_id": 0,
             "first_name": "Unknown",
             "username": "",
-            "phone": ""
+            "phone": "",
+            "error": str(e)
         }
 
 
@@ -89,7 +80,7 @@ async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
 
 def add_session_to_db(session_string: str, account_info: Dict) -> bool:
     """
-    إضافة جلسة جديدة إلى قاعدة البيانات بدون أي رفض
+    إضافة جلسة جديدة إلى قاعدة البيانات
     """
     try:
         conn = get_connection()
@@ -101,7 +92,7 @@ def add_session_to_db(session_string: str, account_info: Dict) -> bool:
         first_name = account_info.get("first_name", "")
         
         # إنشاء اسم عرضي للحساب
-        if first_name:
+        if first_name and first_name != "Unknown":
             display_name = first_name
         elif username:
             display_name = f"@{username}"
@@ -110,10 +101,10 @@ def add_session_to_db(session_string: str, account_info: Dict) -> bool:
         else:
             display_name = f"Session_{datetime.now().strftime('%H%M%S')}"
         
-        # استخدام INSERT OR REPLACE بدلاً من INSERT OR IGNORE
+        # إضافة الجلسة
         cur.execute(
             """
-            INSERT OR REPLACE INTO sessions 
+            INSERT INTO sessions 
             (session_string, phone_number, user_id, username, display_name, added_date, is_active)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -132,17 +123,20 @@ def add_session_to_db(session_string: str, account_info: Dict) -> bool:
         success = cur.rowcount > 0
         
         if success:
-            logger.info(f"✅ Session added/updated: {display_name}")
+            logger.info(f"✅ Session added successfully: {display_name}")
         else:
             logger.warning(f"⚠️ No rows affected when adding session")
         
         conn.close()
-        return True  # دائماً نرجع True لإضافة الجلسة
+        return success
         
+    except sqlite3.IntegrityError:
+        logger.warning(f"Session already exists in database")
+        # الجلسة موجودة مسبقاً، نرجع True للإشارة للنجاح
+        return True
     except Exception as e:
         logger.error(f"❌ Error adding session to DB: {e}")
-        # حتى لو حدث خطأ، نرجع True للسماح بإضافة الجلسة
-        return True
+        return False
 
 
 def get_all_sessions(active_only: bool = True) -> List[Dict]:
@@ -175,8 +169,14 @@ def get_all_sessions(active_only: bool = True) -> List[Dict]:
         
         sessions = []
         for row in rows:
-            sessions.append(dict(row))
+            session_dict = dict(row)
+            # تحويل القيم None إلى strings فارغة للعرض
+            for key in session_dict:
+                if session_dict[key] is None:
+                    session_dict[key] = ""
+            sessions.append(session_dict)
         
+        logger.info(f"Retrieved {len(sessions)} sessions from database")
         return sessions
         
     except Exception as e:
@@ -210,7 +210,15 @@ def get_session_by_id(session_id: int) -> Optional[Dict]:
         row = cur.fetchone()
         conn.close()
         
-        return dict(row) if row else None
+        if row:
+            session_dict = dict(row)
+            # تحويل القيم None
+            for key in session_dict:
+                if session_dict[key] is None:
+                    session_dict[key] = ""
+            return session_dict
+        
+        return None
         
     except Exception as e:
         logger.error(f"Error getting session by ID: {e}")
@@ -257,14 +265,17 @@ def delete_session(session_id: int) -> bool:
         conn = get_connection()
         cur = conn.cursor()
         
+        # الحصول على معلومات الجلسة قبل الحذف
+        session_info = get_session_by_id(session_id)
+        
         cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         
         conn.commit()
         success = cur.rowcount > 0
         conn.close()
         
-        if success:
-            logger.info(f"Session {session_id} deleted")
+        if success and session_info:
+            logger.info(f"Session deleted: {session_info.get('display_name')} (ID: {session_id})")
         
         return success
         
@@ -303,7 +314,7 @@ def update_session_last_used(session_id: int):
 
 async def test_all_sessions() -> Dict:
     """
-    اختبار جميع الجلسات
+    اختبار جميع الجلسات للتأكد من صلاحيتها
     """
     sessions = get_all_sessions(active_only=True)
     
@@ -319,42 +330,29 @@ async def test_all_sessions() -> Dict:
         session_string = session.get("session_string")
         
         try:
-            # اختبار بسيط للاتصال
-            client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-            await client.connect()
+            is_valid, account_info = await validate_session(session_string)
             
-            try:
-                me = await client.get_me()
-                if me:
-                    results["valid"] += 1
-                    results["details"].append({
-                        "session_id": session_id,
-                        "status": "valid",
-                        "account": f"{me.first_name or ''} {me.last_name or ''}".strip()
-                    })
-                else:
-                    results["valid"] += 1  # نعتبرها صالحة
-                    results["details"].append({
-                        "session_id": session_id,
-                        "status": "valid",
-                        "account": "Unknown"
-                    })
-            except:
-                results["valid"] += 1  # نعتبرها صالحة حتى مع الأخطاء
+            if is_valid:
+                results["valid"] += 1
                 results["details"].append({
                     "session_id": session_id,
                     "status": "valid",
-                    "account": "Unknown"
+                    "account": account_info.get("first_name", "Unknown")
                 })
-            
-            await client.disconnect()
-            
+            else:
+                results["invalid"] += 1
+                results["details"].append({
+                    "session_id": session_id,
+                    "status": "invalid",
+                    "error": account_info.get("error", "Unknown error")
+                })
+                
         except Exception as e:
             results["valid"] += 1  # نعتبرها صالحة
             results["details"].append({
                 "session_id": session_id,
                 "status": "valid",
-                "account": f"Error: {str(e)[:50]}"
+                "account": f"Unknown (Error: {str(e)[:50]})"
             })
     
     return results
@@ -412,6 +410,40 @@ def export_sessions_to_file(filepath: str = None) -> Optional[str]:
 
 
 # ======================
+# Initialize Database
+# ======================
+
+def init_sessions_table():
+    """
+    تهيئة جدول الجلسات إذا لم يكن موجوداً
+    """
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_string TEXT NOT NULL UNIQUE,
+                phone_number TEXT,
+                user_id INTEGER,
+                username TEXT,
+                display_name TEXT,
+                added_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1,
+                last_used TEXT
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+        logger.info("✅ Sessions table initialized")
+        
+    except Exception as e:
+        logger.error(f"Error initializing sessions table: {e}")
+
+
+# ======================
 # Quick Test Function
 # ======================
 
@@ -421,6 +453,9 @@ async def test_session_manager():
     """
     print("🧪 Testing Session Manager...")
     
+    # تهيئة الجدول
+    init_sessions_table()
+    
     # اختبار الحصول على الجلسات
     sessions = get_all_sessions()
     print(f"📋 Total sessions in DB: {len(sessions)}")
@@ -428,7 +463,6 @@ async def test_session_manager():
     for session in sessions:
         print(f"  - ID: {session.get('id')}, Name: {session.get('display_name')}")
     
-    # اختبار التحقق من الجلسات
     if sessions:
         print("\n🔍 Testing session validation...")
         test_results = await test_all_sessions()
@@ -438,8 +472,11 @@ async def test_session_manager():
 
 
 # ======================
-# Initialize
+# Initialize on import
 # ======================
+
+# تهيئة الجدول عند استيراد الموديول
+init_sessions_table()
 
 if __name__ == "__main__":
     import asyncio
