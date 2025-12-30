@@ -18,6 +18,16 @@ from telegram.ext import (
     filters,
 )
 
+from collector import (
+    start_collection,
+    stop_collection,
+    pause_collection,
+    resume_collection,
+    is_collecting,
+    is_paused,
+    get_collection_stats
+)
+
 from config import BOT_TOKEN, LINKS_PER_PAGE, EXPORT_DIR
 from session_manager import (
     add_session_to_db,
@@ -678,14 +688,60 @@ async def test_sessions_handler(query):
 # ======================
 
 async def start_collection_handler(query):
-    """بدء الجمع"""
-    await query.message.edit_text(
-        "🚀 *بدأ جمع الروابط*\n\n"
-        "⏳ جاري جمع الروابط من جميع الجلسات...\n"
-        "سيتم إعلامك بالتقدم.",
-        parse_mode="Markdown"
-    )
+    """بدء الجمع الفعلي"""
+    if is_collecting():
+        await query.message.edit_text("⏳ الجمع يعمل بالفعل")
+        return
+    
+    # بدء الجمع فعلياً
+    success = await start_collection()
+    
+    if success:
+        await query.message.edit_text(
+            "🚀 *بدأ جمع الروابط فعلياً*\n\n"
+            "✅ البوت الآن يجمع الروابط من:\n"
+            "• جميع القنوات\n"
+            "• جميع المجموعات\n"
+            "• جميع المحادثات\n\n"
+            "⏳ جاري جمع التاريخ الكامل...\n"
+            "يمكنك متابعة التقدم من /stats",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.message.edit_text("❌ فشل بدء الجمع")
 
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض حالة الجمع الفعلية"""
+    stats = get_collection_stats()
+    
+    status_text = "📊 *حالة الجمع*\n\n"
+    
+    if stats["running"]:
+        if stats["paused"]:
+            status_text += "• الحالة: ⏸️ موقف مؤقت\n"
+        else:
+            status_text += "• الحالة: 🟢 جاري الجمع\n"
+        
+        status_text += f"• جلسات نشطة: {stats['active_sessions']}\n"
+        status_text += f"• روابط تيليجرام: {stats['stats']['telegram_collected']}\n"
+        status_text += f"• روابط واتساب: {stats['stats']['whatsapp_collected']}\n"
+        status_text += f"• الإجمالي: {stats['stats']['total_collected']}\n"
+    else:
+        status_text += "• الحالة: 🔴 متوقف\n"
+    
+    # إحصائيات قاعدة البيانات
+    db_stats = get_link_stats()
+    if db_stats:
+        total_links = sum(db_stats.get('by_platform', {}).values())
+        status_text += f"\n📦 *قاعدة البيانات:*\n"
+        status_text += f"• إجمالي الروابط: {total_links}\n"
+    
+    await update.message.reply_text(
+        status_text,
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard()
+    )
 
 async def pause_collection_handler(query):
     """إيقاف الجمع مؤقتاً"""
