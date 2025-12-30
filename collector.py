@@ -8,20 +8,7 @@ from telethon.sessions import StringSession
 from telethon.tl.types import Message, Channel, Chat, User
 from telethon.errors import FloodWaitError
 
-# بدلاً من هذا:
-from config import API_ID, API_HASH
-
-# استخدم هذا:
-# قيم وهمية
-DUMMY_API_ID = 1
-DUMMY_API_HASH = "1"
-
-# ثم في run_client:
-client = TelegramClient(
-    StringSession(session_string),
-    DUMMY_API_ID,      # قيمة وهمية
-    DUMMY_API_HASH     # قيمة وهمية
-)
+from config import API_ID, API_HASH, COLLECT_TELEGRAM, COLLECT_WHATSAPP
 from database import (
     save_link, start_collection_session, update_collection_stats,
     get_sessions
@@ -334,6 +321,8 @@ async def _process_dialog(client: TelegramClient, dialog, session_id: int):
 # ======================
 # Live Listening
 # ======================
+
+from telethon import events
 
 async def _listen_for_new_messages(client: TelegramClient, session_id: int):
     """الاستماع للرسائل الجديدة"""
