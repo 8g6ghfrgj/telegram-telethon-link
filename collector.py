@@ -8,7 +8,20 @@ from telethon.sessions import StringSession
 from telethon.tl.types import Message, Channel, Chat, User
 from telethon.errors import FloodWaitError
 
-from config import API_ID, API_HASH, COLLECT_TELEGRAM, COLLECT_WHATSAPP
+# بدلاً من هذا:
+from config import API_ID, API_HASH
+
+# استخدم هذا:
+# قيم وهمية
+DUMMY_API_ID = 1
+DUMMY_API_HASH = "1"
+
+# ثم في run_client:
+client = TelegramClient(
+    StringSession(session_string),
+    DUMMY_API_ID,      # قيمة وهمية
+    DUMMY_API_HASH     # قيمة وهمية
+)
 from database import (
     save_link, start_collection_session, update_collection_stats,
     get_sessions
