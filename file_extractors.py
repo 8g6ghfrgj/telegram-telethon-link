@@ -7,7 +7,7 @@ import asyncio
 from telethon import TelegramClient
 from telethon.tl.types import Message
 
-from link_utils import URL_REGEX, clean_link, is_allowed_link
+from link_utils import URL_REGEX
 
 # ======================
 # Logging
@@ -24,7 +24,6 @@ SUPPORTED_EXTENSIONS = {
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.txt': 'text/plain',
     '.rtf': 'application/rtf',
-    '.odt': 'application/vnd.oasis.opendocument.text',
 }
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -39,7 +38,7 @@ async def extract_links_from_file(
 ) -> List[str]:
     """
     استخراج الروابط من ملفات متنوعة
-    يدعم: PDF, DOCX, TXT, RTF, ODT
+    يدعم: PDF, DOCX, TXT, RTF
     """
     if not message.file:
         return []
@@ -77,17 +76,13 @@ async def extract_links_from_file(
                 file_links = await _extract_from_txt_async(path)
             elif file_ext == '.rtf' or mime_type == 'application/rtf':
                 file_links = await _extract_from_rtf_async(path)
-            elif file_ext == '.odt' or 'opendocument.text' in mime_type:
-                file_links = await _extract_from_odt_async(path)
             else:
                 # محاولة استخراج كملف نصي عام
                 file_links = await _extract_generic_text_async(path)
             
-            # تنظيف وفلترة الروابط
+            # إضافة الروابط المستخرجة
             for link in file_links:
-                cleaned = clean_link(link)
-                if cleaned and is_allowed_link(cleaned):
-                    links.add(cleaned)
+                links.add(link)
             
             logger.info(f"Extracted {len(links)} links from file: {filename}")
             
@@ -96,7 +91,6 @@ async def extract_links_from_file(
     
     return list(links)
 
-
 # ======================
 # PDF Extraction
 # ======================
@@ -104,14 +98,12 @@ async def extract_links_from_file(
 async def _extract_from_pdf_async(path: str) -> List[str]:
     """استخراج النص من PDF بشكل غير متزامن"""
     try:
-        # تشغيل في thread منفصل لتجنب حظر event loop
         return await asyncio.get_event_loop().run_in_executor(
             None, _extract_from_pdf_sync, path
         )
     except Exception as e:
         logger.error(f"PDF extraction error: {e}")
         return []
-
 
 def _extract_from_pdf_sync(path: str) -> List[str]:
     """استخراج النص من PDF (متزامن)"""
@@ -154,7 +146,6 @@ def _extract_from_pdf_sync(path: str) -> List[str]:
     
     return list(links)
 
-
 # ======================
 # DOCX Extraction
 # ======================
@@ -168,7 +159,6 @@ async def _extract_from_docx_async(path: str) -> List[str]:
     except Exception as e:
         logger.error(f"DOCX extraction error: {e}")
         return []
-
 
 def _extract_from_docx_sync(path: str) -> List[str]:
     """استخراج النص من DOCX (متزامن)"""
@@ -190,20 +180,6 @@ def _extract_from_docx_sync(path: str) -> List[str]:
                 for cell in row.cells:
                     if cell.text:
                         links.update(URL_REGEX.findall(cell.text))
-        
-        # العناوين
-        for section in doc.sections:
-            header = section.header
-            if header:
-                for para in header.paragraphs:
-                    if para.text:
-                        links.update(URL_REGEX.findall(para.text))
-            
-            footer = section.footer
-            if footer:
-                for para in footer.paragraphs:
-                    if para.text:
-                        links.update(URL_REGEX.findall(para.text))
     
     except ImportError:
         logger.warning("python-docx not installed")
@@ -211,7 +187,6 @@ def _extract_from_docx_sync(path: str) -> List[str]:
         logger.error(f"DOCX extraction failed: {e}")
     
     return list(links)
-
 
 # ======================
 # Text File Extraction
@@ -226,7 +201,6 @@ async def _extract_from_txt_async(path: str) -> List[str]:
     except Exception as e:
         logger.error(f"TXT extraction error: {e}")
         return []
-
 
 def _extract_from_txt_sync(path: str) -> List[str]:
     """استخراج النص من ملف نصي (متزامن)"""
@@ -252,7 +226,6 @@ def _extract_from_txt_sync(path: str) -> List[str]:
     
     return list(links)
 
-
 # ======================
 # RTF Extraction
 # ======================
@@ -266,7 +239,6 @@ async def _extract_from_rtf_async(path: str) -> List[str]:
     except Exception as e:
         logger.error(f"RTF extraction error: {e}")
         return []
-
 
 def _extract_from_rtf_sync(path: str) -> List[str]:
     """استخراج النص من RTF (متزامن)"""
@@ -288,9 +260,9 @@ def _extract_from_rtf_sync(path: str) -> List[str]:
             # استخراج بسيط باستخدام regex
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-                # البحث عن نص بين أقواس في RTF
+                # البحث عن نصوص في RTF
                 import re
-                text_matches = re.findall(r'\\\'(..)|(\\u\d+)|([a-zA-Z0-9\s,.!?]+)', content)
+                text_matches = re.findall(r'\\\'(..)|([a-zA-Z0-9\s,.!?]+)', content)
                 extracted_text = ' '.join([''.join(match) for match in text_matches])
                 links.update(URL_REGEX.findall(extracted_text))
     
@@ -298,58 +270,6 @@ def _extract_from_rtf_sync(path: str) -> List[str]:
         logger.error(f"RTF extraction failed: {e}")
     
     return list(links)
-
-
-# ======================
-# ODT Extraction
-# ======================
-
-async def _extract_from_odt_async(path: str) -> List[str]:
-    """استخراج النص من ODT"""
-    try:
-        return await asyncio.get_event_loop().run_in_executor(
-            None, _extract_from_odt_sync, path
-        )
-    except Exception as e:
-        logger.error(f"ODT extraction error: {e}")
-        return []
-
-
-def _extract_from_odt_sync(path: str) -> List[str]:
-    """استخراج النص من ODT (متزامن)"""
-    links: Set[str] = set()
-    
-    try:
-        # ODT هو ملف ZIP يحتوي على XML
-        import zipfile
-        from xml.etree import ElementTree as ET
-        
-        with zipfile.ZipFile(path, 'r') as odt_file:
-            # قراءة محتوى المستند
-            content_xml = odt_file.read('content.xml')
-            
-            # تحليل XML
-            namespaces = {
-                'text': 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
-                'office': 'urn:oasis:names:tc:opendocument:xmlns:office:1.0'
-            }
-            
-            root = ET.fromstring(content_xml)
-            
-            # استخراج النص من جميع عناصر النص
-            for elem in root.findall('.//text:p', namespaces):
-                if elem.text:
-                    links.update(URL_REGEX.findall(elem.text))
-            
-            for elem in root.findall('.//text:span', namespaces):
-                if elem.text:
-                    links.update(URL_REGEX.findall(elem.text))
-    
-    except Exception as e:
-        logger.error(f"ODT extraction failed: {e}")
-    
-    return list(links)
-
 
 # ======================
 # Generic Text Extraction
@@ -364,7 +284,6 @@ async def _extract_generic_text_async(path: str) -> List[str]:
     except Exception as e:
         logger.error(f"Generic text extraction error: {e}")
         return []
-
 
 def _extract_generic_text_sync(path: str) -> List[str]:
     """استخراج نص عام (متزامن)"""
@@ -382,7 +301,6 @@ def _extract_generic_text_sync(path: str) -> List[str]:
             except:
                 # البحث مباشرة عن أنماط URLs في البيانات الثنائية
                 import re
-                # نمط للعثور على URLs في البيانات الثنائية
                 url_pattern = rb'https?://[^\x00-\x1F\x7F-\xFF<>"\s]+'
                 binary_matches = re.findall(url_pattern, content)
                 
@@ -397,7 +315,6 @@ def _extract_generic_text_sync(path: str) -> List[str]:
         logger.error(f"Generic text extraction failed: {e}")
     
     return list(links)
-
 
 # ======================
 # Helper Functions
@@ -415,7 +332,6 @@ def is_file_supported(filename: str, mime_type: str = "") -> bool:
     
     return False
 
-
 # ======================
 # Quick Test
 # ======================
@@ -431,8 +347,8 @@ if __name__ == "__main__":
     
     libraries = {
         'PyPDF2': 'PyPDF2',
-        'pdfplumber': 'pdfplumber',
         'python-docx': 'docx',
+        'pdfplumber': 'pdfplumber',
         'striprtf': 'striprtf'
     }
     
