@@ -752,6 +752,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================
 
 def main():
+    def main():
+    """الدالة الرئيسية لتشغيل البوت"""
+    # التحقق من عدم وجود نسخة أخرى تعمل
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("localhost", 9999))  # منفذ محجوز للبوت
+        sock.close()
+    except socket.error:
+        print("❌ البوت يعمل بالفعل في نسخة أخرى!")
+        print("⚠️  انتظر 30 ثانية ثم أعد التشغيل...")
+        time.sleep(30)
+        sys.exit(1)
+    
+    # تهيئة قاعدة البيانات
+    init_database()
+    
+    # باقي الكود...
     """الدالة الرئيسية لتشغيل البوت"""
     # تهيئة قاعدة البيانات
     init_database()
