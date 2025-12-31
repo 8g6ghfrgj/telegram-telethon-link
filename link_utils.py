@@ -1,215 +1,264 @@
 import re
-import asyncio
-import aiohttp
-from urllib.parse import urlparse
-from typing import List, Dict, Tuple, Optional
+from urllib.parse import urlparse, quote
+from typing import List, Tuple, Optional
+import config
 
-# ==================================================
-# Regex
-# ==================================================
-
-URL_REGEX = re.compile(
-    r"(https?://[^\s<>\"]+)",
-    re.IGNORECASE
-)
-
-# ==================================================
-# Domains
-# ==================================================
-
-TELEGRAM_DOMAINS = ("t.me", "telegram.me")
-WHATSAPP_DOMAIN = "chat.whatsapp.com"
-
-# ==================================================
-# Telegram patterns (المسموح فقط)
-# ==================================================
-
-TG_CHANNEL_OR_GROUP = re.compile(
-    r"^https?://t\.me/[A-Za-z0-9_]+$",
-    re.IGNORECASE
-)
-
-TG_PRIVATE_GROUP = re.compile(
-    r"^https?://t\.me/\+[A-Za-z0-9_-]+$",
-    re.IGNORECASE
-)
-
-# ❌ مرفوض
-TG_MESSAGE = re.compile(r"/\d+$")
-TG_BOT = re.compile(r"bot(\?|$)", re.IGNORECASE)
-
-# ==================================================
-# Cleaning
-# ==================================================
-
-def clean_link(url: str) -> str:
-    if not url:
-        return ""
-
-    url = url.strip()
-    url = url.replace("*", "")
-    url = url.replace(" ", "")
-    url = url.replace("\n", "")
-
-    # إزالة الزوائد
-    url = re.sub(r"[^\w:/\.\-\+\?=&]", "", url)
-
-    # توحيد t.me
-    if url.startswith("http://"):
-        url = url.replace("http://", "https://", 1)
-
-    if "telegram.me" in url:
-        url = url.replace("telegram.me", "t.me")
-
-    return url.rstrip("/")
-
-
-# ==================================================
-# Platform
-# ==================================================
-
-def classify_platform(url: str) -> Optional[str]:
-    u = url.lower()
-
-    if any(d in u for d in TELEGRAM_DOMAINS):
-        return "telegram"
-
-    if WHATSAPP_DOMAIN in u:
-        return "whatsapp"
-
-    return None
-
-
-# ==================================================
-# Allow rules
-# ==================================================
-
-def is_allowed_link(url: str) -> bool:
-    if not url or len(url) < 10:
-        return False
-
-    platform = classify_platform(url)
-    if not platform:
-        return False
-
-    # WhatsApp
-    if platform == "whatsapp":
-        return WHATSAPP_DOMAIN in url.lower()
-
-    # Telegram
-    if platform == "telegram":
-        u = url.lower()
-
-        # ❌ منع البوتات
-        if TG_BOT.search(u):
+class LinkProcessor:
+    @staticmethod
+    def clean_link(link: str) -> str:
+        """
+        تنظيف الرابط من المسافات والرموز غير المرغوبة
+        
+        Args:
+            link: الرابط الخام
+            
+        Returns:
+            str: الرابط النظيف
+        """
+        if not link:
+            return ""
+        
+        # إزالة المسافات من البداية والنهاية
+        link = link.strip()
+        
+        # إزالة الرموز الخاصة غير المرغوبة
+        link = re.sub(r'[<>()\[\]{}"\'*]', '', link)
+        
+        # إزالة المسافات الداخلية المتعددة
+        link = re.sub(r'\s+', '', link)
+        
+        # إزالة البادئات الشائعة
+        prefixes = [
+            'joinchat/', '+', 'https://', 'http://', 
+            'www.', 't.me/', 'telegram.me/', '@'
+        ]
+        
+        for prefix in prefixes:
+            if link.startswith(prefix):
+                link = link[len(prefix):]
+        
+        # التحقق وإضافة البروتوكول إذا لزم
+        if not link.startswith(('http://', 'https://')):
+            if any(domain in link for domain in config.WHATSAPP_DOMAINS + config.TELEGRAM_DOMAINS):
+                link = f"https://{link}"
+        
+        return link
+    
+    @staticmethod
+    def extract_links(text: str) -> List[str]:
+        """
+        استخراج جميع الروابط من النص
+        
+        Args:
+            text: النص الخام
+            
+        Returns:
+            list: قائمة الروابط المستخرجة
+        """
+        if not text:
+            return []
+        
+        # نمط للعثور على الروابط
+        url_pattern = r'(https?://[^\s<>"\'()]+|t\.me/[^\s<>"\'()]+|telegram\.me/[^\s<>"\'()]+|chat\.whatsapp\.com/[^\s<>"\'()]+|wa\.me/[^\s<>"\'()]+)'
+        
+        matches = re.findall(url_pattern, text)
+        
+        # تنظيف الروابط
+        cleaned_links = []
+        for match in matches:
+            cleaned = LinkProcessor.clean_link(match)
+            if cleaned:
+                cleaned_links.append(cleaned)
+        
+        return list(set(cleaned_links))  # إزالة التكرارات
+    
+    @staticmethod
+    def categorize_link(link: str) -> Tuple[str, str]:
+        """
+        تصنيف الرابط حسب المنصة والنوع
+        
+        Args:
+            link: الرابط
+            
+        Returns:
+            tuple: (platform, link_type)
+        """
+        link_lower = link.lower()
+        
+        # فحص روابط الواتساب أولاً
+        for domain in config.WHATSAPP_DOMAINS:
+            if domain in link_lower:
+                if 'chat.whatsapp.com' in link_lower:
+                    return 'whatsapp', 'group'
+                elif 'wa.me' in link_lower:
+                    return 'whatsapp', 'phone'
+                else:
+                    return 'whatsapp', 'group'
+        
+        # فحص روابط التليجرام
+        for domain in config.TELEGRAM_DOMAINS:
+            if domain in link_lower:
+                # أنماط روابط التليجرام
+                if '+' in link_lower or 'joinchat' in link_lower:
+                    return 'telegram', 'private_group'
+                elif '/c/' in link_lower or '/channel/' in link_lower:
+                    return 'telegram', 'channel'
+                elif '/bot' in link_lower or 'bot=' in link_lower:
+                    return 'telegram', 'bot'
+                elif re.search(r't\.me/\w+/\d+', link_lower):
+                    return 'telegram', 'message'
+                else:
+                    # يمكن أن تكون مجموعة عامة أو قناة
+                    return 'telegram', 'public_group'
+        
+        return 'unknown', 'unknown'
+    
+    @staticmethod
+    def is_valid_telegram_link(link: str) -> bool:
+        """التحقق من صحة رابط التليجرام"""
+        link = link.lower()
+        
+        # التحقق من النطاقات
+        if not any(domain in link for domain in config.TELEGRAM_DOMAINS):
             return False
-
-        # ❌ منع روابط الرسائل
-        if TG_MESSAGE.search(u):
+        
+        # تحليل الرابط
+        try:
+            parsed = urlparse(link)
+            path = parsed.path.strip('/')
+            
+            if not path:
+                return False
+            
+            # الأنماط المقبولة:
+            # t.me/username
+            # t.me/username/123 (رسالة)
+            # t.me/c/123456789 (قناة خاصة)
+            # t.me/joinchat/ABCDEF (مجموعة خاصة)
+            
+            pattern = r'^[a-zA-Z0-9_]+(/[a-zA-Z0-9_]+)?$'
+            return bool(re.match(pattern, path))
+            
+        except:
             return False
-
-        # ✅ قناة أو مجموعة عامة
-        if TG_CHANNEL_OR_GROUP.match(u):
+    
+    @staticmethod
+    def is_valid_whatsapp_link(link: str) -> bool:
+        """التحقق من صحة رابط الواتساب"""
+        link = link.lower()
+        
+        if not any(domain in link for domain in config.WHATSAPP_DOMAINS):
+            return False
+        
+        try:
+            parsed = urlparse(link)
+            
+            if 'chat.whatsapp.com' in link:
+                # يجب أن يحتوي على مسار
+                path = parsed.path.strip('/')
+                return len(path) > 0
+            elif 'wa.me' in link:
+                # رابط رقم واتساب
+                path = parsed.path.strip('/')
+                return path.isdigit()
+            
             return True
+            
+        except:
+            return False
+    
+    @staticmethod
+    def normalize_link(link: str) -> str:
+        """
+        توحيد تنسيق الرابط
+        
+        Args:
+            link: الرابط
+            
+        Returns:
+            str: الرابط الموحد
+        """
+        link = LinkProcessor.clean_link(link)
+        
+        if not link:
+            return ""
+        
+        # إضافة https:// إذا لم تكن موجودة
+        if not link.startswith(('http://', 'https://')):
+            link = f"https://{link}"
+        
+        # إزالة المسارات الزائدة
+        try:
+            parsed = urlparse(link)
+            
+            # للواتساب: إزالة الاستعلامات غير الضرورية
+            if 'whatsapp.com' in parsed.netloc:
+                parsed = parsed._replace(query='', fragment='')
+                link = parsed.geturl()
+            
+            # للتليجرام: إزالة القيم غير الضرورية
+            elif 't.me' in parsed.netloc or 'telegram.me' in parsed.netloc:
+                # إزالة الاستعلامات التي لا تؤثر على المحتوى
+                if 'start' in parsed.query:
+                    parsed = parsed._replace(query='')
+                    link = parsed.geturl()
+        
+        except:
+            pass
+        
+        return link.rstrip('/')
+    
+    @staticmethod
+    def get_link_display_name(link: str) -> str:
+        """
+        الحصول على اسم عرضي للرابط
+        
+        Args:
+            link: الرابط
+            
+        Returns:
+            str: الاسم العرضي
+        """
+        try:
+            parsed = urlparse(link)
+            path = parsed.path.strip('/')
+            
+            if not path:
+                return link
+            
+            # للتليجرام
+            if 't.me' in parsed.netloc or 'telegram.me' in parsed.netloc:
+                if path.startswith('c/'):
+                    return f"قناة: {path[2:]}"
+                elif path.startswith('joinchat/'):
+                    return f"مجموعة خاصة"
+                elif '/' in path:
+                    parts = path.split('/')
+                    return f"@{parts[0]} - رسالة"
+                else:
+                    return f"@{path}"
+            
+            # للواتساب
+            elif 'chat.whatsapp.com' in parsed.netloc:
+                return "مجموعة واتساب"
+            elif 'wa.me' in parsed.netloc:
+                return f"واتساب: {path}"
+            
+            return link
+            
+        except:
+            return link
 
-        # ✅ مجموعة خاصة
-        if TG_PRIVATE_GROUP.match(u):
-            return True
+# وظائف للمساعدة (للتوافق مع الكود القديم)
+def clean_link(link: str) -> str:
+    """وظيفة مساعدة لتنظيف الرابط"""
+    return LinkProcessor.clean_link(link)
 
-    return False
+def extract_links(text: str) -> List[str]:
+    """وظيفة مساعدة لاستخراج الروابط"""
+    return LinkProcessor.extract_links(text)
 
-
-# ==================================================
-# Telegram classification
-# ==================================================
-
-def classify_telegram_link(url: str) -> str:
-    u = url.lower()
-
-    if TG_PRIVATE_GROUP.match(u):
-        return "private_group"
-
-    if TG_CHANNEL_OR_GROUP.match(u):
-        return "channel_or_group"
-
-    return "unknown"
-
-
-# ==================================================
-# Extract links from text
-# ==================================================
-
-def extract_links_from_text(text: str) -> List[str]:
-    if not text:
-        return []
-
-    links = set()
-    for raw in URL_REGEX.findall(text):
-        cleaned = clean_link(raw)
-        if cleaned and is_allowed_link(cleaned):
-            links.add(cleaned)
-
-    return list(links)
-
-
-# ==================================================
-# Verify links (نشط / ميت)
-# ==================================================
-
-async def _verify_http(session: aiohttp.ClientSession, url: str) -> bool:
-    try:
-        async with session.get(url, timeout=10, allow_redirects=True) as resp:
-            return resp.status in (200, 301, 302)
-    except Exception:
-        return False
-
-
-async def verify_link(url: str) -> Tuple[bool, str, str, Dict]:
-    platform = classify_platform(url)
-    if not platform:
-        return False, "unknown", "invalid", {}
-
-    async with aiohttp.ClientSession() as session:
-        is_alive = await _verify_http(session, url)
-
-    if not is_alive:
-        return False, platform, "dead", {}
-
-    if platform == "telegram":
-        link_type = classify_telegram_link(url)
-        return True, platform, link_type, {}
-
-    if platform == "whatsapp":
-        return True, platform, "group", {}
-
-    return False, "unknown", "invalid", {}
-
-
-# ==================================================
-# Batch verify
-# ==================================================
-
-async def verify_links_batch(urls: List[str]) -> List[Dict]:
-    if not urls:
-        return []
-
-    semaphore = asyncio.Semaphore(5)
-    results = []
-
-    async def worker(u):
-        async with semaphore:
-            ok, platform, link_type, meta = await verify_link(u)
-            return {
-                "url": u,
-                "is_valid": ok,
-                "platform": platform,
-                "link_type": link_type,
-                "metadata": meta
-            }
-
-    tasks = [worker(u) for u in urls]
-    for res in await asyncio.gather(*tasks, return_exceptions=True):
-        if isinstance(res, dict):
-            results.append(res)
-
-    return results
+def is_valid_link(link: str) -> bool:
+    """التحقق من صحة الرابط"""
+    return (LinkProcessor.is_valid_telegram_link(link) or 
+            LinkProcessor.is_valid_whatsapp_link(link))
