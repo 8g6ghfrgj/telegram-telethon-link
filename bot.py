@@ -752,30 +752,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================
 
 def main():
-    def main():
     """الدالة الرئيسية لتشغيل البوت"""
+    # ======================
+    # منع النسخ المكررة
+    # ======================
+    
+    # انتظار عشوائي لمنع اصطدام النسخ المتعددة
+    import random
+    wait_time = random.uniform(2, 5)
+    print(f"⏳ انتظار {wait_time:.1f} ثانية لمنع النسخ المكررة...")
+    time.sleep(wait_time)
+    
     # التحقق من عدم وجود نسخة أخرى تعمل
     try:
         import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("localhost", 9999))  # منفذ محجوز للبوت
-        sock.close()
+        lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        lock_socket.bind(('localhost', 9999))
+        print("🔒 قفل البوت مفعل - لا توجد نسخ مكررة")
     except socket.error:
-        print("❌ البوت يعمل بالفعل في نسخة أخرى!")
-        print("⚠️  انتظر 30 ثانية ثم أعد التشغيل...")
-        time.sleep(30)
-        sys.exit(1)
+        print("❌ خطأ: البوت يعمل بالفعل في نسخة أخرى!")
+        print("📋 الحلول المقترحة:")
+        print("   1. انتظر 60 ثانية")
+        print("   2. أعد نشر البوت")
+        print("   3. تحقق من أنك لا تشغل البوت محلياً وفي Render")
+        time.sleep(60)
+        return
+    
+    # ======================
+    # تهيئة التطبيق
+    # ======================
     
     # تهيئة قاعدة البيانات
     init_database()
     
-    # باقي الكود...
-    """الدالة الرئيسية لتشغيل البوت"""
-    # تهيئة قاعدة البيانات
-    init_database()
-    
-    # إنشاء تطبيق البوت
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # إنشاء تطبيق البوت مع إعدادات خاصة
+    app = ApplicationBuilder() \
+        .token(BOT_TOKEN) \
+        .concurrent_updates(False) \
+        .connection_pool_size(1) \
+        .pool_timeout(30) \
+        .read_timeout(30) \
+        .write_timeout(30) \
+        .build()
     
     # إضافة المعالجات
     app.add_handler(CommandHandler("start", start_command))
@@ -789,17 +808,22 @@ def main():
     # معالج الرسائل
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
+    # ======================
     # بدء البوت
+    # ======================
+    
     logger.info("🤖 Starting Telegram Link Collector Bot...")
     logger.info(f"📁 Database path: {DATABASE_PATH}")
     logger.info(f"📁 Exports path: {EXPORT_DIR}")
     logger.info(f"📁 Sessions path: {SESSIONS_DIR}")
     
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-# ======================
-# Entry Point
-# ======================
+    # إعدادات خاصة لمنع Conflict
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,  # حذف التحديثات القديمة
+        close_loop=False,
+        stop_signals=None
+    )
 
 if __name__ == "__main__":
     main()
