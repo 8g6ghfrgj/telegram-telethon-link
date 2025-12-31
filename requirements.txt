@@ -1,4 +1,5 @@
 python-telegram-bot==20.7
-telethon==1.34.0
-aiohttp
-beautifulsoup4
+pyrogram==2.0.106
+tgcrypto==1.2.5
+python-dotenv==1.0.0
+aiohttp==3.9.1
