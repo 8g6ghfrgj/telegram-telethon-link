@@ -1,77 +1,90 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# ======================
+# Telegram Bot
+# ======================
 
-# إعدادات البوت
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
-# إعدادات قاعدة البيانات
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///links.db")
+# ======================
+# Telegram API (Telethon)
+# استخدام API افتراضي عام للقراءة فقط
+# ======================
 
-# إعدادات المجمع
-LINKS_PER_PAGE = int(os.getenv("LINKS_PER_PAGE", 50))
-COLLECTION_INTERVAL = int(os.getenv("COLLECTION_INTERVAL", 300))  # ثواني
-COLLECTION_STATUS_MESSAGES = os.getenv("COLLECTION_STATUS_MESSAGES", "true").lower() == "true"
-MAX_CONCURRENT_SESSIONS = int(os.getenv("MAX_CONCURRENT_SESSIONS", 3))
+# API قياسي للقراءة فقط - لا يحتاج إلى تسجيل
+API_ID = 6  # API ID عام للتطبيقات القرائية
+API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"  # API Hash عام
 
-# المجلدات
-EXPORT_DIR = os.getenv("EXPORT_DIR", "exports")
-SESSIONS_DIR = os.getenv("SESSIONS_DIR", "sessions")
+# ======================
+# Database
+# ======================
 
-# إنشاء المجلدات إذا لم تكن موجودة
-os.makedirs(EXPORT_DIR, exist_ok=True)
-os.makedirs(SESSIONS_DIR, exist_ok=True)
+DATABASE_PATH = os.getenv(
+    "DATABASE_PATH",
+    "data/database.db"
+)
 
-# روابط الواتساب المسموحة
-WHATSAPP_DOMAINS = [
-    "chat.whatsapp.com",
-    "whatsapp.com",
+# ======================
+# Runtime Directories
+# ======================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXPORT_DIR = os.path.join(BASE_DIR, "exports")
+SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
+
+# ======================
+# Collector Settings
+# ======================
+
+# أنواع الروابط التي يتم جمعها
+COLLECT_TELEGRAM = True
+COLLECT_WHATSAPP = True
+
+# فحص الروابط قبل التجميع
+VERIFY_LINKS = True
+
+# إعدادات فحص الروابط
+VERIFY_TIMEOUT = 10  # ثواني
+MAX_CONCURRENT_VERIFICATIONS = 5
+
+# روابط ممنوعة/تجاهل
+BLACKLISTED_DOMAINS = [
+    "telegram.me/durov",
 ]
 
-# روابط التليجرام المسموحة
-TELEGRAM_DOMAINS = [
-    "t.me",
-    "telegram.me",
-    "telegram.dog"
-]
+# ======================
+# Export Settings
+# ======================
 
-# إعدادات الأنواع
-LINK_TYPES = {
-    "telegram": {
-        "channel": "📢 القنوات",
-        "public_group": "👥 مجموعات عامة",
-        "private_group": "🔒 مجموعات خاصة",
-        "all": "🔍 جميع روابط التليجرام"
-    },
-    "whatsapp": {
-        "group": "👥 مجموعات واتساب",
-        "all": "🔍 جميع روابط الواتساب"
-    }
+EXPORT_FORMATS = ['txt', 'json']
+
+# ======================
+# Bot Interface
+# ======================
+
+# عدد الروابط لكل صفحة في العرض
+LINKS_PER_PAGE = 20
+
+# رسائل حالة الجمع
+COLLECTION_STATUS_MESSAGES = {
+    'starting': '🚀 بدأ جمع الروابط...',
+    'in_progress': '⏳ جاري جمع الروابط...',
+    'paused': '⏸️ توقف جمع الروابط مؤقتاً',
+    'stopped': '🛑 توقف جمع الروابط',
+    'completed': '✅ اكتمل جمع الروابط'
 }
 
-# إعدادات التصفح
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-]
+# ======================
+# Session Validation
+# ======================
 
-# إعدادات الرسائل
-MESSAGES = {
-    "welcome": "مرحباً! 👋\n\nأنا بوت لجمع الروابط من القنوات والمجموعات.\n\nاستخدم /start لرؤية الأوامر المتاحة.",
-    "help": """
-**الأوامر المتاحة:**
-/start - بدء البوت
-/collect - بدء جمع الروابط
-/stop - إيقاف الجمع
-/status - حالة الجمع الحالية
-/export - تصدير الروابط
-/stats - إحصائيات الروابط
-/help - عرض هذه الرسالة
-    """,
-    "collection_started": "✅ بدأ جمع الروابط...",
-    "collection_stopped": "🛑 توقف جمع الروابط.",
-    "no_active_collection": "⚠️ لا يوجد جمع نشط حالياً.",
-    "export_ready": "📁 تم تصدير الروابط بنجاح."
-}
+# لا نحتاج للتحقق من API_ID و API_HASH لأنها عامة
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is not set")
+
+# ======================
+# Ensure Directories Exist
+# ======================
+
+for directory in [EXPORT_DIR, SESSIONS_DIR]:
+    os.makedirs(directory, exist_ok=True)
