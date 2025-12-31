@@ -8,13 +8,14 @@ from database import init_db, get_sessions, get_links, get_stats, delete_session
 from session_manager import validate_session
 from link_collector import collector
 
-logging.basicConfig(level=logging.INFO)
+# تسجيل مفصل
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# ======================
-# الأزرار
-# ======================
-
+# أزرار القائمة
 def main_menu():
     keyboard = [
         [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session")],
@@ -22,7 +23,7 @@ def main_menu():
         [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collection")],
         [InlineKeyboardButton("⏹️ إيقاف الجمع", callback_data="stop_collection")],
         [InlineKeyboardButton("🔗 عرض الروابط", callback_data="view_links")],
-        [InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_menu")]
+        [InlineKeyboardButton("📤 تصدير", callback_data="export_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -62,11 +63,9 @@ def export_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ======================
 # الأوامر
-# ======================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"User {update.effective_user.id} started the bot")
     await update.message.reply_text(
         "🤖 *بوت جمع روابط التليجرام والواتساب*\n\n"
         "• إضافة جلسات متعددة\n"
@@ -83,27 +82,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data
+    logger.info(f"Callback received: {data}")
     
     try:
-        # القائمة الرئيسية
         if data == "back_main":
             await query.message.edit_text("القائمة الرئيسية:", reply_markup=main_menu())
         
-        # إضافة جلسة
         elif data == "add_session":
             context.user_data['awaiting_session'] = True
             await query.message.edit_text(
-                "📥 *إضافة جلسة جديدة*\n\n"
-                "أرسل لي Session String الآن.\n\n"
-                "📌 *طريقة الحصول على Session:*\n"
-                "1. اذهب إلى @StringSessionGeneratorBot\n"
-                "2. أرسل /start\n"
-                "3. اختر Telethon\n"
-                "4. أرسل الرمز الذي تأخذه إلى هنا",
+                "📥 *أرسل Session String الآن*\n\n"
+                "يمكنك الحصول عليه من:\n"
+                "@StringSessionGeneratorBot\n\n"
+                "سيتم التحقق منه تلقائياً.",
                 parse_mode="Markdown"
             )
         
-        # عرض الجلسات
         elif data == "list_sessions":
             sessions = get_sessions()
             if not sessions:
@@ -117,11 +111,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             text = "👥 *الجلسات المضافة:*\n\n"
             for i, s in enumerate(sessions, 1):
-                username = f"@{s['username']}" if s['username'] else s['phone'] or f"جلسة {s['id']}"
-                text += f"{i}. {username}\n"
+                name = f"@{s['username']}" if s['username'] else s['phone'] or f"ID {s['id']}"
+                text += f"{i}. {name}\n"
             
             buttons = []
-            for s in sessions[:5]:  # أول 5 فقط
+            for s in sessions:
                 name = s['username'] or s['phone'] or f"ID{s['id']}"
                 buttons.append([
                     InlineKeyboardButton(
@@ -138,7 +132,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(buttons)
             )
         
-        # حذف جلسة
         elif data.startswith("delete_"):
             session_id = int(data.split("_")[1])
             if delete_session(session_id):
@@ -146,7 +139,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.message.edit_text("❌ فشل حذف الجلسة", reply_markup=main_menu())
         
-        # بدء الجمع
         elif data == "start_collection":
             status = collector.get_status()
             if status['is_collecting']:
@@ -158,27 +150,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # تشغيل الجمع في الخلفية
             asyncio.create_task(run_collection_async(query))
         
-        # إيقاف الجمع
         elif data == "stop_collection":
             if collector.stop_collection():
                 await query.message.edit_text("⏹️ تم إيقاف الجمع", reply_markup=main_menu())
             else:
-                await query.message.edit_text("ℹ️ الجمع غير نشط أصلاً", reply_markup=main_menu())
+                await query.message.edit_text("ℹ️ الجمع غير نشط", reply_markup=main_menu())
         
-        # عرض الروابط
         elif data == "view_links":
             await query.message.edit_text("🔗 اختر نوع الروابط:", reply_markup=links_menu())
         
-        # أنواع الروابط
         elif data.startswith("links_"):
             parts = data.split("_")
             if len(parts) >= 3:
                 platform = parts[1]
                 link_type = parts[2]
                 
-                links = get_links(platform if platform != 'all' else None, 
-                                link_type if link_type != 'all' else None, 
-                                limit=20)
+                links = get_links(
+                    platform if platform != 'all' else None, 
+                    link_type if link_type != 'all' else None, 
+                    limit=15
+                )
                 
                 if not links:
                     await query.message.edit_text(
@@ -187,31 +178,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return
                 
-                text = f"🔗 *روابط {platform}/{link_type}:*\n\n"
+                text = f"🔗 *آخر الروابط:*\n\n"
                 for i, link in enumerate(links, 1):
                     text += f"{i}. `{link['url']}`\n"
-                    if link.get('chat_title'):
-                        text += f"   📍 {link['chat_title']}\n"
                 
                 stats = get_stats()
                 text += f"\n📊 *الإحصائيات:*\n"
                 text += f"• إجمالي الروابط: {stats['total_links']}\n"
-                text += f"• القنوات: {stats['telegram_types'].get('channel', 0)}\n"
-                text += f"• المجموعات: {stats['telegram_types'].get('private_group', 0) + stats['telegram_types'].get('public_group', 0)}\n"
-                text += f"• البوتات: {stats['telegram_types'].get('bot', 0)}\n"
+                
+                if 'telegram_types' in stats:
+                    text += f"• القنوات: {stats['telegram_types'].get('channel', 0)}\n"
+                    text += f"• المجموعات: {stats['telegram_types'].get('private_group', 0) + stats['telegram_types'].get('public_group', 0)}\n"
+                    text += f"• البوتات: {stats['telegram_types'].get('bot', 0)}\n"
+                
                 text += f"• واتساب: {stats['by_platform'].get('whatsapp', 0)}\n"
                 
                 await query.message.edit_text(
-                    text,
+                    text[:4000],
                     parse_mode="Markdown",
                     reply_markup=links_menu()
                 )
         
-        # قائمة التصدير
         elif data == "export_menu":
             await query.message.edit_text("📤 اختر ما تريد تصديره:", reply_markup=export_menu())
         
-        # التصدير
         elif data.startswith("export_"):
             parts = data.split("_")
             if len(parts) >= 2:
@@ -225,12 +215,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     with open(filepath, 'rb') as f:
                         await query.message.reply_document(
                             document=f,
-                            filename=filepath.split("/")[-1],
-                            caption=f"📤 {platform or 'كل'} الروابط"
+                            filename=filepath.split("/")[-1]
                         )
-                    await query.message.edit_text("✅ تم التصدير بنجاح", reply_markup=main_menu())
+                    await query.message.edit_text("✅ تم التصدير", reply_markup=main_menu())
                 else:
-                    await query.message.edit_text("❌ لا توجد روابط للتصدير", reply_markup=main_menu())
+                    await query.message.edit_text("❌ لا توجد روابط", reply_markup=main_menu())
         
         else:
             await query.message.edit_text("❌ أمر غير معروف", reply_markup=main_menu())
@@ -242,6 +231,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_collection_async(query):
     """تشغيل الجمع في الخلفية"""
     try:
+        logger.info("Starting collection task...")
         success = await collector.start_collection()
         
         if success:
@@ -260,11 +250,8 @@ async def run_collection_async(query):
             )
         else:
             await query.message.edit_text(
-                "❌ فشل الجمع!\n\n"
-                "تأكد من:\n"
-                "1. وجود جلسات مضافة\n"
-                "2. صلاحية الجلسات\n"
-                "3. اتصال الإنترنت",
+                "❌ فشل الجمع!\n"
+                "تأكد من وجود جلسات صالحة.",
                 reply_markup=main_menu()
             )
     except Exception as e:
@@ -273,10 +260,14 @@ async def run_collection_async(query):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة الرسائل النصية"""
+    logger.info(f"Message from {update.effective_user.id}: {update.message.text[:50]}...")
+    
     if context.user_data.get('awaiting_session'):
         context.user_data['awaiting_session'] = False
         
         session_string = update.message.text.strip()
+        logger.info(f"Processing session string: {session_string[:50]}...")
+        
         await update.message.reply_text("🔍 جاري التحقق من الجلسة...")
         
         success, info = await validate_session(session_string)
@@ -295,11 +286,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(
                 f"❌ *فشل إضافة الجلسة!*\n\n"
-                f"السبب: {info.get('error', 'خطأ غير معروف')}\n\n"
-                f"تأكد من:\n"
-                f"1. صحة Session String\n"
-                f"2. أن الحساب نشط\n"
-                f"3. عدم وجود كلمة مرور ثنائية",
+                f"السبب: {info.get('error', 'خطأ غير معروف')}",
                 parse_mode="Markdown",
                 reply_markup=main_menu()
             )
@@ -316,6 +303,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """الدالة الرئيسية"""
     # تهيئة قاعدة البيانات
+    print("=" * 50)
+    print("🤖 بدأ تشغيل البوت...")
     init_db()
     
     # إنشاء التطبيق
@@ -327,17 +316,18 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # بدء البوت
-    logger.info("🤖 بدأ تشغيل البوت...")
-    print("=" * 50)
-    print("✅ البوت يعمل بنجاح!")
-    print("📌 المميزات المتوفرة:")
-    print("  1. إضافة جلسات متعددة")
-    print("  2. جمع روابط من المحادثات")
-    print("  3. تصنيف القنوات/المجموعات/البوتات")
-    print("  4. تصدير النتائج")
+    print("✅ البوت جاهز للتشغيل")
+    print("📌 تأكد من:")
+    print("   1. وجود BOT_TOKEN صحيح")
+    print("   2. وجود اتصال بالإنترنت")
+    print("   3. عدم تشغيل نسخة أخرى من البوت")
     print("=" * 50)
     
-    app.run_polling(drop_pending_updates=True)
+    # حل مشكلة Conflict نهائياً
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES
+    )
 
 if __name__ == "__main__":
     main()
