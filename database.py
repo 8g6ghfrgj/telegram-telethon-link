@@ -23,7 +23,7 @@ def init_db():
         )
     """)
     
-    # الروابط مع التصنيف
+    # الروابط
     cur.execute("""
         CREATE TABLE IF NOT EXISTS links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,10 +39,10 @@ def init_db():
     # فهارس
     cur.execute("CREATE INDEX IF NOT EXISTS idx_platform ON links(platform)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_type ON links(link_type)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_date ON links(collected_date DESC)")
     
     conn.commit()
     conn.close()
+    print("✅ Database initialized")
 
 def add_session(session_string, phone="", username="", user_id=0):
     conn = get_connection()
@@ -56,9 +56,11 @@ def add_session(session_string, phone="", username="", user_id=0):
         """, (session_string, phone, username, user_id, datetime.now().isoformat(), 1))
         
         conn.commit()
-        return cur.lastrowid
+        session_id = cur.lastrowid
+        print(f"✅ Session added: ID={session_id}, User={username or phone}")
+        return session_id
     except Exception as e:
-        print(f"Error adding session: {e}")
+        print(f"❌ Error adding session: {e}")
         return None
     finally:
         conn.close()
@@ -71,6 +73,8 @@ def get_sessions():
     cur.execute("SELECT * FROM sessions WHERE is_active = 1")
     sessions = [dict(row) for row in cur.fetchall()]
     conn.close()
+    
+    print(f"📋 Found {len(sessions)} active sessions")
     return sessions
 
 def save_link(url, platform="telegram", link_type="unknown", source="", chat_title=""):
@@ -85,9 +89,13 @@ def save_link(url, platform="telegram", link_type="unknown", source="", chat_tit
         """, (url.strip(), platform, link_type, source, datetime.now().isoformat(), chat_title))
         
         conn.commit()
-        return True
+        saved = cur.rowcount > 0
+        
+        if saved:
+            print(f"✅ Link saved: {url}")
+        return saved
     except Exception as e:
-        print(f"Error saving link: {e}")
+        print(f"❌ Error saving link: {e}")
         return False
     finally:
         conn.close()
@@ -116,6 +124,8 @@ def get_links(platform=None, link_type=None, limit=50):
     cur.execute(query, params)
     links = [dict(row) for row in cur.fetchall()]
     conn.close()
+    
+    print(f"📊 Retrieved {len(links)} links")
     return links
 
 def get_stats():
@@ -124,28 +134,21 @@ def get_stats():
     
     stats = {}
     
-    # عدد الجلسات
     cur.execute("SELECT COUNT(*) FROM sessions WHERE is_active = 1")
     stats['sessions'] = cur.fetchone()[0]
     
-    # عدد الروابط
     cur.execute("SELECT COUNT(*) FROM links")
     stats['total_links'] = cur.fetchone()[0]
     
-    # حسب المنصة
     cur.execute("SELECT platform, COUNT(*) FROM links GROUP BY platform")
     stats['by_platform'] = dict(cur.fetchall())
     
-    # حسب النوع (للتليجرام فقط)
-    cur.execute("""
-        SELECT link_type, COUNT(*) 
-        FROM links 
-        WHERE platform = 'telegram' 
-        GROUP BY link_type
-    """)
+    cur.execute("SELECT link_type, COUNT(*) FROM links WHERE platform = 'telegram' GROUP BY link_type")
     stats['telegram_types'] = dict(cur.fetchall())
     
     conn.close()
+    
+    print(f"📈 Stats: {stats}")
     return stats
 
 def delete_session(session_id):
@@ -156,6 +159,8 @@ def delete_session(session_id):
     conn.commit()
     success = cur.rowcount > 0
     conn.close()
+    
+    print(f"{'✅' if success else '❌'} Session {session_id} deleted")
     return success
 
 def export_links(platform=None, link_type=None):
@@ -163,6 +168,7 @@ def export_links(platform=None, link_type=None):
     
     links = get_links(platform, link_type, 10000)
     if not links:
+        print("❌ No links to export")
         return None
     
     if platform and link_type:
@@ -178,4 +184,8 @@ def export_links(platform=None, link_type=None):
         for link in links:
             f.write(f"{link['url']}\n")
     
+    print(f"✅ Exported {len(links)} links to {filename}")
     return filepath
+
+if __name__ == "__main__":
+    init_db()
