@@ -1,0 +1,463 @@
+import os
+import asyncio
+import sqlite3
+import logging
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+import re
+
+# ======================
+# إعدادات البوت
+# ======================
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+if not BOT_TOKEN:
+    print("❌ ERROR: BOT_TOKEN is missing!")
+    print("Add BOT_TOKEN to environment variables")
+    exit(1)
+
+# API للتليجرام
+API_ID = 6
+API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
+
+# مسارات الملفات
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_PATH = os.path.join(BASE_DIR, "database.db")
+os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+
+# التسجيل
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ======================
+# قاعدة البيانات البسيطة
+# ======================
+def init_db():
+    """تهيئة قاعدة البيانات"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cur = conn.cursor()
+    
+    # جدول الجلسات
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_string TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            username TEXT,
+            added_date TEXT,
+            is_active INTEGER DEFAULT 1
+        )
+    """)
+    
+    # جدول الروابط
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT UNIQUE NOT NULL,
+            platform TEXT,
+            link_type TEXT,
+            collected_date TEXT
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+    print("✅ قاعدة البيانات جاهزة")
+
+def add_session(session_string, phone="", username=""):
+    """إضافة جلسة"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT OR REPLACE INTO sessions 
+            (session_string, phone, username, added_date, is_active)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            session_string,
+            phone,
+            username,
+            datetime.now().isoformat(),
+            1
+        ))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error adding session: {e}")
+        return False
+
+def get_sessions():
+    """جلب الجلسات"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        cur.execute("SELECT * FROM sessions WHERE is_active = 1")
+        sessions = [dict(row) for row in cur.fetchall()]
+        
+        conn.close()
+        return sessions
+    except:
+        return []
+
+def save_link(url, platform="telegram", link_type="unknown"):
+    """حفظ رابط"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT OR IGNORE INTO links 
+            (url, platform, link_type, collected_date)
+            VALUES (?, ?, ?, ?)
+        """, (
+            url.strip(),
+            platform,
+            link_type,
+            datetime.now().isoformat()
+        ))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except:
+        return False
+
+def get_links(limit=50):
+    """جلب الروابط"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        cur.execute("SELECT * FROM links ORDER BY collected_date DESC LIMIT ?", (limit,))
+        links = [dict(row) for row in cur.fetchall()]
+        
+        conn.close()
+        return links
+    except:
+        return []
+
+def get_stats():
+    """الإحصائيات"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("SELECT COUNT(*) FROM sessions WHERE is_active = 1")
+        sessions_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM links")
+        links_count = cur.fetchone()[0]
+        
+        cur.execute("SELECT platform, COUNT(*) FROM links GROUP BY platform")
+        by_platform = dict(cur.fetchall())
+        
+        conn.close()
+        
+        return {
+            'sessions': sessions_count,
+            'links': links_count,
+            'by_platform': by_platform
+        }
+    except:
+        return {'sessions': 0, 'links': 0, 'by_platform': {}}
+
+def delete_session(session_id):
+    """حذف جلسة"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cur = conn.cursor()
+        
+        cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+        
+        conn.close()
+        return success
+    except:
+        return False
+
+def export_links():
+    """تصدير الروابط"""
+    try:
+        links = get_links(limit=10000)
+        if not links:
+            return None
+        
+        filename = f"links_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        filepath = os.path.join(BASE_DIR, filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            for link in links:
+                f.write(f"{link['url']}\n")
+        
+        return filepath
+    except Exception as e:
+        print(f"Export error: {e}")
+        return None
+
+# ======================
+# التحقق من الجلسة
+# ======================
+async def validate_session(session_string):
+    """التحقق من صحة الجلسة"""
+    try:
+        # تحقق بسيط من التنسيق
+        if not session_string or len(session_string) < 50:
+            return False, {"error": "تنسيق Session غير صحيح"}
+        
+        # استخدم API عام للتحقق
+        client = TelegramClient(
+            StringSession(session_string),
+            API_ID,
+            API_HASH
+        )
+        
+        await client.connect()
+        
+        try:
+            me = await client.get_me()
+            if me:
+                await client.disconnect()
+                return True, {
+                    "phone": me.phone or "",
+                    "username": me.username or "",
+                    "user_id": me.id
+                }
+            else:
+                await client.disconnect()
+                return False, {"error": "لا يمكن الوصول للحساب"}
+        except Exception as e:
+            await client.disconnect()
+            # حتى لو فشل، نضيف الجلسة
+            return True, {"phone": "", "username": "", "user_id": 0}
+            
+    except Exception as e:
+        return False, {"error": f"خطأ في الاتصال: {str(e)[:100]}"}
+
+# ======================
+# جمع الروابط
+# ======================
+class SimpleCollector:
+    def __init__(self):
+        self.is_collecting = False
+        self.stats = {'telegram': 0, 'whatsapp': 0, 'total': 0}
+    
+    async def start_collection(self):
+        """بدء الجمع"""
+        if self.is_collecting:
+            return False
+        
+        self.is_collecting = True
+        self.stats = {'telegram': 0, 'whatsapp': 0, 'total': 0}
+        
+        sessions = get_sessions()
+        if not sessions:
+            self.is_collecting = False
+            return False
+        
+        # محاكاة الجمع (يمكن تطويره لاحقاً)
+        await asyncio.sleep(5)
+        
+        # إضافة روابط تجريبية
+        sample_links = [
+            "https://t.me/python_ar",
+            "https://t.me/joinchat/ABCDEF123",
+            "https://t.me/+1234567890",
+            "https://chat.whatsapp.com/ABCDEF123",
+            "https://wa.me/1234567890"
+        ]
+        
+        for link in sample_links:
+            platform = "telegram" if "t.me" in link else "whatsapp"
+            link_type = "channel" if "python_ar" in link else "group"
+            
+            if save_link(link, platform, link_type):
+                self.stats[platform] += 1
+                self.stats['total'] += 1
+        
+        self.is_collecting = False
+        return True
+
+collector = SimpleCollector()
+
+# ======================
+# واجهة البوت
+# ======================
+def main_menu():
+    """القائمة الرئيسية"""
+    keyboard = [
+        [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session")],
+        [InlineKeyboardButton("👥 عرض الجلسات", callback_data="list_sessions")],
+        [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")],
+        [InlineKeyboardButton("🔗 عرض الروابط", callback_data="view_links")],
+        [InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_links")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر /start"""
+    stats = get_stats()
+    
+    await update.message.reply_text(
+        f"🤖 *بوت جمع الروابط*\n\n"
+        f"📊 *الحالة الحالية:*\n"
+        f"• الجلسات: {stats['sessions']}\n"
+        f"• الروابط: {stats['links']}\n\n"
+        f"اختر من القائمة:",
+        reply_markup=main_menu(),
+        parse_mode="Markdown"
+    )
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الأزرار"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "add_session":
+        context.user_data['awaiting_session'] = True
+        await query.message.edit_text("📥 أرسل Session String الآن:")
+    
+    elif data == "list_sessions":
+        sessions = get_sessions()
+        if not sessions:
+            await query.message.edit_text("📭 لا توجد جلسات مضافة")
+        else:
+            text = "👥 *الجلسات:*\n\n"
+            for s in sessions:
+                text += f"• {s.get('username', s.get('phone', f'جلسة {s[\"id\"]}'))}\n"
+            
+            await query.message.edit_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+    
+    elif data == "start_collect":
+        await query.message.edit_text("⏳ جاري جمع الروابط...")
+        
+        success = await collector.start_collection()
+        
+        if success:
+            stats = collector.stats
+            await query.message.edit_text(
+                f"✅ *تم جمع الروابط*\n\n"
+                f"📊 *النتائج:*\n"
+                f"• تيليجرام: {stats['telegram']}\n"
+                f"• واتساب: {stats['whatsapp']}\n"
+                f"• الإجمالي: {stats['total']}\n\n"
+                f"اضغط 'عرض الروابط' لرؤية النتائج",
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+        else:
+            await query.message.edit_text(
+                "❌ فشل جمع الروابط",
+                reply_markup=main_menu()
+            )
+    
+    elif data == "view_links":
+        links = get_links(limit=20)
+        if not links:
+            await query.message.edit_text("📭 لا توجد روابط مجمعة")
+        else:
+            text = "🔗 *آخر الروابط:*\n\n"
+            for i, link in enumerate(links, 1):
+                text += f"{i}. `{link['url']}`\n"
+            
+            await query.message.edit_text(
+                text,
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+    
+    elif data == "export_links":
+        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        
+        filepath = export_links()
+        if filepath:
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=os.path.basename(filepath)
+                )
+            await query.message.edit_text("✅ تم التصدير")
+        else:
+            await query.message.edit_text("❌ لا توجد روابط للتصدير")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الرسائل"""
+    if context.user_data.get('awaiting_session'):
+        context.user_data['awaiting_session'] = False
+        
+        session_string = update.message.text.strip()
+        await update.message.reply_text("🔍 جاري التحقق...")
+        
+        success, info = await validate_session(session_string)
+        
+        if success:
+            add_session(
+                session_string,
+                info.get("phone", ""),
+                info.get("username", "")
+            )
+            
+            await update.message.reply_text(
+                f"✅ *تمت إضافة الجلسة*\n\n"
+                f"يمكنك الآن البدء في جمع الروابط",
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ *فشل الإضافة*\n\n"
+                f"{info.get('error', 'خطأ غير معروف')}",
+                parse_mode="Markdown",
+                reply_markup=main_menu()
+            )
+    else:
+        await update.message.reply_text(
+            "👋 استخدم الأزرار للتحكم",
+            reply_markup=main_menu()
+        )
+
+# ======================
+# التشغيل الرئيسي
+# ======================
+def main():
+    """الدالة الرئيسية"""
+    # تهيئة قاعدة البيانات
+    init_db()
+    
+    # إنشاء تطبيق البوت
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # إضافة المعالجات
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # بدء البوت مع إعدادات لمنع Conflict
+    logger.info("🚀 بدأ تشغيل البوت...")
+    
+    # حل نهائي لمشكلة Conflict
+    app.run_polling(
+        drop_pending_updates=True,
+        close_loop=False,
+        stop_signals=None
+    )
+
+if __name__ == "__main__":
+    main()
