@@ -1,33 +1,54 @@
 import os
+from dotenv import load_dotenv
 
-# ======================
-# Telegram API
-# ======================
-API_ID = int(os.getenv("API_ID", "123456"))
-API_HASH = os.getenv("API_HASH", "YOUR_API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
+load_dotenv()
 
-# ======================
-# Paths
-# ======================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_PATH = os.path.join(BASE_DIR, "data", "database.db")
-EXPORT_DIR = os.path.join(BASE_DIR, "exports")
-SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
+# إعدادات البوت
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ======================
-# Collection Settings
-# ======================
-VERIFY_LINKS = True
-VERIFY_TIMEOUT = 10
+# إعدادات قاعدة البيانات
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///links.db")
 
-# ======================
-# WhatsApp rules
-# ======================
-WHATSAPP_MAX_MONTHS = 6  # فقط آخر 6 أشهر
-DISABLE_WA_ME = True     # منع wa.me
+# إعدادات المجمع
+LINKS_PER_PAGE = 50
+COLLECTION_INTERVAL = 300  # ثواني
+MAX_CONCURRENT_SESSIONS = 3
 
-# ======================
-# Limits
-# ======================
-MAX_VERIFY_CONCURRENCY = 5
+# المجلدات
+EXPORT_DIR = "exports"
+SESSIONS_DIR = "sessions"
+
+# إنشاء المجلدات إذا لم تكن موجودة
+os.makedirs(EXPORT_DIR, exist_ok=True)
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+# روابط الواتساب المسموحة
+WHATSAPP_DOMAINS = [
+    "chat.whatsapp.com",
+    "whatsapp.com",
+    "wa.me"
+]
+
+# روابط التليجرام المسموحة
+TELEGRAM_DOMAINS = [
+    "t.me",
+    "telegram.me",
+    "telegram.dog"
+]
+
+# إعدادات الأنواع
+LINK_TYPES = {
+    "telegram": {
+        "channel": "📢 القنوات",
+        "public_group": "👥 مجموعات عامة",
+        "private_group": "🔒 مجموعات خاصة",
+        "bot": "🤖 البوتات",
+        "message": "📩 روابط رسائل",
+        "all": "🔍 جميع روابط التليجرام"
+    },
+    "whatsapp": {
+        "group": "👥 مجموعات واتساب",
+        "phone": "📞 روابط أرقام",
+        "all": "🔍 جميع روابط الواتساب"
+    }
+}
