@@ -1,9 +1,10 @@
 services:
   - type: worker
-    name: telegram-link-bot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    name: telegram-link-collector
+    runtime: docker
+    dockerfilePath: Dockerfile
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: DATABASE_PATH
+        value: data/database.db
