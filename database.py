@@ -12,10 +12,7 @@ from config import DATABASE_PATH, EXPORT_DIR
 # ======================
 
 def get_connection():
-    return sqlite3.connect(
-        DATABASE_PATH,
-        check_same_thread=False
-    )
+    return sqlite3.connect(DATABASE_PATH, check_same_thread=False)
 
 
 # ======================
@@ -28,250 +25,221 @@ def init_db():
     conn = get_connection()
     cur = conn.cursor()
 
-    # ======================
-    # Sessions
-    # ======================
+    # جلسات تيليجرام
     cur.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_string TEXT UNIQUE NOT NULL,
-            phone_number TEXT,
-            added_date TEXT,
             is_active INTEGER DEFAULT 1,
-            last_used TEXT
+            added_date TEXT
         )
     """)
 
-    # ======================
-    # Links (No duplicates enforced)
-    # ======================
+    # الروابط
     cur.execute("""
         CREATE TABLE IF NOT EXISTS links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
-            normalized_key TEXT UNIQUE NOT NULL,
-            platform TEXT NOT NULL,                 -- telegram / whatsapp
-            link_type TEXT NOT NULL,                -- channel / public_group / private_group
-            source_chat_id TEXT,
-            source_session_id INTEGER,
+            platform TEXT NOT NULL,
+            link_type TEXT,
+            source_session INTEGER,
+            chat_id TEXT,
             message_date TEXT,
             collected_date TEXT,
             metadata TEXT
         )
     """)
 
-    # ======================
-    # Indexes
-    # ======================
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_platform ON links(platform)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_type ON links(link_type)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_date ON links(collected_date)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active)")
+    # جلسات الجمع
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS collection_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT,
+            stopped_at TEXT,
+            status TEXT,
+            telegram_count INTEGER DEFAULT 0,
+            whatsapp_count INTEGER DEFAULT 0
+        )
+    """)
 
     conn.commit()
     conn.close()
 
 
 # ======================
-# Sessions
+# Session Management
 # ======================
 
-def add_session(session_string: str, phone_number: str = None) -> bool:
+def add_session(session_string: str) -> bool:
     conn = get_connection()
     cur = conn.cursor()
-
     try:
         cur.execute("""
-            INSERT OR IGNORE INTO sessions
-            (session_string, phone_number, added_date, is_active)
-            VALUES (?, ?, ?, 1)
-        """, (session_string, phone_number, datetime.utcnow().isoformat()))
-
+            INSERT OR IGNORE INTO sessions (session_string, is_active, added_date)
+            VALUES (?, 1, ?)
+        """, (session_string, datetime.now().isoformat()))
         conn.commit()
         return cur.rowcount > 0
     finally:
         conn.close()
 
 
-def get_active_sessions() -> List[Dict]:
+def get_sessions(active_only: bool = True) -> List[Dict]:
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT * FROM sessions
-        WHERE is_active = 1
-        ORDER BY added_date ASC
-    """)
+    if active_only:
+        cur.execute("SELECT * FROM sessions WHERE is_active = 1")
+    else:
+        cur.execute("SELECT * FROM sessions")
 
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
+def delete_session(session_id: int) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    conn.commit()
+    ok = cur.rowcount > 0
+    conn.close()
+    return ok
+
+
 # ======================
-# Duplicate Protection
+# Collection Session
 # ======================
 
-def link_exists(normalized_key: str) -> bool:
+def start_collection_session() -> int:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO collection_sessions (started_at, status)
+        VALUES (?, 'running')
+    """, (datetime.now().isoformat(),))
+    conn.commit()
+    cid = cur.lastrowid
+    conn.close()
+    return cid
+
+
+def update_collection_stats(
+    collection_id: int,
+    telegram_inc: int = 0,
+    whatsapp_inc: int = 0,
+    status: Optional[str] = None
+):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        "SELECT 1 FROM links WHERE normalized_key = ? LIMIT 1",
-        (normalized_key,)
-    )
+    fields = []
+    params = []
 
+    if telegram_inc:
+        fields.append("telegram_count = telegram_count + ?")
+        params.append(telegram_inc)
+
+    if whatsapp_inc:
+        fields.append("whatsapp_count = whatsapp_count + ?")
+        params.append(whatsapp_inc)
+
+    if status:
+        fields.append("status = ?")
+        params.append(status)
+        if status == "stopped":
+            fields.append("stopped_at = ?")
+            params.append(datetime.now().isoformat())
+
+    if not fields:
+        return
+
+    params.append(collection_id)
+
+    cur.execute(f"""
+        UPDATE collection_sessions
+        SET {", ".join(fields)}
+        WHERE id = ?
+    """, params)
+
+    conn.commit()
+    conn.close()
+
+
+# ======================
+# Links
+# ======================
+
+def link_exists(url: str) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM links WHERE url = ?", (url,))
     exists = cur.fetchone() is not None
     conn.close()
     return exists
 
 
-# ======================
-# Save Link
-# ======================
-
 def save_link(
-    *,
     url: str,
-    normalized_key: str,
     platform: str,
     link_type: str,
-    source_chat_id: str,
-    source_session_id: int,
+    source_session: int,
+    chat_id: str,
     message_date: Optional[datetime],
-    metadata: Optional[Dict] = None
+    metadata: Dict = None
 ) -> bool:
-    if not url or not normalized_key:
+    if link_exists(url):
         return False
 
     conn = get_connection()
     cur = conn.cursor()
 
-    try:
-        cur.execute("""
-            INSERT OR IGNORE INTO links
-            (
-                url,
-                normalized_key,
-                platform,
-                link_type,
-                source_chat_id,
-                source_session_id,
-                message_date,
-                collected_date,
-                metadata
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            url,
-            normalized_key,
-            platform,
-            link_type,
-            source_chat_id,
-            source_session_id,
-            message_date.isoformat() if message_date else None,
-            datetime.utcnow().isoformat(),
-            json.dumps(metadata) if metadata else None
-        ))
+    cur.execute("""
+        INSERT INTO links
+        (url, platform, link_type, source_session, chat_id, message_date, collected_date, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        url,
+        platform,
+        link_type,
+        source_session,
+        chat_id,
+        message_date.isoformat() if message_date else None,
+        datetime.now().isoformat(),
+        json.dumps(metadata) if metadata else None
+    ))
 
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
+    conn.commit()
+    ok = cur.rowcount > 0
+    conn.close()
+    return ok
 
 
-# ======================
-# Queries
-# ======================
-
-def get_links(
-    platform: str,
-    link_type: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0
-) -> List[Dict]:
-
+def get_links(platform: str) -> List[str]:
     conn = get_connection()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-
-    query = "SELECT * FROM links WHERE platform = ?"
-    params = [platform]
-
-    if link_type:
-        query += " AND link_type = ?"
-        params.append(link_type)
-
-    query += " ORDER BY collected_date DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
-
-    cur.execute(query, params)
+    cur.execute("SELECT url FROM links WHERE platform = ?", (platform,))
     rows = cur.fetchall()
     conn.close()
-
-    return [dict(r) for r in rows]
-
-
-def get_stats() -> Dict:
-    conn = get_connection()
-    cur = conn.cursor()
-
-    stats = {}
-
-    cur.execute("""
-        SELECT platform, COUNT(*)
-        FROM links
-        GROUP BY platform
-    """)
-    stats["by_platform"] = dict(cur.fetchall())
-
-    cur.execute("""
-        SELECT link_type, COUNT(*)
-        FROM links
-        WHERE platform = 'telegram'
-        GROUP BY link_type
-    """)
-    stats["telegram_by_type"] = dict(cur.fetchall())
-
-    conn.close()
-    return stats
+    return [r[0] for r in rows]
 
 
 # ======================
 # Export
 # ======================
 
-def export_links(platform: str, link_type: Optional[str] = None) -> Optional[str]:
-    conn = get_connection()
-    cur = conn.cursor()
-
-    if link_type:
-        cur.execute("""
-            SELECT url FROM links
-            WHERE platform = ? AND link_type = ?
-            ORDER BY collected_date ASC
-        """, (platform, link_type))
-        filename = f"{platform}_{link_type}.txt"
-    else:
-        cur.execute("""
-            SELECT url FROM links
-            WHERE platform = ?
-            ORDER BY collected_date ASC
-        """, (platform,))
-        filename = f"{platform}_all.txt"
-
-    rows = cur.fetchall()
-    conn.close()
-
-    if not rows:
+def export_links(platform: str) -> Optional[str]:
+    links = get_links(platform)
+    if not links:
         return None
 
     os.makedirs(EXPORT_DIR, exist_ok=True)
-    path = os.path.join(EXPORT_DIR, filename)
+    path = os.path.join(EXPORT_DIR, f"{platform}_links.txt")
 
     with open(path, "w", encoding="utf-8") as f:
-        for (url,) in rows:
+        for url in links:
             f.write(url + "\n")
 
     return path
@@ -283,4 +251,4 @@ def export_links(platform: str, link_type: Optional[str] = None) -> Optional[str
 
 if __name__ == "__main__":
     init_db()
-    print("✅ Database initialized successfully")
+    print("✅ Database ready")
