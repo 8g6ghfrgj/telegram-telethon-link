@@ -7,4 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# إنشاء المجلدات
+RUN mkdir -p data exports sessions
+
 CMD ["python", "bot.py"]
