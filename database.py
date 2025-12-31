@@ -2,51 +2,64 @@ import sqlite3
 import os
 import json
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
-DATABASE_PATH = "data/database.db"
+DATABASE_PATH = os.getenv("DATABASE_PATH", "data/database.db")
 
-
-# ======================
+# ======================================================
 # Connection
-# ======================
+# ======================================================
 
 def get_connection():
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     return sqlite3.connect(DATABASE_PATH, check_same_thread=False)
 
 
-# ======================
+# ======================================================
 # Init DB
-# ======================
+# ======================================================
 
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
 
-    # Sessions
+    # sessions
     cur.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_string TEXT UNIQUE NOT NULL,
-            phone TEXT,
+            phone_number TEXT,
+            display_name TEXT,
             is_active INTEGER DEFAULT 1,
-            added_at TEXT,
+            added_date TEXT,
             last_used TEXT
         )
     """)
 
-    # Links
+    # links
     cur.execute("""
         CREATE TABLE IF NOT EXISTS links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT UNIQUE NOT NULL,
-            platform TEXT NOT NULL,
+            url TEXT UNIQUE,
+            platform TEXT,
             link_type TEXT,
-            source TEXT,
+            source_account TEXT,
             chat_id TEXT,
             message_date TEXT,
-            created_at TEXT
+            collected_date TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # collection stats
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS collection_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            start_time TEXT,
+            end_time TEXT,
+            status TEXT,
+            telegram_collected INTEGER DEFAULT 0,
+            whatsapp_collected INTEGER DEFAULT 0
         )
     """)
 
@@ -54,26 +67,32 @@ def init_db():
     conn.close()
 
 
-# ======================
-# Session Management
-# ======================
+# ======================================================
+# Sessions
+# ======================================================
 
-def add_session(session_string: str, phone: str = None) -> bool:
+def add_session_to_db(session_string: str, account_info: Dict) -> bool:
+    conn = get_connection()
+    cur = conn.cursor()
+
     try:
-        conn = get_connection()
-        cur = conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO sessions
-            (session_string, phone, is_active, added_at)
-            VALUES (?, ?, 1, ?)
-        """, (session_string, phone, datetime.utcnow().isoformat()))
+            (session_string, phone_number, display_name, added_date, is_active)
+            VALUES (?, ?, ?, ?, 1)
+        """, (
+            session_string,
+            account_info.get("phone"),
+            account_info.get("username") or account_info.get("first_name"),
+            datetime.now().isoformat()
+        ))
         conn.commit()
         return cur.rowcount > 0
     finally:
         conn.close()
 
 
-def get_sessions(active_only: bool = False) -> List[Dict]:
+def get_sessions(active_only: bool = True) -> List[Dict]:
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -92,18 +111,16 @@ def get_active_sessions() -> List[Dict]:
     return get_sessions(active_only=True)
 
 
-def update_session_status(session_id: int, is_active: bool) -> bool:
+def update_session_status(session_id: int, is_active: bool):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
         UPDATE sessions
         SET is_active = ?, last_used = ?
         WHERE id = ?
-    """, (1 if is_active else 0, datetime.utcnow().isoformat(), session_id))
+    """, (1 if is_active else 0, datetime.now().isoformat(), session_id))
     conn.commit()
-    success = cur.rowcount > 0
     conn.close()
-    return success
 
 
 def delete_session(session_id: int) -> bool:
@@ -111,50 +128,38 @@ def delete_session(session_id: int) -> bool:
     cur = conn.cursor()
     cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
     conn.commit()
-    success = cur.rowcount > 0
+    ok = cur.rowcount > 0
     conn.close()
-    return success
+    return ok
 
 
-# ======================
-# Link Management
-# ======================
-
-def link_exists(url: str) -> bool:
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM links WHERE url = ?", (url,))
-    exists = cur.fetchone() is not None
-    conn.close()
-    return exists
-
+# ======================================================
+# Links
+# ======================================================
 
 def save_link(
     url: str,
     platform: str,
     link_type: str,
-    source: str = None,
-    chat_id: str = None,
-    message_date=None
+    source_account: str,
+    chat_id: str,
+    message_date
 ) -> bool:
-    if not url or not platform:
-        return False
+    conn = get_connection()
+    cur = conn.cursor()
 
     try:
-        conn = get_connection()
-        cur = conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO links
-            (url, platform, link_type, source, chat_id, message_date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (url, platform, link_type, source_account, chat_id, message_date)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             url,
             platform,
             link_type,
-            source,
+            source_account,
             chat_id,
-            message_date.isoformat() if message_date else None,
-            datetime.utcnow().isoformat()
+            message_date.isoformat() if message_date else None
         ))
         conn.commit()
         return cur.rowcount > 0
@@ -162,47 +167,70 @@ def save_link(
         conn.close()
 
 
-def get_links_by_type(
-    platform: str,
-    link_type: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0
-) -> List[Dict]:
+def get_links_by_type(platform: str, link_type: Optional[str] = None) -> List[Dict]:
     conn = get_connection()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     if link_type:
-        cur.execute("""
-            SELECT * FROM links
-            WHERE platform = ? AND link_type = ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        """, (platform, link_type, limit, offset))
+        cur.execute(
+            "SELECT * FROM links WHERE platform=? AND link_type=?",
+            (platform, link_type)
+        )
     else:
-        cur.execute("""
-            SELECT * FROM links
-            WHERE platform = ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        """, (platform, limit, offset))
+        cur.execute(
+            "SELECT * FROM links WHERE platform=?",
+            (platform,)
+        )
 
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def export_links_by_type(platform: str, link_type: Optional[str] = None) -> Optional[str]:
-    links = get_links_by_type(platform, link_type, limit=100000, offset=0)
-    if not links:
-        return None
+# ======================================================
+# Collection stats  (🔥 هذه هي الدوال التي كانت ناقصة)
+# ======================================================
 
-    os.makedirs("exports", exist_ok=True)
-    name = f"{platform}_{link_type or 'all'}.txt"
-    path = os.path.join("exports", name)
+def start_collection_session(session_id: int) -> int:
+    conn = get_connection()
+    cur = conn.cursor()
 
-    with open(path, "w", encoding="utf-8") as f:
-        for link in links:
-            f.write(link["url"] + "\n")
+    cur.execute("""
+        INSERT INTO collection_stats
+        (session_id, start_time, status)
+        VALUES (?, ?, 'running')
+    """, (session_id, datetime.now().isoformat()))
 
-    return path
+    conn.commit()
+    cid = cur.lastrowid
+    conn.close()
+    return cid
+
+
+def update_collection_stats(
+    collection_id: int,
+    status: Optional[str] = None,
+    telegram_count: int = 0,
+    whatsapp_count: int = 0
+):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if status:
+        cur.execute("""
+            UPDATE collection_stats
+            SET status=?, end_time=?
+            WHERE id=?
+        """, (status, datetime.now().isoformat(), collection_id))
+
+    if telegram_count or whatsapp_count:
+        cur.execute("""
+            UPDATE collection_stats
+            SET telegram_collected = telegram_collected + ?,
+                whatsapp_collected = whatsapp_collected + ?
+            WHERE id=?
+        """, (telegram_count, whatsapp_count, collection_id))
+
+    conn.commit()
+    conn.close()
