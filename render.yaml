@@ -1,11 +1,13 @@
 services:
   - type: worker
-    name: telegram-link-collector
+    name: telegram-link-collector-pro
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: DATABASE_PATH
-        value: data/database.db
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
