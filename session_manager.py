@@ -1,319 +1,428 @@
-import asyncio
+import sqlite3
 import logging
-from pyrogram import Client
-from pyrogram.errors import (
-    AuthKeyUnregistered, 
-    SessionRevoked, 
-    AccessTokenExpired, 
-    AuthKeyDuplicated
-)
-from typing import Dict, List, Tuple, Optional
-import json
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.errors import AuthKeyError, SessionPasswordNeededError
 
-class SessionManager:
-    def __init__(self):
-        self.active_sessions = {}
-        
-    async def validate_session(self, session_string: str) -> Tuple[bool, Dict]:
-        """
-        التحقق من صحة جلسة التليجرام
-        
-        Args:
-            session_string: نص جلسة التليجرام
-            
-        Returns:
-            tuple: (is_valid, account_info)
-        """
-        try:
-            # إنشاء عميل مؤقت للتحقق
-            client = Client(
-                name="session_validator",
-                session_string=session_string,
-                in_memory=True,
-                no_updates=True
-            )
-            
-            await client.connect()
-            
-            # الحصول على معلومات الحساب
-            me = await client.get_me()
-            
-            account_info = {
-                'user_id': me.id,
-                'phone_number': me.phone_number,
-                'username': me.username,
-                'first_name': me.first_name,
-                'last_name': me.last_name,
-                'is_bot': me.is_bot,
-                'language_code': me.language_code
-            }
-            
-            await client.disconnect()
-            
-            return True, account_info
-            
-        except AuthKeyUnregistered:
-            return False, {'error': 'الجلسة غير مسجلة أو منتهية'}
-        except SessionRevoked:
-            return False, {'error': 'تم إلغاء الجلسة'}
-        except AccessTokenExpired:
-            return False, {'error': 'انتهت صلاحية رمز الوصول'}
-        except AuthKeyDuplicated:
-            return False, {'error': 'تم استخدام الجلسة من مكان آخر'}
-        except Exception as e:
-            logger.error(f"Session validation error: {e}")
-            return False, {'error': f'خطأ غير متوقع: {str(e)}'}
-    
-    async def create_session_client(self, session_id: int, session_string: str, session_name: str = None) -> Optional[Client]:
-        """
-        إنشاء عميل جلسة
-        
-        Args:
-            session_id: معرف الجلسة
-            session_string: نص الجلسة
-            session_name: اسم الجلسة (اختياري)
-            
-        Returns:
-            Client or None
-        """
-        try:
-            if not session_name:
-                session_name = f"session_{session_id}"
-            
-            client = Client(
-                name=session_name,
-                session_string=session_string,
-                in_memory=True
-            )
-            
-            # اختبار الاتصال
-            await client.connect()
-            await client.get_me()
-            
-            self.active_sessions[session_id] = {
-                'client': client,
-                'last_used': datetime.now(),
-                'is_active': True
-            }
-            
-            return client
-            
-        except Exception as e:
-            logger.error(f"Error creating session client: {e}")
-            return None
-    
-    async def close_session(self, session_id: int):
-        """إغلاق جلسة"""
-        if session_id in self.active_sessions:
-            try:
-                client_data = self.active_sessions[session_id]
-                await client_data['client'].disconnect()
-                await client_data['client'].stop()
-            except:
-                pass
-            
-            del self.active_sessions[session_id]
-    
-    async def close_all_sessions(self):
-        """إغلاق جميع الجلسات"""
-        for session_id in list(self.active_sessions.keys()):
-            await self.close_session(session_id)
-    
-    async def test_all_sessions(self, sessions_data: List[Dict]) -> Dict:
-        """
-        اختبار جميع الجلسات
-        
-        Args:
-            sessions_data: قائمة بيانات الجلسات
-            
-        Returns:
-            dict: نتائج الاختبار
-        """
-        results = {
-            'total': len(sessions_data),
-            'valid': 0,
-            'invalid': 0,
-            'details': []
-        }
-        
-        for session in sessions_data:
-            session_id = session.get('id')
-            session_string = session.get('session_string')
-            
-            if not session_string:
-                continue
-            
-            is_valid, info = await self.validate_session(session_string)
-            
-            result = {
-                'session_id': session_id,
-                'is_valid': is_valid,
-                'info': info if is_valid else info.get('error', 'خطأ غير معروف')
-            }
-            
-            results['details'].append(result)
-            
-            if is_valid:
-                results['valid'] += 1
-            else:
-                results['invalid'] += 1
-        
-        return results
+from config import API_ID, API_HASH, DATABASE_PATH, SESSIONS_DIR
+from database import get_connection
 
-# وظائف مساعدة لقاعدة البيانات
+======================
+
+Logging
+
+======================
+
+logger = logging.getLogger(name)
+
+======================
+
+Session Validation
+
+======================
+
+async def validate_session(session_string: str) -> Tuple[bool, Optional[Dict]]:
+"""
+التحقق من صحة Session String
+وإرجاع معلومات الحساب
+"""
+client = None
+try:
+client = TelegramClient(
+StringSession(session_string),
+API_ID,
+API_HASH
+)
+
+await client.connect()  
+      
+    if not await client.is_user_authorized():  
+        return False, {"error": "Session غير مصرح به"}  
+      
+    # الحصول على معلومات الحساب  
+    me = await client.get_me()  
+      
+    account_info = {  
+        "user_id": me.id,  
+        "first_name": me.first_name,  
+        "last_name": me.last_name,  
+        "username": me.username,  
+        "phone": me.phone,  
+        "is_bot": me.bot,  
+        "premium": me.premium if hasattr(me, 'premium') else False  
+    }  
+      
+    await client.disconnect()  
+    return True, account_info  
+      
+except AuthKeyError:  
+    logger.error("AuthKeyError: Session غير صالح")  
+    return False, {"error": "Session غير صالح (AuthKeyError)"}  
+except SessionPasswordNeededError:  
+    logger.error("SessionPasswordNeededError: الحساب محمي بكلمة مرور")  
+    return False, {"error": "الحساب محمي بكلمة مرور ثنائية"}  
+except Exception as e:  
+    logger.error(f"Error validating session: {e}")  
+    if client:  
+        try:  
+            await client.disconnect()  
+        except:  
+            pass  
+    return False, {"error": str(e)}
+
+======================
+
+Session Database Operations
+
+======================
+
 def add_session_to_db(session_string: str, account_info: Dict) -> bool:
-    """
-    إضافة جلسة إلى قاعدة البيانات
-    
-    Args:
-        session_string: نص الجلسة
-        account_info: معلومات الحساب
-        
-    Returns:
-        bool: True إذا نجحت الإضافة
-    """
-    from database import get_connection
-    
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        
-        display_name = account_info.get('first_name', '')
-        if account_info.get('username'):
-            display_name = f"@{account_info.get('username')}"
-        elif not display_name:
-            display_name = f"حساب {account_info.get('user_id')}"
-        
-        cur.execute('''
-            INSERT INTO sessions 
-            (session_string, phone_number, username, user_id, 
-             first_name, display_name, added_date, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            session_string,
-            account_info.get('phone_number', ''),
-            account_info.get('username', ''),
-            account_info.get('user_id', ''),
-            account_info.get('first_name', ''),
-            display_name,
-            datetime.now().isoformat(),
-            1  # مفعلة افتراضياً
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error adding session to DB: {e}")
-        return False
+"""
+إضافة جلسة جديدة إلى قاعدة البيانات
+"""
+try:
+conn = get_connection()
+cur = conn.cursor()
 
-def get_all_sessions() -> List[Dict]:
-    """الحصول على جميع الجلسات"""
-    from database import get_connection
-    
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        
-        cur.execute('''
-            SELECT id, session_string, phone_number, username, 
-                   user_id, first_name, display_name, 
-                   added_date, last_used, is_active
-            FROM sessions
-            ORDER BY id DESC
-        ''')
-        
-        rows = cur.fetchall()
-        conn.close()
-        
-        sessions = []
-        for row in rows:
-            sessions.append({
-                'id': row[0],
-                'session_string': row[1],
-                'phone_number': row[2] or 'غير معروف',
-                'username': row[3] or 'غير معروف',
-                'user_id': row[4],
-                'first_name': row[5] or '',
-                'display_name': row[6] or f"جلسة {row[0]}",
-                'added_date': row[7],
-                'last_used': row[8] or 'لم يستخدم',
-                'is_active': bool(row[9])
-            })
-        
-        return sessions
-        
-    except Exception as e:
-        logger.error(f"Error getting sessions: {e}")
-        return []
+phone_number = account_info.get("phone", "")  
+    user_id = account_info.get("user_id", 0)  
+    username = account_info.get("username", "")  
+    first_name = account_info.get("first_name", "")  
+      
+    # إنشاء اسم عرضي للحساب  
+    display_name = first_name or username or f"User_{user_id}"  
+      
+    cur.execute(  
+        """  
+        INSERT OR IGNORE INTO sessions   
+        (session_string, phone_number, user_id, username, display_name, added_date, is_active)  
+        VALUES (?, ?, ?, ?, ?, ?, ?)  
+        """,  
+        (  
+            session_string,  
+            phone_number,  
+            user_id,  
+            username,  
+            display_name,  
+            datetime.now().isoformat(),  
+            1  
+        )  
+    )  
+      
+    conn.commit()  
+    success = cur.rowcount > 0  
+      
+    if success:  
+        logger.info(f"Session added for user: {display_name} (ID: {user_id})")  
+    else:  
+        logger.warning(f"Session already exists for user: {display_name}")  
+      
+    conn.close()  
+    return success  
+      
+except Exception as e:  
+    logger.error(f"Error adding session to DB: {e}")  
+    return False
+
+def get_all_sessions(active_only: bool = True) -> List[Dict]:
+"""
+الحصول على جميع الجلسات
+"""
+try:
+conn = get_connection()
+conn.row_factory = sqlite3.Row
+cur = conn.cursor()
+
+if active_only:  
+        cur.execute("""  
+            SELECT id, session_string, phone_number, user_id,   
+                   username, display_name, added_date, is_active, last_used  
+            FROM sessions   
+            WHERE is_active = 1  
+            ORDER BY added_date DESC  
+        """)  
+    else:  
+        cur.execute("""  
+            SELECT id, session_string, phone_number, user_id,   
+                   username, display_name, added_date, is_active, last_used  
+            FROM sessions   
+            ORDER BY added_date DESC  
+        """)  
+      
+    rows = cur.fetchall()  
+    conn.close()  
+      
+    sessions = []  
+    for row in rows:  
+        sessions.append(dict(row))  
+      
+    return sessions  
+      
+except Exception as e:  
+    logger.error(f"Error getting sessions: {e}")  
+    return []
+
+def get_active_sessions() -> List[Dict]:
+"""
+الحصول على الجلسات النشطة فقط
+"""
+return get_all_sessions(active_only=True)
+
+def get_session_by_id(session_id: int) -> Optional[Dict]:
+"""
+الحصول على جلسة محددة بالـ ID
+"""
+try:
+conn = get_connection()
+conn.row_factory = sqlite3.Row
+cur = conn.cursor()
+
+cur.execute("""  
+        SELECT id, session_string, phone_number, user_id,   
+               username, display_name, added_date, is_active, last_used  
+        FROM sessions   
+        WHERE id = ?  
+    """, (session_id,))  
+      
+    row = cur.fetchone()  
+    conn.close()  
+      
+    return dict(row) if row else None  
+      
+except Exception as e:  
+    logger.error(f"Error getting session by ID: {e}")  
+    return None
+
+def update_session_status(session_id: int, is_active: bool) -> bool:
+"""
+تحديث حالة الجلسة (نشط/غير نشط)
+"""
+try:
+conn = get_connection()
+cur = conn.cursor()
+
+cur.execute(  
+        """  
+        UPDATE sessions   
+        SET is_active = ?, last_used = ?  
+        WHERE id = ?  
+        """,  
+        (1 if is_active else 0, datetime.now().isoformat(), session_id)  
+    )  
+      
+    conn.commit()  
+    success = cur.rowcount > 0  
+    conn.close()  
+      
+    if success:  
+        status = "مفعل" if is_active else "معطل"  
+        logger.info(f"Session {session_id} status updated to: {status}")  
+      
+    return success  
+      
+except Exception as e:  
+    logger.error(f"Error updating session status: {e}")  
+    return False
 
 def delete_session(session_id: int) -> bool:
-    """حذف جلسة"""
-    from database import get_connection
-    
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        
-        cur.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
-        
-        conn.commit()
-        conn.close()
-        
-        return cur.rowcount > 0
-        
-    except Exception as e:
-        logger.error(f"Error deleting session: {e}")
-        return False
+"""
+حذف جلسة من قاعدة البيانات
+"""
+try:
+conn = get_connection()
+cur = conn.cursor()
 
-def export_sessions_to_file() -> Optional[str]:
-    """
-    تصدير جميع الجلسات إلى ملف
-    
-    Returns:
-        str: مسار الملف أو None
-    """
-    import os
-    from config import SESSIONS_DIR
-    
-    try:
-        sessions = get_all_sessions()
-        
-        if not sessions:
-            return None
-        
-        # إعداد البيانات للتخزين
-        export_data = []
-        for session in sessions:
-            # إخفاء بعض المعلومات الحساسة
-            safe_session = {
-                'id': session['id'],
-                'phone_number': session['phone_number'],
-                'username': session['username'],
-                'user_id': session['user_id'],
-                'display_name': session['display_name'],
-                'added_date': session['added_date'],
-                'is_active': session['is_active']
-            }
-            export_data.append(safe_session)
-        
-        # حفظ في ملف
-        filename = f"sessions_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        filepath = os.path.join(SESSIONS_DIR, filename)
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(export_data, f, ensure_ascii=False, indent=2)
-        
-        return filepath
-        
-    except Exception as e:
-        logger.error(f"Error exporting sessions: {e}")
-        return None
+# الحصول على معلومات الجلسة قبل الحذف (للتسجيل)  
+    session_info = get_session_by_id(session_id)  
+      
+    cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,))  
+      
+    conn.commit()  
+    success = cur.rowcount > 0  
+    conn.close()  
+      
+    if success and session_info:  
+        logger.info(f"Session deleted: {session_info.get('display_name')} (ID: {session_id})")  
+      
+    return success  
+      
+except Exception as e:  
+    logger.error(f"Error deleting session: {e}")  
+    return False
 
-# إنشاء كائن مدير الجلسات
-session_manager = SessionManager()
+def update_session_last_used(session_id: int):
+"""
+تحديث وقت آخر استخدام للجلسة
+"""
+try:
+conn = get_connection()
+cur = conn.cursor()
+
+cur.execute(  
+        """  
+        UPDATE sessions   
+        SET last_used = ?  
+        WHERE id = ?  
+        """,  
+        (datetime.now().isoformat(), session_id)  
+    )  
+      
+    conn.commit()  
+    conn.close()  
+      
+except Exception as e:  
+    logger.error(f"Error updating session last used: {e}")
+
+======================
+
+Session Testing
+
+======================
+
+async def test_all_sessions() -> Dict:
+"""
+اختبار جميع الجلسات للتأكد من صلاحيتها
+"""
+sessions = get_all_sessions(active_only=True)
+
+results = {  
+    "total": len(sessions),  
+    "valid": 0,  
+    "invalid": 0,  
+    "details": []  
+}  
+  
+for session in sessions:  
+    session_id = session.get("id")  
+    session_string = session.get("session_string")  
+      
+    try:  
+        is_valid, account_info = await validate_session(session_string)  
+          
+        if is_valid:  
+            results["valid"] += 1  
+            results["details"].append({  
+                "session_id": session_id,  
+                "status": "valid",  
+                "account": account_info  
+            })  
+            logger.info(f"Session {session_id} is valid")  
+        else:  
+            results["invalid"] += 1  
+            results["details"].append({  
+                "session_id": session_id,  
+                "status": "invalid",  
+                "error": account_info.get("error", "Unknown error")  
+            })  
+            logger.warning(f"Session {session_id} is invalid: {account_info.get('error')}")  
+              
+            # تعطيل الجلسة غير الصالحة تلقائياً  
+            update_session_status(session_id, False)  
+              
+    except Exception as e:  
+        results["invalid"] += 1  
+        results["details"].append({  
+            "session_id": session_id,  
+            "status": "error",  
+            "error": str(e)  
+        })  
+        logger.error(f"Error testing session {session_id}: {e}")  
+  
+return results
+
+======================
+
+Export/Import Sessions
+
+======================
+
+def export_sessions_to_file(filepath: str = None) -> Optional[str]:
+"""
+تصدير الجلسات إلى ملف نصي (مشفر)
+"""
+try:
+sessions = get_all_sessions(active_only=False)
+
+if not sessions:  
+        logger.warning("No sessions to export")  
+        return None  
+      
+    if not filepath:  
+        import os  
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  
+        filepath = os.path.join(SESSIONS_DIR, f"sessions_backup_{timestamp}.txt")  
+      
+    # إنشاء محتوى الملف  
+    content = []  
+    content.append("# Telegram Sessions Backup")  
+    content.append(f"# Exported at: {datetime.now().isoformat()}")  
+    content.append(f"# Total sessions: {len(sessions)}")  
+    content.append("")  
+      
+    for session in sessions:  
+        content.append(f"# Session ID: {session.get('id')}")  
+        content.append(f"# Display Name: {session.get('display_name', 'Unknown')}")  
+        content.append(f"# Phone: {session.get('phone_number', 'Unknown')}")  
+        content.append(f"# Added: {session.get('added_date')}")  
+        content.append(f"# Active: {'Yes' if session.get('is_active') else 'No'}")  
+        content.append(session.get('session_string'))  
+        content.append("---")  
+      
+    # حفظ الملف  
+    import os  
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)  
+      
+    with open(filepath, 'w', encoding='utf-8') as f:  
+        f.write('\n'.join(content))  
+      
+    logger.info(f"Sessions exported to: {filepath}")  
+    return filepath  
+      
+except Exception as e:  
+    logger.error(f"Error exporting sessions: {e}")  
+    return None
+
+======================
+
+Quick Test Function
+
+======================
+
+async def test_session_manager():
+"""
+اختبار وظائف مدير الجلسات
+"""
+print("🧪 Testing Session Manager...")
+
+# اختبار الحصول على الجلسات  
+sessions = get_all_sessions()  
+print(f"📋 Total sessions in DB: {len(sessions)}")  
+  
+for session in sessions:  
+    print(f"  - ID: {session.get('id')}, Name: {session.get('display_name')}")  
+  
+# اختبار التحقق من الجلسات  
+if sessions:  
+    print("\n🔍 Testing session validation...")  
+    test_results = await test_all_sessions()  
+    print(f"  Valid: {test_results['valid']}, Invalid: {test_results['invalid']}")  
+  
+print("\n✅ Session Manager test completed")
+
+======================
+
+Initialize
+
+======================
+
+if name == "main":
+import asyncio
+
+# تهيئة التسجيل  
+logging.basicConfig(level=logging.INFO)  
+  
+# اختبار الوحدة  
+asyncio.run(test_session_manager())
