@@ -19,7 +19,7 @@ from database import (
     init_db, get_link_stats, get_links_by_type, export_links_by_type,
     add_session, get_sessions, delete_session, update_session_status,
     start_collection_session, update_collection_stats,
-    link_exists, add_link, get_all_links
+    get_all_links  # تم إزالة link_exists
 )
 from session_manager import (
     validate_session, export_sessions_to_file, test_all_sessions
@@ -64,6 +64,107 @@ def clean_url(url: str) -> str:
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     return url
+
+# ======================
+# Database Helper Functions (مضافة هنا بدلاً من استيرادها)
+# ======================
+
+def link_exists(url: str) -> bool:
+    """التحقق إذا كان الرابط موجود مسبقاً"""
+    try:
+        from database import DATABASE_NAME
+        import sqlite3
+        
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM links WHERE url = ?', (url,))
+        count = cursor.fetchone()[0]
+        
+        conn.close()
+        return count > 0
+    except Exception as e:
+        logger.error(f"Error checking link existence: {e}")
+        return False
+
+def add_link_to_db(url: str, platform: str, link_type: str, source_session: int = None):
+    """إضافة رابط جديد إلى قاعدة البيانات"""
+    try:
+        from database import DATABASE_NAME
+        import sqlite3
+        from datetime import datetime
+        
+        # تنظيف الرابط
+        url = clean_url(url)
+        
+        # التحقق من التكرار
+        if link_exists(url):
+            return False
+        
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO links (url, platform, link_type, source_session, collected_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (url, platform, link_type, source_session, datetime.now()))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error adding link to database: {e}")
+        return False
+
+def delete_links_by_type(platform: str = None, link_type: str = None):
+    """حذف الروابط حسب النوع"""
+    try:
+        from database import DATABASE_NAME
+        import sqlite3
+        
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        
+        if platform and link_type:
+            cursor.execute('''
+                DELETE FROM links WHERE platform = ? AND link_type = ?
+            ''', (platform, link_type))
+        elif platform:
+            cursor.execute('''
+                DELETE FROM links WHERE platform = ?
+            ''', (platform,))
+        elif link_type:
+            cursor.execute('''
+                DELETE FROM links WHERE link_type = ?
+            ''', (link_type,))
+        else:
+            cursor.execute('DELETE FROM links')
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return deleted_count
+    except Exception as e:
+        logger.error(f"Error deleting links: {e}")
+        return 0
+
+def delete_all_sessions():
+    """حذف جميع الجلسات"""
+    try:
+        from database import DATABASE_NAME
+        import sqlite3
+        
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM sessions')
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return deleted_count
+    except Exception as e:
+        logger.error(f"Error deleting sessions: {e}")
+        return 0
 
 # ======================
 # Keyboards
@@ -244,60 +345,6 @@ def pagination_keyboard(platform: str, link_type: str, page: int, has_next: bool
     ])
 
 # ======================
-# Database Functions (إضافة جديدة)
-# ======================
-
-def delete_links_by_type(platform: str = None, link_type: str = None):
-    """حذف الروابط حسب النوع"""
-    import sqlite3
-    from database import DATABASE_NAME
-    
-    conn = sqlite3.connect(DATABASE_NAME)
-    cursor = conn.cursor()
-    
-    try:
-        if platform and link_type:
-            cursor.execute('''
-                DELETE FROM links WHERE platform = ? AND link_type = ?
-            ''', (platform, link_type))
-        elif platform:
-            cursor.execute('''
-                DELETE FROM links WHERE platform = ?
-            ''', (platform,))
-        elif link_type:
-            cursor.execute('''
-                DELETE FROM links WHERE link_type = ?
-            ''', (link_type,))
-        else:
-            cursor.execute('DELETE FROM links')
-        
-        conn.commit()
-        return cursor.rowcount
-    except Exception as e:
-        logger.error(f"Error deleting links: {e}")
-        return 0
-    finally:
-        conn.close()
-
-def delete_all_sessions():
-    """حذف جميع الجلسات"""
-    import sqlite3
-    from database import DATABASE_NAME
-    
-    conn = sqlite3.connect(DATABASE_NAME)
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('DELETE FROM sessions')
-        conn.commit()
-        return cursor.rowcount
-    except Exception as e:
-        logger.error(f"Error deleting sessions: {e}")
-        return 0
-    finally:
-        conn.close()
-
-# ======================
 # Command Handlers
 # ======================
 
@@ -396,7 +443,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if by_platform:
         stats_text += "*حسب المنصة:*\n"
         for platform, count in by_platform.items():
-            stats_text += f"• {platform}: {count}\n"
+            platform_name = "تيليجرام" if platform == "telegram" else "واتساب"
+            stats_text += f"• {platform_name}: {count}\n"
     
     telegram_by_type = stats.get('telegram_by_type', {})
     if telegram_by_type:
@@ -494,8 +542,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # أنواع التليجرام
         elif data.startswith("telegram_"):
             parts = data.split('_')
-            link_type = f"{parts[1]}_{parts[2]}" if len(parts) > 3 else parts[1]
-            page = int(parts[3]) if len(parts) > 3 else int(parts[2]) if len(parts) > 2 else 0
+            if len(parts) >= 3:
+                link_type = f"{parts[1]}_{parts[2]}" 
+                page = int(parts[3]) if len(parts) > 3 else 0
+            else:
+                link_type = parts[1]
+                page = 0
             await show_telegram_links(query, link_type, page)
         
         # أنواع الواتساب
@@ -1214,6 +1266,7 @@ def main():
     logger.info("• إمكانية حذف الروابط حسب التصنيف")
     logger.info("• تحسين واجهة التصدير")
     logger.info("• إصلاح أخطاء التصنيف")
+    logger.info("• إضافة دوال التحقق من الروابط داخلياً")
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
