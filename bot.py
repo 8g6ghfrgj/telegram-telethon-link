@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from typing import List, Dict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,7 +18,8 @@ from config import BOT_TOKEN, LINKS_PER_PAGE
 from database import (
     init_db, get_link_stats, get_links_by_type, export_links_by_type,
     add_session, get_sessions, delete_session, update_session_status,
-    start_collection_session, update_collection_stats
+    start_collection_session, update_collection_stats,
+    link_exists, add_link, get_all_links
 )
 from session_manager import (
     validate_session, export_sessions_to_file, test_all_sessions
@@ -36,6 +38,32 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ======================
+# Helper Functions
+# ======================
+
+def extract_invite_code(url: str) -> str:
+    """استخراج رمز الدعوة من الرابط"""
+    patterns = [
+        r't\.me/\+([A-Za-z0-9_-]+)',
+        r't\.me/joinchat/([A-Za-z0-9_-]+)',
+        r't\.me/([A-Za-z0-9_]+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return ""
+
+def clean_url(url: str) -> str:
+    """تنظيف الرابط"""
+    url = url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    return url
 
 # ======================
 # Keyboards
@@ -63,6 +91,9 @@ def main_menu_keyboard():
         [
             InlineKeyboardButton("📈 إحصائيات", callback_data="menu_stats"),
             InlineKeyboardButton("🔍 اختبار الجلسات", callback_data="menu_test_sessions")
+        ],
+        [
+            InlineKeyboardButton("🗑️ حذف روابط", callback_data="menu_delete_links")
         ]
     ])
 
@@ -82,15 +113,8 @@ def telegram_types_keyboard(page: int = 0):
     """أنواع روابط التليجرام"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📢 القنوات", callback_data=f"telegram_channel_{page}"),
-            InlineKeyboardButton("👥 مجموعات عامة", callback_data=f"telegram_public_group_{page}")
-        ],
-        [
-            InlineKeyboardButton("🔒 مجموعات خاصة", callback_data=f"telegram_private_group_{page}"),
-            InlineKeyboardButton("🤖 البوتات", callback_data=f"telegram_bot_{page}")
-        ],
-        [
-            InlineKeyboardButton("📩 روابط رسائل", callback_data=f"telegram_message_{page}")
+            InlineKeyboardButton("👥 مجموعات عامة", callback_data=f"telegram_public_group_{page}"),
+            InlineKeyboardButton("🔒 مجموعات خاصة", callback_data=f"telegram_private_group_{page}")
         ],
         [
             InlineKeyboardButton("🔙 رجوع", callback_data="menu_view_links")
@@ -125,6 +149,10 @@ def sessions_list_keyboard(sessions: List[Dict]):
         ])
     
     keyboard.append([
+        InlineKeyboardButton("🗑️ حذف جميع الجلسات", callback_data="delete_all_sessions")
+    ])
+    
+    keyboard.append([
         InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")
     ])
     
@@ -146,15 +174,44 @@ def export_options_keyboard():
     """خيارات التصدير"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📨 تصدير تيليجرام", callback_data="export_telegram"),
-            InlineKeyboardButton("📞 تصدير واتساب", callback_data="export_whatsapp")
+            InlineKeyboardButton("👥 مجموعات عامة", callback_data="export_public_groups"),
+            InlineKeyboardButton("🔒 مجموعات خاصة", callback_data="export_private_groups")
         ],
         [
-            InlineKeyboardButton("📊 تصدير الكل", callback_data="export_all"),
+            InlineKeyboardButton("📨 كل روابط تيليجرام", callback_data="export_all_telegram"),
+            InlineKeyboardButton("📞 كل روابط واتساب", callback_data="export_all_whatsapp")
+        ],
+        [
+            InlineKeyboardButton("📊 تصدير الكل مصنف", callback_data="export_all_sorted"),
             InlineKeyboardButton("💾 نسخ احتياطي", callback_data="export_backup")
         ],
         [
             InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")
+        ]
+    ])
+
+def delete_links_keyboard():
+    """خيارات حذف الروابط"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗑️ حذف جميع الروابط", callback_data="delete_all_links"),
+            InlineKeyboardButton("🗑️ حذف روابط واتساب", callback_data="delete_whatsapp_links")
+        ],
+        [
+            InlineKeyboardButton("🗑️ حذف مجموعات عامة", callback_data="delete_public_groups"),
+            InlineKeyboardButton("🗑️ حذف مجموعات خاصة", callback_data="delete_private_groups")
+        ],
+        [
+            InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")
+        ]
+    ])
+
+def confirm_delete_keyboard(delete_type: str):
+    """تأكيد الحذف"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_{delete_type}"),
+            InlineKeyboardButton("❌ إلغاء", callback_data="cancel_delete")
         ]
     ])
 
@@ -187,6 +244,60 @@ def pagination_keyboard(platform: str, link_type: str, page: int, has_next: bool
     ])
 
 # ======================
+# Database Functions (إضافة جديدة)
+# ======================
+
+def delete_links_by_type(platform: str = None, link_type: str = None):
+    """حذف الروابط حسب النوع"""
+    import sqlite3
+    from database import DATABASE_NAME
+    
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    try:
+        if platform and link_type:
+            cursor.execute('''
+                DELETE FROM links WHERE platform = ? AND link_type = ?
+            ''', (platform, link_type))
+        elif platform:
+            cursor.execute('''
+                DELETE FROM links WHERE platform = ?
+            ''', (platform,))
+        elif link_type:
+            cursor.execute('''
+                DELETE FROM links WHERE link_type = ?
+            ''', (link_type,))
+        else:
+            cursor.execute('DELETE FROM links')
+        
+        conn.commit()
+        return cursor.rowcount
+    except Exception as e:
+        logger.error(f"Error deleting links: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def delete_all_sessions():
+    """حذف جميع الجلسات"""
+    import sqlite3
+    from database import DATABASE_NAME
+    
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('DELETE FROM sessions')
+        conn.commit()
+        return cursor.rowcount
+    except Exception as e:
+        logger.error(f"Error deleting sessions: {e}")
+        return 0
+    finally:
+        conn.close()
+
+# ======================
 # Command Handlers
 # ======================
 
@@ -204,6 +315,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     • جمع روابط تيليجرام وواتساب فقط
     • تصنيف وتنظيف الروابط
     • تصدير الروابط مصنفة
+    • جمع المجموعات النشطة فقط
     
     اختر من القائمة:"""
     
@@ -235,8 +347,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     - استئناف: ▶️ استئناف
     - إيقاف نهائي: ⏹️ إيقاف الجمع
     
-    *تصدير الروابط:*
-    يمكن تصدير الروابط حسب التصنيف
+    *ملاحظة مهمة:*
+    البوت يجمع فقط المجموعات النشطة التي تحتوي على أعضاء
+    لا يجمع القنوات أو المجموعات الفارغة
     """
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -257,7 +370,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_text += f"""
         
         📊 *الإحصائيات الحالية:*
-        • روابط تيليجرام: {stats.get('telegram_collected', 0)}
+        • مجموعات عامة: {stats.get('public_groups', 0)}
+        • مجموعات خاصة: {stats.get('private_groups', 0)}
         • روابط واتساب: {stats.get('whatsapp_collected', 0)}
         • الإجمالي: {stats.get('total_collected', 0)}
         """
@@ -289,7 +403,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats_text += "\n*روابط تيليجرام حسب النوع:*\n"
         for link_type, count in telegram_by_type.items():
             if link_type:
-                stats_text += f"• {link_type}: {count}\n"
+                type_name = "مجموعات عامة" if link_type == "public_group" else "مجموعات خاصة"
+                stats_text += f"• {type_name}: {count}\n"
     
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
@@ -308,6 +423,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # القائمة الرئيسية
         if data == "menu_main":
             await show_main_menu(query)
+        
+        # حذف الروابط
+        elif data == "menu_delete_links":
+            await show_delete_links_menu(query)
+        
+        # تأكيد الحذف
+        elif data.startswith("confirm_delete_"):
+            delete_type = data.split('_')[2]
+            await confirm_delete_handler(query, delete_type)
+        
+        elif data == "cancel_delete":
+            await show_main_menu(query)
+        
+        # حذف جميع الجلسات
+        elif data == "delete_all_sessions":
+            await confirm_delete_all_sessions(query)
         
         # إضافة جلسة
         elif data == "menu_add_session":
@@ -363,8 +494,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # أنواع التليجرام
         elif data.startswith("telegram_"):
             parts = data.split('_')
-            link_type = parts[1]
-            page = int(parts[2]) if len(parts) > 2 else 0
+            link_type = f"{parts[1]}_{parts[2]}" if len(parts) > 3 else parts[1]
+            page = int(parts[3]) if len(parts) > 3 else int(parts[2]) if len(parts) > 2 else 0
             await show_telegram_links(query, link_type, page)
         
         # أنواع الواتساب
@@ -389,8 +520,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # التصدير
         elif data.startswith("export_"):
-            export_type = data.split('_')[1]
+            export_type = data[7:]  # إزالة "export_"
             await export_handler(query, export_type)
+        
+        # حذف الروابط حسب النوع
+        elif data.startswith("delete_"):
+            delete_type = data[7:]  # إزالة "delete_"
+            await confirm_delete_links(query, delete_type)
         
         # التصفح
         elif data.startswith("page_"):
@@ -424,6 +560,19 @@ async def show_main_menu(query):
         parse_mode="Markdown"
     )
 
+async def show_delete_links_menu(query):
+    """عرض قائمة حذف الروابط"""
+    stats = get_link_stats()
+    total_links = sum(stats.get('by_platform', {}).values()) if stats else 0
+    
+    await query.message.edit_text(
+        f"🗑️ *حذف الروابط*\n\n"
+        f"إجمالي الروابط: {total_links}\n\n"
+        f"اختر نوع الحذف:",
+        reply_markup=delete_links_keyboard(),
+        parse_mode="Markdown"
+    )
+
 async def show_platforms_menu(query):
     """عرض قائمة المنصات"""
     await query.message.edit_text(
@@ -434,27 +583,43 @@ async def show_platforms_menu(query):
 
 async def show_telegram_types(query):
     """عرض أنواع روابط التليجرام"""
+    stats = get_link_stats()
+    telegram_stats = stats.get('telegram_by_type', {}) if stats else {}
+    
+    public_count = telegram_stats.get('public_group', 0)
+    private_count = telegram_stats.get('private_group', 0)
+    
     await query.message.edit_text(
-        "📨 *روابط تيليجرام*\n\n"
-        "اختر نوع الروابط:",
+        f"📨 *روابط تيليجرام*\n\n"
+        f"• مجموعات عامة: {public_count}\n"
+        f"• مجموعات خاصة: {private_count}\n\n"
+        f"اختر نوع الروابط:",
         reply_markup=telegram_types_keyboard(),
         parse_mode="Markdown"
     )
 
 async def show_whatsapp_types(query):
     """عرض أنواع روابط الواتساب"""
+    stats = get_link_stats()
+    whatsapp_count = stats.get('by_platform', {}).get('whatsapp', 0) if stats else 0
+    
     await query.message.edit_text(
-        "📞 *روابط واتساب*\n\n"
-        "اختر نوع الروابط:",
+        f"📞 *روابط واتساب*\n\n"
+        f"إجمالي الروابط: {whatsapp_count}\n\n"
+        f"اختر نوع الروابط:",
         reply_markup=whatsapp_types_keyboard(),
         parse_mode="Markdown"
     )
 
 async def show_export_menu(query):
     """عرض قائمة التصدير"""
+    stats = get_link_stats()
+    total_links = sum(stats.get('by_platform', {}).values()) if stats else 0
+    
     await query.message.edit_text(
-        "📤 *تصدير البيانات*\n\n"
-        "اختر نوع التصدير:",
+        f"📤 *تصدير البيانات*\n\n"
+        f"إجمالي الروابط: {total_links}\n\n"
+        f"اختر نوع التصدير:",
         reply_markup=export_options_keyboard(),
         parse_mode="Markdown"
     )
@@ -473,14 +638,16 @@ async def show_stats(query):
     if by_platform:
         stats_text += "*حسب المنصة:*\n"
         for platform, count in by_platform.items():
-            stats_text += f"• {platform}: {count}\n"
+            platform_name = "تيليجرام" if platform == "telegram" else "واتساب"
+            stats_text += f"• {platform_name}: {count}\n"
     
     telegram_by_type = stats.get('telegram_by_type', {})
     if telegram_by_type:
         stats_text += "\n*روابط تيليجرام حسب النوع:*\n"
         for link_type, count in telegram_by_type.items():
             if link_type:
-                stats_text += f"• {link_type}: {count}\n"
+                type_name = "مجموعات عامة" if link_type == "public_group" else "مجموعات خاصة"
+                stats_text += f"• {type_name}: {count}\n"
     
     await query.message.edit_text(
         stats_text,
@@ -489,6 +656,109 @@ async def show_stats(query):
         ]),
         parse_mode="Markdown"
     )
+
+# ======================
+# Delete Handlers
+# ======================
+
+async def confirm_delete_all_sessions(query):
+    """تأكيد حذف جميع الجلسات"""
+    sessions_count = len(get_sessions())
+    
+    await query.message.edit_text(
+        f"⚠️ *تأكيد الحذف*\n\n"
+        f"هل أنت متأكد من حذف جميع الجلسات؟\n"
+        f"• عدد الجلسات: {sessions_count}\n\n"
+        f"❌ *هذا الإجراء لا يمكن التراجع عنه*",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ نعم، احذف الكل", callback_data="confirm_delete_all_sessions"),
+                InlineKeyboardButton("❌ إلغاء", callback_data="menu_list_sessions")
+            ]
+        ]),
+        parse_mode="Markdown"
+    )
+
+async def confirm_delete_links(query, delete_type: str):
+    """تأكيد حذف الروابط"""
+    type_names = {
+        "all_links": "جميع الروابط",
+        "whatsapp_links": "روابط واتساب",
+        "public_groups": "المجموعات العامة",
+        "private_groups": "المجموعات الخاصة"
+    }
+    
+    type_name = type_names.get(delete_type, delete_type)
+    
+    await query.message.edit_text(
+        f"⚠️ *تأكيد الحذف*\n\n"
+        f"هل أنت متأكد من حذف {type_name}؟\n\n"
+        f"❌ *هذا الإجراء لا يمكن التراجع عنه*",
+        reply_markup=confirm_delete_keyboard(delete_type),
+        parse_mode="Markdown"
+    )
+
+async def confirm_delete_handler(query, delete_type: str):
+    """معالجة تأكيد الحذف"""
+    type_names = {
+        "all_links": "جميع الروابط",
+        "whatsapp_links": "روابط واتساب",
+        "public_groups": "المجموعات العامة",
+        "private_groups": "المجموعات الخاصة",
+        "all_sessions": "جميع الجلسات"
+    }
+    
+    type_name = type_names.get(delete_type, delete_type)
+    
+    await query.message.edit_text(f"⏳ جاري حذف {type_name}...")
+    
+    try:
+        deleted_count = 0
+        
+        if delete_type == "all_sessions":
+            deleted_count = delete_all_sessions()
+            message = f"✅ تم حذف {deleted_count} جلسة"
+            callback_data = "menu_main"
+        
+        elif delete_type == "all_links":
+            deleted_count = delete_links_by_type()
+            message = f"✅ تم حذف {deleted_count} رابط"
+            callback_data = "menu_delete_links"
+        
+        elif delete_type == "whatsapp_links":
+            deleted_count = delete_links_by_type(platform="whatsapp")
+            message = f"✅ تم حذف {deleted_count} رابط واتساب"
+            callback_data = "menu_delete_links"
+        
+        elif delete_type == "public_groups":
+            deleted_count = delete_links_by_type(platform="telegram", link_type="public_group")
+            message = f"✅ تم حذف {deleted_count} مجموعة عامة"
+            callback_data = "menu_delete_links"
+        
+        elif delete_type == "private_groups":
+            deleted_count = delete_links_by_type(platform="telegram", link_type="private_group")
+            message = f"✅ تم حذف {deleted_count} مجموعة خاصة"
+            callback_data = "menu_delete_links"
+        
+        else:
+            message = "❌ نوع حذف غير معروف"
+            callback_data = "menu_delete_links"
+        
+        await query.message.edit_text(
+            message,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع", callback_data=callback_data)]
+            ])
+        )
+    
+    except Exception as e:
+        logger.error(f"Error deleting: {e}")
+        await query.message.edit_text(
+            "❌ حدث خطأ أثناء الحذف",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")]
+            ])
+        )
 
 # ======================
 # Session Handlers
@@ -586,7 +856,7 @@ async def toggle_session_handler(query, session_id: int):
     success = update_session_status(session_id, new_status)
     
     if success:
-        status_text = "مفعلة" if new_status else "معطلة"
+        status_text = "تفعيل" if new_status else "تعطيل"
         await query.message.edit_text(
             f"✅ تم {status_text} الجلسة",
             reply_markup=InlineKeyboardMarkup([
@@ -650,6 +920,9 @@ async def start_collection_handler(query):
         await query.message.edit_text(
             "🚀 *بدأ جمع الروابط*\n\n"
             "⏳ جاري جمع الروابط من جميع الجلسات...\n"
+            "• يجمع فقط المجموعات النشطة\n"
+            "• يتجاهل القنوات والمجموعات الفارغة\n"
+            "• يمنع التكرار\n\n"
             "سيتم إعلامك بالتقدم.",
             parse_mode="Markdown"
         )
@@ -710,11 +983,8 @@ async def stop_collection_handler(query):
 async def show_telegram_links(query, link_type: str, page: int = 0):
     """عرض روابط التليجرام"""
     type_names = {
-        "channel": "القنوات",
         "public_group": "المجموعات العامة",
-        "private_group": "المجموعات الخاصة",
-        "bot": "البوتات",
-        "message": "روابط الرسائل"
+        "private_group": "المجموعات الخاصة"
     }
     
     title = type_names.get(link_type, link_type)
@@ -776,39 +1046,66 @@ async def export_handler(query, export_type: str):
     await query.message.edit_text("⏳ جاري تحضير الملف...")
     
     try:
-        if export_type == "telegram":
+        if export_type == "public_groups":
+            path = export_links_by_type("telegram", "public_group")
+            filename = "telegram_public_groups.txt"
+            caption = "👥 مجموعات تيليجرام العامة"
+        
+        elif export_type == "private_groups":
+            path = export_links_by_type("telegram", "private_group")
+            filename = "telegram_private_groups.txt"
+            caption = "🔒 مجموعات تيليجرام الخاصة"
+        
+        elif export_type == "all_telegram":
             path = export_links_by_type("telegram")
-            filename = "telegram_links.txt"
-            caption = "📨 روابط تيليجرام"
+            filename = "all_telegram_groups.txt"
+            caption = "📨 جميع روابط تيليجرام"
         
-        elif export_type == "whatsapp":
+        elif export_type == "all_whatsapp":
             path = export_links_by_type("whatsapp")
-            filename = "whatsapp_links.txt"
-            caption = "📞 روابط واتساب"
+            filename = "all_whatsapp_groups.txt"
+            caption = "📞 جميع روابط واتساب"
         
-        elif export_type == "all":
-            # تصدير جميع الروابط
-            telegram_path = export_links_by_type("telegram")
+        elif export_type == "all_sorted":
+            # تصدير جميع الروابط مصنفة
+            public_path = export_links_by_type("telegram", "public_group")
+            private_path = export_links_by_type("telegram", "private_group")
             whatsapp_path = export_links_by_type("whatsapp")
             
-            if telegram_path:
-                with open(telegram_path, 'rb') as f:
-                    await query.message.reply_document(
-                        f,
-                        filename="telegram_links.txt",
-                        caption="📨 روابط تيليجرام"
-                    )
+            # إنشاء ملف واحد مصنف
+            import tempfile
+            sorted_file = tempfile.NamedTemporaryFile(mode='w+', suffix='.txt', delete=False, encoding='utf-8')
             
-            if whatsapp_path:
-                with open(whatsapp_path, 'rb') as f:
-                    await query.message.reply_document(
-                        f,
-                        filename="whatsapp_links.txt",
-                        caption="📞 روابط واتساب"
-                    )
+            if public_path and os.path.exists(public_path):
+                with open(public_path, 'r', encoding='utf-8') as f:
+                    sorted_file.write("="*50 + "\n")
+                    sorted_file.write("👥 مجموعات تيليجرام العامة\n")
+                    sorted_file.write("="*50 + "\n\n")
+                    sorted_file.write(f.read())
+                    sorted_file.write("\n\n")
             
-            await query.message.edit_text("✅ تم تصدير جميع الروابط")
-            return
+            if private_path and os.path.exists(private_path):
+                with open(private_path, 'r', encoding='utf-8') as f:
+                    sorted_file.write("="*50 + "\n")
+                    sorted_file.write("🔒 مجموعات تيليجرام الخاصة\n")
+                    sorted_file.write("="*50 + "\n\n")
+                    sorted_file.write(f.read())
+                    sorted_file.write("\n\n")
+            
+            if whatsapp_path and os.path.exists(whatsapp_path):
+                with open(whatsapp_path, 'r', encoding='utf-8') as f:
+                    sorted_file.write("="*50 + "\n")
+                    sorted_file.write("📞 مجموعات واتساب\n")
+                    sorted_file.write("="*50 + "\n\n")
+                    sorted_file.write(f.read())
+            
+            sorted_file.flush()
+            sorted_path = sorted_file.name
+            sorted_file.close()
+            
+            path = sorted_path
+            filename = "all_links_sorted.txt"
+            caption = "📊 جميع الروابط مصنفة"
         
         elif export_type == "backup":
             path = export_sessions_to_file()
@@ -827,6 +1124,13 @@ async def export_handler(query, export_type: str):
                     caption=caption
                 )
             await query.message.edit_text("✅ تم التصدير بنجاح")
+            
+            # حذف الملف المؤقت إذا كان
+            if export_type == "all_sorted":
+                try:
+                    os.unlink(path)
+                except:
+                    pass
         else:
             await query.message.edit_text("❌ لا توجد بيانات للتصدير")
     
@@ -905,6 +1209,12 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     logger.info("🤖 Starting Telegram Link Collector Bot...")
+    logger.info("✨ التعديلات المضافة:")
+    logger.info("• إمكانية حذف جميع الجلسات")
+    logger.info("• إمكانية حذف الروابط حسب التصنيف")
+    logger.info("• تحسين واجهة التصدير")
+    logger.info("• إصلاح أخطاء التصنيف")
+    
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
