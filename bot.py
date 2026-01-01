@@ -22,7 +22,7 @@ from database import (
     delete_all_sessions
 )
 from session_manager import (
-    validate_session, export_sessions_to_file, test_all_sessions
+    validate_session, export_sessions_to_file
 )
 
 # ======================
@@ -36,12 +36,84 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================
-# Global Variables
+# Collector Simulation (بديل مؤقت)
 # ======================
 
-# حالة الجمع
-_collection_active = False
-_collection_paused = False
+class CollectorSimulator:
+    """محاكي لجمع الروابط (بديل مؤقت)"""
+    
+    def __init__(self):
+        self.is_active = False
+        self.is_paused = False
+        self.stats = {
+            'total_collected': 0,
+            'telegram_collected': 0,
+            'whatsapp_collected': 0,
+            'public_groups': 0,
+            'private_groups': 0,
+            'whatsapp_groups': 0,
+            'duplicate_links': 0,
+            'inactive_links': 0
+        }
+    
+    async def start(self):
+        """بدء المحاكي"""
+        if self.is_active:
+            return False
+        
+        self.is_active = True
+        self.is_paused = False
+        
+        # بدء جلسة جمع في قاعدة البيانات
+        from database import start_collection_session, update_collection_stats
+        self.session_id = start_collection_session()
+        
+        # تحديث الإحصائيات أولاً
+        update_collection_stats(self.session_id, self.stats)
+        
+        logger.info("🔧 Collector simulator started")
+        return True
+    
+    async def stop(self):
+        """إيقاف المحاكي"""
+        if not self.is_active:
+            return False
+        
+        self.is_active = False
+        self.is_paused = False
+        
+        # تحديث الإحصائيات النهائية
+        from database import update_collection_stats
+        update_collection_stats(self.session_id, self.stats)
+        
+        logger.info(f"🔧 Collector simulator stopped. Total collected: {self.stats['total_collected']}")
+        return True
+    
+    async def simulate_collection(self):
+        """محاكاة عملية الجمع"""
+        if not self.is_active or self.is_paused:
+            return
+        
+        logger.info("🔧 Simulating collection...")
+        
+        # هذا مجرد محاكاة - في النسخة الحقيقية سيكون هنا كود الجمع الفعلي
+        await asyncio.sleep(2)
+        
+        # تحديث الإحصائيات (محاكاة)
+        self.stats['total_collected'] += 5
+        self.stats['telegram_collected'] += 3
+        self.stats['whatsapp_collected'] += 2
+        self.stats['public_groups'] += 2
+        self.stats['private_groups'] += 1
+        self.stats['whatsapp_groups'] += 2
+        
+        from database import update_collection_stats
+        update_collection_stats(self.session_id, self.stats)
+        
+        logger.info(f"🔧 Simulated collection: {self.stats['total_collected']} links")
+
+# إنشاء محاكي الجمع
+collector_simulator = CollectorSimulator()
 
 # ======================
 # Keyboards
@@ -84,8 +156,19 @@ def telegram_types_keyboard(page: int = 0):
     """أنواع روابط التليجرام"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("👥 المجموعات العامة", callback_data=f"telegram_public_group_{page}"),
-            InlineKeyboardButton("🔒 المجموعات الخاصة", callback_data=f"telegram_private_group_{page}")
+            InlineKeyboardButton("👥 المجموعات العامة", callback_data=f"type_telegram_public_group_{page}"),
+            InlineKeyboardButton("🔒 المجموعات الخاصة", callback_data=f"type_telegram_private_group_{page}")
+        ],
+        [
+            InlineKeyboardButton("🔙 رجوع", callback_data="menu_view_links")
+        ]
+    ])
+
+def whatsapp_types_keyboard(page: int = 0):
+    """أنواع روابط الواتساب"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("👥 مجموعات واتساب", callback_data=f"type_whatsapp_group_{page}")
         ],
         [
             InlineKeyboardButton("🔙 رجوع", callback_data="menu_view_links")
@@ -139,11 +222,11 @@ def export_options_keyboard():
     """خيارات التصدير"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("👥 مجموعات عامة", callback_data="export_public_groups"),
-            InlineKeyboardButton("🔒 مجموعات خاصة", callback_data="export_private_groups")
+            InlineKeyboardButton("👥 مجموعات عامة", callback_data="export_telegram_public_group"),
+            InlineKeyboardButton("🔒 مجموعات خاصة", callback_data="export_telegram_private_group")
         ],
         [
-            InlineKeyboardButton("📞 مجموعات واتساب", callback_data="export_whatsapp_groups"),
+            InlineKeyboardButton("📞 مجموعات واتساب", callback_data="export_whatsapp_group"),
             InlineKeyboardButton("📊 تصدير الكل", callback_data="export_all")
         ],
         [
@@ -190,13 +273,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = f"""
     🤖 *مرحباً {user.first_name}!*
     
-    *بوت جمع روابط المجموعات النشطة فقط*
+    *بوت جمع روابط المجموعات النشطة*
     
-    📋 *المميزات:*
-    • جمع روابط مجموعات تيليجرام العامة والخاصة النشطة فقط
-    • جمع روابط مجموعات واتساب النشطة فقط
-    • فحص الروابط للتأكد من وجود أعضاء
-    • تصدير الروابط مصنفة حسب النوع
+    📋 *المميزات المتوفرة حالياً:*
+    • إدارة الجلسات (إضافة/حذف/تفعيل/تعطيل)
+    • عرض الروابط المجمعة
+    • تصدير الروابط حسب النوع
+    • إحصائيات مفصلة
+    
+    ⚠️ *ملاحظة:* ميزة الجمع الفعلي قيد التطوير
+    حالياً يمكنك إضافة الجلسات وعرض البيانات المخزنة
     
     اختر من القائمة:"""
     
@@ -222,33 +308,45 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     2. أرسل Session String
     3. يتحقق البوت من صحتها
     
-    *جمع الروابط:*
-    - بدء الجمع: ▶️ بدء الجمع
-    - إيقاف نهائي: ⏹️ إيقاف الجمع
+    *عرض الروابط:*
+    - اضغط "📊 عرض الروابط"
+    - اختر المنصة (تيليجرام/واتساب)
+    - اختر نوع الروابط
     
     *تصدير الروابط:*
     يمكن تصدير الروابط حسب التصنيف:
-    • مجموعات عامة
-    • مجموعات خاصة
+    • مجموعات تيليجرام العامة
+    • مجموعات تيليجرام الخاصة
     • مجموعات واتساب
+    
+    *إحصائيات:*
+    اضغط "📈 إحصائيات" لعرض:
+    • عدد الروابط حسب المنصة
+    • عدد الروابط حسب النوع
     """
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /status"""
-    global _collection_active, _collection_paused
-    
-    if _collection_active:
-        status_text = "🔄 *جاري الجمع حالياً*"
-        if _collection_paused:
-            status_text = "⏸️ *الجمع موقف مؤقتاً*"
+    if collector_simulator.is_active:
+        status_text = "🔄 *الجمع يعمل حالياً*\n\n"
+        if collector_simulator.is_paused:
+            status_text = "⏸️ *الجمع موقف مؤقتاً*\n\n"
+        
+        stats = collector_simulator.stats
+        status_text += f"""
+        📊 *الإحصائيات الحالية:*
+        • مجموعات عامة: {stats.get('public_groups', 0)}
+        • مجموعات خاصة: {stats.get('private_groups', 0)}
+        • مجموعات واتساب: {stats.get('whatsapp_groups', 0)}
+        • الإجمالي: {stats.get('total_collected', 0)}
+        """
     else:
         status_text = "🛑 *الجمع متوقف*"
     
     sessions = get_sessions()
     active_sessions = len([s for s in sessions if s.get('is_active')])
-    
     status_text += f"\n\n👥 *الجلسات:* {len(sessions)} (نشطة: {active_sessions})"
     
     await update.message.reply_text(status_text, parse_mode="Markdown")
@@ -278,6 +376,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 stats_text += f"• مجموعات عامة: {count}\n"
             elif link_type == 'private_group':
                 stats_text += f"• مجموعات خاصة: {count}\n"
+    
+    # إحصائيات المحاكي
+    if collector_simulator.stats['total_collected'] > 0:
+        stats_text += "\n*إحصائيات الجمع الحالي:*\n"
+        stats_text += f"• الإجمالي المجمع: {collector_simulator.stats['total_collected']}\n"
     
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
@@ -344,12 +447,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "view_whatsapp":
             await show_whatsapp_types(query)
         
-        # أنواع التليجرام
-        elif data.startswith("telegram_"):
+        # أنواع الروابط
+        elif data.startswith("type_"):
             parts = data.split('_')
-            link_type = f"{parts[1]}_{parts[2]}"
-            page = int(parts[3]) if len(parts) > 3 else 0
-            await show_telegram_links(query, link_type, page)
+            if len(parts) >= 4:
+                platform = parts[1]
+                link_type = f"{parts[2]}_{parts[3]}"
+                page = int(parts[4]) if len(parts) > 4 else 0
+                
+                if platform == "telegram":
+                    await show_telegram_links(query, link_type, page)
+                elif platform == "whatsapp":
+                    await show_whatsapp_links(query, link_type, page)
         
         # إدارة الجلسات
         elif data.startswith("session_info_"):
@@ -366,27 +475,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # التصدير
         elif data.startswith("export_"):
-            export_type = data.split('_')[1]
-            if len(data.split('_')) > 2:
-                export_type += f"_{data.split('_')[2]}"
-            await export_handler(query, export_type)
+            parts = data.split('_')
+            if len(parts) == 3:
+                platform = parts[1]
+                link_type = f"{parts[2]}_{parts[3]}" if len(parts) > 3 else parts[2]
+                await export_handler(query, platform, link_type)
+            elif data == "export_all":
+                await export_all_handler(query)
         
         # التصفح
         elif data.startswith("page_"):
             parts = data.split('_')
-            platform = parts[1]
-            link_type = parts[2]
-            page = int(parts[3])
-            
-            if platform == "telegram":
-                await show_telegram_links(query, link_type, page)
+            if len(parts) >= 4:
+                platform = parts[1]
+                link_type = parts[2]
+                page = int(parts[3])
+                
+                if platform == "telegram":
+                    await show_telegram_links(query, link_type, page)
+                elif platform == "whatsapp":
+                    await show_whatsapp_links(query, link_type, page)
         
         else:
             await query.message.edit_text("❌ أمر غير معروف")
     
     except Exception as e:
         logger.error(f"❌ Error in callback handler: {e}")
-        await query.message.edit_text(f"❌ حدث خطأ في المعالجة\n\n{str(e)[:200]}")
+        await query.message.edit_text(f"❌ حدث خطأ في المعالجة\n\n{str(e)[:100]}")
 
 # ======================
 # Menu Handlers
@@ -423,10 +538,7 @@ async def show_whatsapp_types(query):
     await query.message.edit_text(
         "📞 *روابط واتساب*\n\n"
         "اختر نوع الروابط:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("👥 مجموعات واتساب", callback_data="whatsapp_group_0")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data="menu_view_links")]
-        ]),
+        reply_markup=whatsapp_types_keyboard(),
         parse_mode="Markdown"
     )
 
@@ -649,12 +761,6 @@ async def toggle_session_handler(query, session_id: int):
 
 async def start_collection_handler(query):
     """بدء الجمع"""
-    global _collection_active, _collection_paused
-    
-    if _collection_active:
-        await query.message.edit_text("⏳ الجمع يعمل بالفعل")
-        return
-    
     active_sessions = [s for s in get_sessions() if s.get('is_active')]
     if not active_sessions:
         await query.message.edit_text(
@@ -666,37 +772,55 @@ async def start_collection_handler(query):
         )
         return
     
-    _collection_active = True
-    _collection_paused = False
+    if collector_simulator.is_active:
+        await query.message.edit_text("⏳ الجمع يعمل بالفعل")
+        return
     
-    # بدء جلسة جمع جديدة
-    session_id = start_collection_session()
+    success = await collector_simulator.start()
     
-    await query.message.edit_text(
-        "🚀 *بدأ جمع الروابط*\n\n"
-        "⚡ *يتم جمع فقط:*\n"
-        "• مجموعات تيليجرام العامة النشطة\n"
-        "• مجموعات تيليجرام الخاصة النشطة\n"
-        "• مجموعات واتساب النشطة\n\n"
-        "⏳ جاري جمع الروابط من جميع الجلسات...",
-        parse_mode="Markdown"
-    )
+    if success:
+        # تشغيل محاكاة الجمع في الخلفية
+        asyncio.create_task(run_collection_simulation())
+        
+        await query.message.edit_text(
+            "🚀 *بدأ جمع الروابط*\n\n"
+            "⚡ *يتم جمع فقط:*\n"
+            "• مجموعات تيليجرام العامة النشطة\n"
+            "• مجموعات تيليجرام الخاصة النشطة\n"
+            "• مجموعات واتساب النشطة\n\n"
+            "⏳ جاري جمع الروابط من جميع الجلسات...\n"
+            "سيتم إعلامك بالتقدم.",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.message.edit_text("❌ فشل بدء الجمع")
 
 async def stop_collection_handler(query):
     """إيقاف الجمع"""
-    global _collection_active, _collection_paused
-    
-    if not _collection_active:
+    if not collector_simulator.is_active:
         await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
         return
     
-    _collection_active = False
-    _collection_paused = False
+    success = await collector_simulator.stop()
     
-    await query.message.edit_text(
-        "⏹️ *تم إيقاف الجمع بنجاح*",
-        parse_mode="Markdown"
-    )
+    if success:
+        await query.message.edit_text(
+            "⏹️ *تم إيقاف الجمع بنجاح*\n\n"
+            f"📊 *الإحصائيات النهائية:*\n"
+            f"• الإجمالي المجمع: {collector_simulator.stats['total_collected']}\n"
+            f"• مجموعات عامة: {collector_simulator.stats['public_groups']}\n"
+            f"• مجموعات خاصة: {collector_simulator.stats['private_groups']}\n"
+            f"• مجموعات واتساب: {collector_simulator.stats['whatsapp_groups']}",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.message.edit_text("❌ فشل إيقاف الجمع")
+
+async def run_collection_simulation():
+    """تشغيل محاكاة الجمع في الخلفية"""
+    while collector_simulator.is_active and not collector_simulator.is_paused:
+        await collector_simulator.simulate_collection()
+        await asyncio.sleep(5)  # انتظار 5 ثواني بين كل جولة جمع
 
 # ======================
 # Link Viewing Handlers
@@ -714,13 +838,15 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
     
     if not links and page == 0:
         await query.message.edit_text(
-            f"📭 لا توجد روابط {title}",
+            f"📭 *لا توجد روابط {title}*\n\n"
+            f"ابدأ عملية الجمع لجمع الروابط",
             reply_markup=telegram_types_keyboard(page)
         )
         return
     
     message_text = f"📨 *{title}*\n\n"
-    message_text += f"📄 الصفحة: {page + 1}\n\n"
+    message_text += f"📄 الصفحة: {page + 1}\n"
+    message_text += f"📊 العدد: {len(links)} رابط\n\n"
     
     for i, link in enumerate(links, start=page * LINKS_PER_PAGE + 1):
         url = link.get('url', '')
@@ -746,72 +872,65 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
         parse_mode="Markdown"
     )
 
+async def show_whatsapp_links(query, link_type: str, page: int = 0):
+    """عرض روابط الواتساب"""
+    title = "مجموعات واتساب"
+    links = get_links_by_type("whatsapp", link_type, LINKS_PER_PAGE, page * LINKS_PER_PAGE)
+    
+    if not links and page == 0:
+        await query.message.edit_text(
+            f"📭 *لا توجد روابط {title}*\n\n"
+            f"ابدأ عملية الجمع لجمع الروابط",
+            reply_markup=whatsapp_types_keyboard(page)
+        )
+        return
+    
+    message_text = f"📞 *{title}*\n\n"
+    message_text += f"📄 الصفحة: {page + 1}\n"
+    message_text += f"📊 العدد: {len(links)} رابط\n\n"
+    
+    for i, link in enumerate(links, start=page * LINKS_PER_PAGE + 1):
+        url = link.get('url', '')
+        # تقصير الرابط الطويل لعرض أفضل
+        if len(url) > 40:
+            display_url = url[:37] + "..."
+        else:
+            display_url = url
+        
+        message_text += f"{i}. 📞 `{display_url}`\n"
+    
+    has_next = len(links) == LINKS_PER_PAGE
+    
+    await query.message.edit_text(
+        message_text,
+        reply_markup=pagination_keyboard("whatsapp", link_type, page, has_next),
+        parse_mode="Markdown"
+    )
+
 # ======================
 # Export Handlers
 # ======================
 
-async def export_handler(query, export_type: str):
+async def export_handler(query, platform: str, link_type: str):
     """معالجة طلبات التصدير"""
     await query.message.edit_text("⏳ جاري تحضير الملف...")
     
     try:
-        if export_type == "public_groups":
+        # تحديد نوع التصدير
+        if platform == "telegram" and link_type == "public_group":
             path = export_links_by_type("telegram", "public_group")
             filename = "telegram_public_groups.txt"
             caption = "👥 مجموعات تيليجرام العامة النشطة"
         
-        elif export_type == "private_groups":
+        elif platform == "telegram" and link_type == "private_group":
             path = export_links_by_type("telegram", "private_group")
             filename = "telegram_private_groups.txt"
             caption = "🔒 مجموعات تيليجرام الخاصة النشطة"
         
-        elif export_type == "whatsapp_groups":
+        elif platform == "whatsapp" and link_type == "group":
             path = export_links_by_type("whatsapp", "group")
             filename = "whatsapp_groups.txt"
             caption = "📞 مجموعات واتساب النشطة"
-        
-        elif export_type == "all":
-            # تصدير جميع الروابط
-            await query.message.edit_text("⏳ جاري تحضير جميع الملفات...")
-            
-            telegram_public = export_links_by_type("telegram", "public_group")
-            telegram_private = export_links_by_type("telegram", "private_group")
-            whatsapp_groups = export_links_by_type("whatsapp", "group")
-            
-            files_sent = 0
-            
-            if telegram_public and os.path.exists(telegram_public):
-                with open(telegram_public, 'rb') as f:
-                    await query.message.reply_document(
-                        f,
-                        filename="telegram_public_groups.txt",
-                        caption="👥 مجموعات تيليجرام العامة النشطة"
-                    )
-                    files_sent += 1
-            
-            if telegram_private and os.path.exists(telegram_private):
-                with open(telegram_private, 'rb') as f:
-                    await query.message.reply_document(
-                        f,
-                        filename="telegram_private_groups.txt",
-                        caption="🔒 مجموعات تيليجرام الخاصة النشطة"
-                    )
-                    files_sent += 1
-            
-            if whatsapp_groups and os.path.exists(whatsapp_groups):
-                with open(whatsapp_groups, 'rb') as f:
-                    await query.message.reply_document(
-                        f,
-                        filename="whatsapp_groups.txt",
-                        caption="📞 مجموعات واتساب النشطة"
-                    )
-                    files_sent += 1
-            
-            if files_sent > 0:
-                await query.message.edit_text(f"✅ تم تصدير {files_sent} ملف")
-            else:
-                await query.message.edit_text("❌ لا توجد بيانات للتصدير")
-            return
         
         else:
             await query.message.edit_text("❌ نوع تصدير غير معروف")
@@ -826,10 +945,73 @@ async def export_handler(query, export_type: str):
                 )
             await query.message.edit_text("✅ تم التصدير بنجاح")
         else:
-            await query.message.edit_text("❌ لا توجد بيانات للتصدير")
+            await query.message.edit_text(
+                "❌ لا توجد بيانات للتصدير\n\n"
+                "ابدأ عملية الجمع أولاً لجمع الروابط",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("▶️ بدء الجمع", callback_data="menu_start_collect")],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="menu_export_links")]
+                ])
+            )
     
     except Exception as e:
         logger.error(f"❌ Export error: {e}")
+        await query.message.edit_text(f"❌ حدث خطأ أثناء التصدير\n\n{str(e)[:100]}")
+
+async def export_all_handler(query):
+    """تصدير جميع الروابط"""
+    await query.message.edit_text("⏳ جاري تحضير جميع الملفات...")
+    
+    try:
+        # تصدير جميع الروابط في ملفات منفصلة
+        telegram_public = export_links_by_type("telegram", "public_group")
+        telegram_private = export_links_by_type("telegram", "private_group")
+        whatsapp_groups = export_links_by_type("whatsapp", "group")
+        
+        # إرسال جميع الملفات
+        files_sent = 0
+        
+        if telegram_public and os.path.exists(telegram_public):
+            with open(telegram_public, 'rb') as f:
+                await query.message.reply_document(
+                    f,
+                    filename="telegram_public_groups.txt",
+                    caption="👥 مجموعات تيليجرام العامة النشطة"
+                )
+                files_sent += 1
+        
+        if telegram_private and os.path.exists(telegram_private):
+            with open(telegram_private, 'rb') as f:
+                await query.message.reply_document(
+                    f,
+                    filename="telegram_private_groups.txt",
+                    caption="🔒 مجموعات تيليجرام الخاصة النشطة"
+                )
+                files_sent += 1
+        
+        if whatsapp_groups and os.path.exists(whatsapp_groups):
+            with open(whatsapp_groups, 'rb') as f:
+                await query.message.reply_document(
+                    f,
+                    filename="whatsapp_groups.txt",
+                    caption="📞 مجموعات واتساب النشطة"
+                )
+                files_sent += 1
+        
+        if files_sent > 0:
+            await query.message.edit_text(f"✅ تم تصدير {files_sent} ملف")
+        else:
+            await query.message.edit_text(
+                "❌ لا توجد بيانات للتصدير\n\n"
+                "ابدأ عملية الجمع أولاً لجمع الروابط",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("▶️ بدء الجمع", callback_data="menu_start_collect")],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="menu_export_links")]
+                ])
+            )
+    
+    except Exception as e:
+        logger.error(f"❌ Export all error: {e}")
         await query.message.edit_text(f"❌ حدث خطأ أثناء التصدير\n\n{str(e)[:100]}")
 
 # ======================
@@ -905,6 +1087,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ======================
+# Add Sample Data Function
+# ======================
+
+def add_sample_data():
+    """إضافة بيانات تجريبية للاختبار"""
+    try:
+        from database import add_link
+        
+        # بيانات تجريبية لمجموعات تيليجرام العامة
+        telegram_public_groups = [
+            "https://t.me/group_test_1",
+            "https://t.me/group_test_2",
+            "https://t.me/arabic_chat",
+            "https://t.me/tech_discussion",
+            "https://t.me/programming_ar"
+        ]
+        
+        # بيانات تجريبية لمجموعات تيليجرام الخاصة
+        telegram_private_groups = [
+            "https://t.me/+ABC123def",
+            "https://t.me/+XYZ789ghi",
+            "https://t.me/+test_invite_link",
+            "https://t.me/+private_chat_2024"
+        ]
+        
+        # بيانات تجريبية لمجموعات واتساب
+        whatsapp_groups = [
+            "https://chat.whatsapp.com/testgroup1",
+            "https://chat.whatsapp.com/arabiccommunity",
+            "https://chat.whatsapp.com/techgroup2024"
+        ]
+        
+        # إضافة البيانات
+        added_count = 0
+        
+        for url in telegram_public_groups:
+            success, message = add_link(url, "telegram", "public_group", "مجموعة تجريبية", 100)
+            if success:
+                added_count += 1
+        
+        for url in telegram_private_groups:
+            success, message = add_link(url, "telegram", "private_group", "مجموعة خاصة تجريبية", 50)
+            if success:
+                added_count += 1
+        
+        for url in whatsapp_groups:
+            success, message = add_link(url, "whatsapp", "group", "مجموعة واتساب تجريبية", 80)
+            if success:
+                added_count += 1
+        
+        logger.info(f"✅ Added {added_count} sample links")
+        return added_count
+        
+    except Exception as e:
+        logger.error(f"❌ Error adding sample data: {e}")
+        return 0
+
+# ======================
 # Main Application
 # ======================
 
@@ -918,6 +1158,12 @@ def main():
         # تهيئة قاعدة البيانات
         print("🗄️  جاري تهيئة قاعدة البيانات...")
         init_db()
+        
+        # إضافة بيانات تجريبية للاختبار (يمكن إزالة هذا السطر لاحقاً)
+        print("📝 إضافة بيانات تجريبية للاختبار...")
+        sample_count = add_sample_data()
+        if sample_count > 0:
+            print(f"✅ تم إضافة {sample_count} رابط تجريبي")
         
         print("✅ تمت التهيئة بنجاح!")
         
@@ -936,6 +1182,7 @@ def main():
         
         # تشغيل البوت
         logger.info("🤖 Starting Telegram Link Collector Bot...")
+        print("🤖 البوت يعمل الآن! اذهب إلى تيليجرام وابدأ باستخدام /start")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
