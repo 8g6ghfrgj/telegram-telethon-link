@@ -1,10 +1,16 @@
 services:
   - type: worker
     name: telegram-link-collector
-    runtime: docker
-    dockerfilePath: Dockerfile
+    env: docker
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: DATABASE_PATH
-        value: data/database.db
+      - key: LOG_LEVEL
+        value: INFO
+      - key: TZ
+        value: Asia/Riyadh
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
