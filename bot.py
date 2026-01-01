@@ -14,12 +14,12 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, LINKS_PER_PAGE, init_config
+from config import BOT_TOKEN, LINKS_PER_PAGE
 from database import (
     init_db, get_link_stats, get_links_by_type, export_links_by_type,
     add_session, get_sessions, delete_session, update_session_status,
-    start_collection_session, update_collection_stats, end_collection_session,
-    delete_all_sessions
+    start_collection_session, update_collection_stats,
+    delete_all_sessions  # إضافة دالة حذف جميع الجلسات
 )
 from session_manager import (
     validate_session, export_sessions_to_file, test_all_sessions
@@ -424,14 +424,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("telegram_"):
             parts = data.split('_')
             if len(parts) >= 3 and parts[2].isdigit():
-                # في حالة صفحة
                 link_type = f"{parts[1]}_{parts[2]}"
                 page = int(parts[3]) if len(parts) > 3 else 0
-                await show_telegram_links(query, link_type, page)
             else:
                 link_type = parts[1]
                 page = int(parts[2]) if len(parts) > 2 else 0
-                await show_telegram_links(query, link_type, page)
+            await show_telegram_links(query, link_type, page)
         
         # أنواع الواتساب
         elif data.startswith("whatsapp_"):
@@ -772,14 +770,14 @@ async def test_sessions_handler(query):
     """اختبار جميع الجلسات"""
     await query.message.edit_text("🔍 جاري اختبار جميع الجلسات...")
     
-    test_results = test_all_sessions()
+    test_results = await test_all_sessions()
     
     result_text = f"""
     📊 *نتائج اختبار الجلسات*
     
     • الإجمالي: {test_results['total']}
-    • الصالحة: ✅ {test_results['passed']}
-    • غير الصالحة: ❌ {test_results['failed']}
+    • الصالحة: ✅ {test_results['valid']}
+    • غير الصالحة: ❌ {test_results['invalid']}
     
     • الجلسات النشطة: {test_results['active']}
     • الجلسات المعطلة: {test_results['inactive']}
@@ -1089,7 +1087,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("🔍 جاري التحقق من صحة الجلسة...")
         
         try:
-            # استدعاء validate_session بشكل صحيح
             is_valid, account_info = await validate_session(text)
             
             if not is_valid:
@@ -1148,55 +1145,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ======================
-# Application Initialization
-# ======================
-
-def initialize_app():
-    """تهيئة التطبيق تلقائياً"""
-    try:
-        # تهيئة الإعدادات
-        print("🔧 جاري تهيئة الإعدادات...")
-        if not init_config():
-            print("❌ فشل تهيئة الإعدادات")
-            return False
-        
-        # تهيئة قاعدة البيانات
-        print("🗄️  جاري تهيئة قاعدة البيانات...")
-        init_db()
-        
-        # إنشاء المجلدات المطلوبة
-        from config import DATA_DIR, EXPORT_DIR, SESSIONS_DIR
-        import os
-        
-        directories = [DATA_DIR, EXPORT_DIR, SESSIONS_DIR]
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
-            print(f"📁 تم إنشاء/التحقق من: {directory}")
-        
-        print("✅ تم تهيئة التطبيق بنجاح")
-        return True
-        
-    except Exception as e:
-        print(f"❌ فشل تهيئة التطبيق: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-# ======================
 # Main Application
 # ======================
 
 def main():
     """الدالة الرئيسية لتشغيل البوت"""
-    # تهيئة التطبيق أولاً
-    if not initialize_app():
-        print("❌ فشل تهيئة التطبيق، يتم إيقاف التشغيل")
-        return
+    init_db()
     
-    # إنشاء تطبيق البوت
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # إضافة handlers
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
@@ -1206,15 +1163,9 @@ def main():
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # بدء البوت
     logger.info("🤖 Starting Telegram Link Collector Bot...")
     logger.info("⚡ Bot will collect ONLY active groups (not channels)")
-    
-    try:
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
-    except Exception as e:
-        logger.error(f"Error running bot: {e}")
-        raise
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
