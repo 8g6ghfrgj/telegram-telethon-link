@@ -1,19 +1,24 @@
 import os
 import re
-import tempfile
 import logging
-import asyncio
-from typing import List, Set, Dict, Optional
+import zipfile
+import tarfile
+import tempfile
+import mimetypes
+from typing import List, Dict, Tuple, Set, Optional
 from pathlib import Path
+import chardet
+import json
+import csv
 
-from telethon import TelegramClient
-from telethon.tl.types import Message
-
-from config import BASE_DIR
-from link_utils import extract_links_from_text, clean_link, is_allowed_link
+from config import IGNORED_PATTERNS, BLACKLISTED_DOMAINS
+from link_utils import (
+    normalize_url, is_url_ignored,
+    analyze_link, extract_urls_from_text
+)
 
 # ======================
-# Logging Configuration
+# Logging
 # ======================
 
 logging.basicConfig(
@@ -26,823 +31,1024 @@ logger = logging.getLogger(__name__)
 # Constants
 # ======================
 
-# الملفات المدعومة
-SUPPORTED_EXTENSIONS = {
-    '.pdf': 'PDF Document',
-    '.docx': 'Word Document',
-    '.txt': 'Text File',
-    '.rtf': 'Rich Text Format',
-    '.odt': 'OpenDocument Text',
-    '.doc': 'Old Word Document',
+# الأنواع المدعومة للملفات النصية
+TEXT_FILE_EXTENSIONS = {
+    '.txt', '.log', '.csv', '.json', '.xml', '.yaml', '.yml',
+    '.html', '.htm', '.md', '.rst', '.ini', '.cfg', '.conf',
+    '.php', '.js', '.py', '.java', '.cpp', '.c', '.h', '.cs',
+    '.sql', '.sh', '.bash', '.ps1', '.bat', '.cmd'
 }
 
-# أنواع MIME المدعومة
-SUPPORTED_MIME_TYPES = {
-    'application/pdf': 'PDF',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
-    'application/msword': 'DOC',
-    'text/plain': 'TXT',
-    'application/rtf': 'RTF',
-    'application/vnd.oasis.opendocument.text': 'ODT',
+# الأنواع المدعومة للملفات المضغوطة
+ARCHIVE_FILE_EXTENSIONS = {
+    '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz',
+    '.tgz', '.tbz2', '.txz'
 }
 
-# الحد الأقصى لحجم الملف (50 ميجابايت)
-MAX_FILE_SIZE = 50 * 1024 * 1024
+# الأنواع المدعومة للملفات المكتبية
+OFFICE_FILE_EXTENSIONS = {
+    '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.odt', '.ods', '.odp', '.pdf'
+}
 
-# الحد الأدنى لحجم الملف (100 بايت)
-MIN_FILE_SIZE = 100
+# الأنواع المدعومة للملفات الأخرى
+OTHER_SUPPORTED_EXTENSIONS = {
+    '.sqlite', '.db', '.sqlite3', '.db3'
+}
 
-# أنماط الملفات غير المدعومة
-UNSUPPORTED_PATTERNS = [
-    r'\.exe$', r'\.dll$', r'\.bat$', r'\.sh$', r'\.py$',
-    r'\.zip$', r'\.rar$', r'\.7z$', r'\.tar$', r'\.gz$',
+# جميع الأنواع المدعومة
+ALL_SUPPORTED_EXTENSIONS = (
+    TEXT_FILE_EXTENSIONS |
+    ARCHIVE_FILE_EXTENSIONS |
+    OFFICE_FILE_EXTENSIONS |
+    OTHER_SUPPORTED_EXTENSIONS
+)
+
+# الأنماط الشائعة للعثور على الروابط في النص
+URL_PATTERNS = [
+    # روابط تيليجرام
+    r't\.me/[A-Za-z0-9_+-]+',
+    r'telegram\.me/[A-Za-z0-9_+-]+',
+    r'tg://[A-Za-z0-9_?=&-]+',
+    
+    # روابط واتساب
+    r'chat\.whatsapp\.com/[A-Za-z0-9_-]+',
+    r'whatsapp\.com/channel/[A-Za-z0-9_-]+',
+    r'wa\.me/[0-9]+',
+    
+    # روابط عامة
+    r'https?://[^\s<>"\'{}|\\^`\[\]]+',
+    r'www\.[^\s<>"\'{}|\\^`\[\]]+\.[^\s<>"\'{}|\\^`\[\]]+',
 ]
 
 # ======================
-# Helper Functions
+# Text File Processing
 # ======================
 
-def is_file_supported(filename: str, mime_type: str = None) -> bool:
-    """
-    التحقق مما إذا كان نوع الملف مدعوماً
-    
-    Args:
-        filename: اسم الملف
-        mime_type: نوع MIME (اختياري)
-        
-    Returns:
-        bool: True إذا كان الملف مدعوماً
-    """
-    if not filename:
-        return False
-    
-    # التحقق من الأنماط غير المدعومة
-    filename_lower = filename.lower()
-    for pattern in UNSUPPORTED_PATTERNS:
-        if re.search(pattern, filename_lower):
-            return False
-    
-    # التحقق من الامتداد
-    file_ext = os.path.splitext(filename_lower)[1]
-    if file_ext in SUPPORTED_EXTENSIONS:
-        return True
-    
-    # التحقق من نوع MIME
-    if mime_type and mime_type in SUPPORTED_MIME_TYPES:
-        return True
-    
-    return False
-
-def is_file_size_valid(file_size: int) -> bool:
-    """
-    التحقق من حجم الملف
-    
-    Args:
-        file_size: حجم الملف بالبايت
-        
-    Returns:
-        bool: True إذا كان الحجم مقبولاً
-    """
-    if not file_size:
-        return False
-    
-    return MIN_FILE_SIZE <= file_size <= MAX_FILE_SIZE
-
-def get_file_type(filename: str, mime_type: str = None) -> str:
-    """
-    الحصول على نوع الملف
-    
-    Args:
-        filename: اسم الملف
-        mime_type: نوع MIME
-        
-    Returns:
-        str: نوع الملف
-    """
-    if not filename:
-        return "unknown"
-    
-    filename_lower = filename.lower()
-    file_ext = os.path.splitext(filename_lower)[1]
-    
-    if file_ext in SUPPORTED_EXTENSIONS:
-        return SUPPORTED_EXTENSIONS[file_ext]
-    
-    if mime_type and mime_type in SUPPORTED_MIME_TYPES:
-        return SUPPORTED_MIME_TYPES[mime_type]
-    
-    return "unknown"
-
-# ======================
-# Main Extraction Function
-# ======================
-
-async def extract_links_from_file(
-    client: TelegramClient,
-    message: Message
-) -> List[str]:
-    """
-    استخراج الروابط من ملف
-    
-    Args:
-        client: عميل Telethon
-        message: رسالة تحتوي على ملف
-        
-    Returns:
-        list: قائمة بالروابط المستخرجة
-    """
-    if not message or not message.file:
-        logger.debug("No file in message")
-        return []
-    
+def detect_file_encoding(filepath: str) -> str:
+    """كشف ترميز الملف"""
     try:
-        filename = message.file.name or "unknown"
-        file_size = message.file.size or 0
-        mime_type = message.file.mime_type or ""
-        
-        logger.info(f"Processing file: {filename} ({file_size} bytes, {mime_type})")
-        
-        # التحقق من دعم الملف
-        if not is_file_supported(filename, mime_type):
-            logger.warning(f"Unsupported file type: {filename} ({mime_type})")
-            return []
-        
-        # التحقق من حجم الملف
-        if not is_file_size_valid(file_size):
-            logger.warning(f"Invalid file size: {file_size} bytes")
-            return []
-        
-        file_type = get_file_type(filename, mime_type)
-        logger.info(f"Extracting from {file_type}: {filename}")
-        
-        # استخراج الروابط حسب نوع الملف
-        links = await _extract_by_file_type(client, message, filename, file_type)
-        
-        logger.info(f"Extracted {len(links)} links from {filename}")
-        return links
-        
+        with open(filepath, 'rb') as f:
+            raw_data = f.read(10000)  # قراءة أول 10KB للكشف
+            result = chardet.detect(raw_data)
+            
+            encoding = result.get('encoding', 'utf-8')
+            confidence = result.get('confidence', 0)
+            
+            if confidence < 0.7:
+                logger.warning(f"Low encoding confidence for {filepath}: {encoding} ({confidence})")
+                return 'utf-8'
+            
+            # تحويل بعض الترميزات المشتركة
+            if encoding.lower() in ['windows-1256', 'iso-8859-6', 'arabic']:
+                return 'cp1256'
+            
+            return encoding.lower()
+            
     except Exception as e:
-        logger.error(f"Error extracting links from file: {e}")
-        return []
+        logger.error(f"Error detecting encoding for {filepath}: {e}")
+        return 'utf-8'
 
-async def _extract_by_file_type(
-    client: TelegramClient,
-    message: Message,
-    filename: str,
-    file_type: str
-) -> List[str]:
-    """
-    استخراج الروابط حسب نوع الملف
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        filename: اسم الملف
-        file_type: نوع الملف
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    filename_lower = filename.lower()
-    
-    if filename_lower.endswith('.pdf') or file_type == 'PDF':
-        return await _extract_from_pdf(client, message)
-    
-    elif filename_lower.endswith('.docx') or file_type in ['DOCX', 'Word Document']:
-        return await _extract_from_docx(client, message)
-    
-    elif filename_lower.endswith('.doc') or file_type == 'DOC':
-        return await _extract_from_doc(client, message)
-    
-    elif filename_lower.endswith('.txt') or file_type == 'TXT':
-        return await _extract_from_txt(client, message)
-    
-    elif filename_lower.endswith('.rtf') or file_type == 'RTF':
-        return await _extract_from_rtf(client, message)
-    
-    elif filename_lower.endswith('.odt') or file_type == 'ODT':
-        return await _extract_from_odt(client, message)
-    
-    else:
-        # محاولة الاستخراج كملف نصي عام
-        return await _extract_generic(client, message)
-
-# ======================
-# PDF Extraction
-# ======================
-
-async def _extract_from_pdf(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف PDF
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
+def read_text_file(filepath: str, encoding: str = 'utf-8') -> str:
+    """قراءة ملف نصي"""
     try:
-        # محاولة استخدام PyPDF2
+        # محاولة قراءة بالترميز المحدد
         try:
-            links.update(await _extract_from_pdf_pypdf2(client, message))
-        except ImportError:
-            logger.warning("PyPDF2 not installed")
-        except Exception as e:
-            logger.warning(f"PyPDF2 failed: {e}")
-        
-        # إذا لم نحصل على روابط، نجرب pdfplumber
-        if not links:
-            try:
-                links.update(await _extract_from_pdf_pdfplumber(client, message))
-            except ImportError:
-                logger.warning("pdfplumber not installed")
-            except Exception as e:
-                logger.warning(f"pdfplumber failed: {e}")
-        
-        # فلترة الروابط
-        return _filter_links(list(links))
-        
-    except Exception as e:
-        logger.error(f"PDF extraction error: {e}")
-        return []
-
-async def _extract_from_pdf_pypdf2(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج من PDF باستخدام PyPDF2
-    """
-    links = set()
-    
-    try:
-        from PyPDF2 import PdfReader
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.pdf")
-            await client.download_media(message, filepath)
+            with open(filepath, 'r', encoding=encoding, errors='ignore') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # محاولة ترميزات أخرى شائعة
+            encodings_to_try = ['utf-8-sig', 'cp1256', 'latin-1', 'iso-8859-1']
             
-            reader = PdfReader(filepath)
-            
-            for page_num, page in enumerate(reader.pages, 1):
+            for enc in encodings_to_try:
                 try:
-                    text = page.extract_text() or ""
-                    if text:
-                        page_links = extract_links_from_text(text)
-                        links.update(page_links)
-                        
-                        # استخراج من التعليقات التوضيحية (Annotations)
-                        if hasattr(page, 'annotations') and page.annotations:
-                            for annotation in page.annotations:
-                                if hasattr(annotation, 'get') and annotation.get('/A'):
-                                    uri = annotation['/A'].get('/URI')
-                                    if uri:
-                                        links.add(uri)
-                except Exception as e:
-                    logger.warning(f"Error extracting from PDF page {page_num}: {e}")
-                    continue
-        
-        return list(links)
-        
-    except Exception as e:
-        raise e
-
-async def _extract_from_pdf_pdfplumber(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج من PDF باستخدام pdfplumber
-    """
-    links = set()
-    
-    try:
-        import pdfplumber
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.pdf")
-            await client.download_media(message, filepath)
-            
-            with pdfplumber.open(filepath) as pdf:
-                for page_num, page in enumerate(pdf.pages, 1):
-                    try:
-                        # استخراج النص
-                        text = page.extract_text() or ""
-                        if text:
-                            page_links = extract_links_from_text(text)
-                            links.update(page_links)
-                        
-                        # استخراج الروابط (Hyperlinks)
-                        if hasattr(page, 'hyperlinks'):
-                            for link in page.hyperlinks:
-                                if link and hasattr(link, 'uri'):
-                                    links.add(link.uri)
-                    except Exception as e:
-                        logger.warning(f"Error extracting from PDF page {page_num} with pdfplumber: {e}")
-                        continue
-        
-        return list(links)
-        
-    except Exception as e:
-        raise e
-
-# ======================
-# DOCX Extraction
-# ======================
-
-async def _extract_from_docx(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف DOCX
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
-    try:
-        from docx import Document
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.docx")
-            await client.download_media(message, filepath)
-            
-            doc = Document(filepath)
-            
-            # استخراج من الفقرات
-            for para in doc.paragraphs:
-                if para.text:
-                    para_links = extract_links_from_text(para.text)
-                    links.update(para_links)
-            
-            # استخراج من الجداول
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        if cell.text:
-                            cell_links = extract_links_from_text(cell.text)
-                            links.update(cell_links)
-            
-            # استخراج من الرؤوس والتذييلات
-            for section in doc.sections:
-                # الرأس
-                header = section.header
-                if header:
-                    for para in header.paragraphs:
-                        if para.text:
-                            header_links = extract_links_from_text(para.text)
-                            links.update(header_links)
-                
-                # التذييل
-                footer = section.footer
-                if footer:
-                    for para in footer.paragraphs:
-                        if para.text:
-                            footer_links = extract_links_from_text(para.text)
-                            links.update(footer_links)
-            
-            # استخراج من الروابط التشعبية
-            try:
-                # البحث عن جميع العناصر التي قد تحتوي على روابط
-                for element in doc.element.iter():
-                    if element.tag.endswith('}hyperlink'):
-                        # الحصول على الرابط من السمة
-                        for attr in element.attrib:
-                            if 'href' in attr.lower():
-                                link_url = element.attrib[attr]
-                                if link_url:
-                                    links.add(link_url)
-            except:
-                pass
-        
-        return _filter_links(list(links))
-        
-    except ImportError:
-        logger.warning("python-docx not installed")
-        return []
-    except Exception as e:
-        logger.error(f"DOCX extraction error: {e}")
-        return []
-
-# ======================
-# DOC Extraction (Old Word Format)
-# ======================
-
-async def _extract_from_doc(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف DOC (التنسيق القديم)
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    try:
-        # محاولة تحويل DOC إلى DOCX أو استخراج كملف نصي
-        return await _extract_generic(client, message)
-        
-    except Exception as e:
-        logger.error(f"DOC extraction error: {e}")
-        return []
-
-# ======================
-# Text File Extraction
-# ======================
-
-async def _extract_from_txt(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف نصي
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.txt")
-            await client.download_media(message, filepath)
-            
-            # محاولة فتح الملف بتشفيرات مختلفة
-            encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1256', 'windows-1256', 'ascii']
-            
-            for encoding in encodings:
-                try:
-                    with open(filepath, 'r', encoding=encoding, errors='ignore') as f:
-                        content = f.read()
-                        file_links = extract_links_from_text(content)
-                        links.update(file_links)
-                    break  # نجح، توقف عن المحاولة
+                    with open(filepath, 'r', encoding=enc, errors='ignore') as f:
+                        return f.read()
                 except UnicodeDecodeError:
                     continue
-                except Exception as e:
-                    logger.warning(f"Failed to read with encoding {encoding}: {e}")
-                    continue
-        
-        return _filter_links(list(links))
-        
-    except Exception as e:
-        logger.error(f"TXT extraction error: {e}")
-        return []
-
-# ======================
-# RTF Extraction
-# ======================
-
-async def _extract_from_rtf(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف RTF
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.rtf")
-            await client.download_media(message, filepath)
             
-            # محاولة استخدام striprtf
-            try:
-                from striprtf.striprtf import rtf_to_text
-                
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    rtf_content = f.read()
-                    text_content = rtf_to_text(rtf_content)
-                    file_links = extract_links_from_text(text_content)
-                    links.update(file_links)
-                    
-            except ImportError:
-                logger.warning("striprtf not installed, trying basic extraction")
-                
-                # استخراج بسيط باستخدام regex
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    
-                    # البحث عن نص في RTF (نمط بسيط)
-                    import re
-                    # البحث عن نص بين الأقواس
-                    text_pattern = r'\\\'(..)|\\u-?\d+\?|([a-zA-Z0-9\s\.,!?\-\+\(\)\[\]\{\}]+)'
-                    text_matches = re.findall(text_pattern, content)
-                    
-                    extracted_text = ' '.join([''.join(match) for match in text_matches])
-                    file_links = extract_links_from_text(extracted_text)
-                    links.update(file_links)
-                    
-                    # البحث عن روابط مباشرة في RTF
-                    url_pattern = r'\\field\{\\\*\\fldinst HYPERLINK "([^"]+)"\}'
-                    url_matches = re.findall(url_pattern, content, re.IGNORECASE)
-                    links.update(url_matches)
-        
-        return _filter_links(list(links))
-        
-    except Exception as e:
-        logger.error(f"RTF extraction error: {e}")
-        return []
-
-# ======================
-# ODT Extraction
-# ======================
-
-async def _extract_from_odt(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج الروابط من ملف ODT
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
-    try:
-        import zipfile
-        from xml.etree import ElementTree as ET
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document.odt")
-            await client.download_media(message, filepath)
-            
-            with zipfile.ZipFile(filepath, 'r') as odt_file:
-                # قراءة محتوى المستند
-                if 'content.xml' in odt_file.namelist():
-                    content_xml = odt_file.read('content.xml')
-                    
-                    # تحليل XML
-                    namespaces = {
-                        'text': 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
-                        'office': 'urn:oasis:names:tc:opendocument:xmlns:office:1.0',
-                        'draw': 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0'
-                    }
-                    
-                    try:
-                        root = ET.fromstring(content_xml)
-                        
-                        # استخراج النص من جميع عناصر النص
-                        for elem in root.findall('.//text:p', namespaces):
-                            if elem.text:
-                                elem_links = extract_links_from_text(elem.text)
-                                links.update(elem_links)
-                        
-                        for elem in root.findall('.//text:span', namespaces):
-                            if elem.text:
-                                elem_links = extract_links_from_text(elem.text)
-                                links.update(elem_links)
-                        
-                        # البحث عن روابط
-                        for elem in root.findall('.//text:a', namespaces):
-                            href = elem.get('{http://www.w3.org/1999/xlink}href')
-                            if href:
-                                links.add(href)
-                                
-                    except Exception as e:
-                        logger.warning(f"Error parsing ODT XML: {e}")
-                
-                # محاولة قراءة كملف نصي بسيط
-                try:
-                    # قراءة جميع الملفات النصية في الأرشيف
-                    for file_info in odt_file.infolist():
-                        if file_info.filename.endswith('.xml') or file_info.filename.endswith('.txt'):
-                            try:
-                                content = odt_file.read(file_info.filename).decode('utf-8', errors='ignore')
-                                file_links = extract_links_from_text(content)
-                                links.update(file_links)
-                            except:
-                                continue
-                except:
-                    pass
-        
-        return _filter_links(list(links))
-        
-    except ImportError:
-        logger.warning("Could not process ODT file (missing libraries)")
-        return []
-    except Exception as e:
-        logger.error(f"ODT extraction error: {e}")
-        return []
-
-# ======================
-# Generic Text Extraction
-# ======================
-
-async def _extract_generic(client: TelegramClient, message: Message) -> List[str]:
-    """
-    استخراج نص عام من أي ملف
-    
-    Args:
-        client: عميل Telethon
-        message: الرسالة
-        
-    Returns:
-        list: قائمة بالروابط
-    """
-    links = set()
-    
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            filepath = os.path.join(tmpdir, "document")
-            await client.download_media(message, filepath)
-            
-            # محاولة قراءة الملف كنص ثنائي
+            # إذا فشلت كل المحاولات، استخدم binary mode
             with open(filepath, 'rb') as f:
                 content = f.read()
+                return content.decode('utf-8', errors='ignore')
                 
-                # محاولة فك التشفير كنص
-                try:
-                    text = content.decode('utf-8', errors='ignore')
-                    file_links = extract_links_from_text(text)
-                    links.update(file_links)
-                except:
-                    # البحث مباشرة عن أنماط URLs في البيانات الثنائية
-                    import re
-                    # نمط للعثور على URLs في البيانات الثنائية
-                    url_pattern = rb'https?://[^\x00-\x1F\x7F-\xFF<>"\s]+'
-                    binary_matches = re.findall(url_pattern, content)
-                    
-                    for match in binary_matches:
-                        try:
-                            url = match.decode('utf-8', errors='ignore')
-                            if url:
-                                links.add(url)
-                        except:
-                            pass
+    except Exception as e:
+        logger.error(f"Error reading file {filepath}: {e}")
+        return ""
+
+def extract_urls_from_text_content(text: str) -> List[str]:
+    """استخراج الروابط من محتوى نصي"""
+    if not text:
+        return []
+    
+    urls = []
+    
+    # استخدام regex للعثور على جميع الروابط المحتملة
+    for pattern in URL_PATTERNS:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        urls.extend(matches)
+    
+    # تنظيف الروابط وإضافة https:// إذا لزم الأمر
+    cleaned_urls = []
+    for url in urls:
+        url = url.strip()
         
-        return _filter_links(list(links))
+        # إضافة البروتوكول إذا لم يكن موجوداً
+        if not url.startswith(('http://', 'https://')):
+            if url.startswith('www.'):
+                url = 'https://' + url
+            elif '://' not in url:
+                # روابط تيليجرام بدون بروتوكول
+                if url.startswith(('t.me/', 'telegram.me/', 'tg://')):
+                    url = 'https://' + url if not url.startswith('tg://') else url
+        
+        cleaned_urls.append(url)
+    
+    return list(set(cleaned_urls))  # إزالة التكرار
+
+def process_text_file(filepath: str) -> Dict:
+    """معالجة ملف نصي واستخراج الروابط"""
+    results = {
+        'filepath': filepath,
+        'filename': os.path.basename(filepath),
+        'file_size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+        'encoding': 'unknown',
+        'total_urls_found': 0,
+        'valid_urls': 0,
+        'telegram_urls': 0,
+        'whatsapp_urls': 0,
+        'other_urls': 0,
+        'ignored_urls': 0,
+        'extracted_urls': [],
+        'valid_urls_list': [],
+        'error': None
+    }
+    
+    try:
+        # كشف ترميز الملف
+        encoding = detect_file_encoding(filepath)
+        results['encoding'] = encoding
+        
+        # قراءة الملف
+        content = read_text_file(filepath, encoding)
+        
+        if not content:
+            results['error'] = 'File is empty or cannot be read'
+            return results
+        
+        # استخراج الروابط
+        raw_urls = extract_urls_from_text_content(content)
+        results['total_urls_found'] = len(raw_urls)
+        
+        # تحليل كل رابط
+        for url in raw_urls:
+            try:
+                # تطبيع الرابط
+                normalized = normalize_url(url)
+                
+                # التحقق من التجاهل
+                ignored, ignore_reason = is_url_ignored(normalized)
+                if ignored:
+                    results['ignored_urls'] += 1
+                    continue
+                
+                results['extracted_urls'].append(normalized)
+                
+                # تحليل الرابط
+                analysis = analyze_link(normalized)
+                
+                if analysis['is_valid']:
+                    results['valid_urls'] += 1
+                    results['valid_urls_list'].append({
+                        'url': normalized,
+                        'platform': analysis['platform'],
+                        'link_type': analysis['link_type'],
+                        'should_collect': analysis['should_collect']
+                    })
+                    
+                    # تعداد حسب المنصة
+                    if analysis['platform'] == 'telegram':
+                        results['telegram_urls'] += 1
+                    elif analysis['platform'] == 'whatsapp':
+                        results['whatsapp_urls'] += 1
+                    else:
+                        results['other_urls'] += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                continue
+        
+        logger.info(f"Processed text file: {filepath} - Found {results['valid_urls']} valid URLs")
         
     except Exception as e:
-        logger.error(f"Generic extraction error: {e}")
-        return []
-
-# ======================
-# Link Filtering
-# ======================
-
-def _filter_links(links: List[str]) -> List[str]:
-    """
-    فلترة وتنظيف الروابط المستخرجة
-    
-    Args:
-        links: قائمة الروابط الخام
-        
-    Returns:
-        list: قائمة بالروابط النظيفة والمسموح بها
-    """
-    if not links:
-        return []
-    
-    filtered_links = set()
-    
-    for link in links:
-        try:
-            # تنظيف الرابط
-            cleaned = clean_link(link)
-            if not cleaned:
-                continue
-            
-            # التحقق مما إذا كان الرابط مسموحاً به
-            if is_allowed_link(cleaned):
-                filtered_links.add(cleaned)
-                
-        except Exception as e:
-            logger.debug(f"Error filtering link {link}: {e}")
-            continue
-    
-    return list(filtered_links)
-
-# ======================
-# Batch Processing
-# ======================
-
-async def extract_links_from_files_batch(
-    client: TelegramClient,
-    messages: List[Message],
-    max_concurrent: int = 3
-) -> Dict[str, List[str]]:
-    """
-    استخراج الروابط من مجموعة من الملفات بشكل متزامن
-    
-    Args:
-        client: عميل Telethon
-        messages: قائمة الرسائل
-        max_concurrent: الحد الأقصى للملفات المعالجة في نفس الوقت
-        
-    Returns:
-        dict: نتائج الاستخراج لكل ملف
-    """
-    results = {}
-    
-    semaphore = asyncio.Semaphore(max_concurrent)
-    
-    async def process_message(message: Message):
-        async with semaphore:
-            filename = message.file.name if message.file else "unknown"
-            links = await extract_links_from_file(client, message)
-            return filename, links
-    
-    # إنشاء مهام للمعالجة
-    tasks = []
-    for message in messages:
-        if message and message.file:
-            task = asyncio.create_task(process_message(message))
-            tasks.append(task)
-    
-    # انتظار اكتمال جميع المهام
-    for task in asyncio.as_completed(tasks):
-        try:
-            filename, links = await task
-            results[filename] = links
-        except Exception as e:
-            logger.error(f"Error processing file in batch: {e}")
+        logger.error(f"Error processing text file {filepath}: {e}")
+        results['error'] = str(e)
     
     return results
+
+# ======================
+# Archive File Processing
+# ======================
+
+def extract_archive(filepath: str, extract_to: str) -> List[str]:
+    """استخراج ملف مضغوط"""
+    extracted_files = []
+    
+    try:
+        if not os.path.exists(filepath):
+            logger.error(f"Archive file not found: {filepath}")
+            return extracted_files
+        
+        # إنشاء مجلد الاستخراج إذا لم يكن موجوداً
+        os.makedirs(extract_to, exist_ok=True)
+        
+        # استخراج حسب نوع الملف
+        if filepath.endswith('.zip'):
+            with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+                extracted_files = zip_ref.namelist()
+        
+        elif filepath.endswith(('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz')):
+            with tarfile.open(filepath, 'r:*') as tar_ref:
+                tar_ref.extractall(extract_to)
+                extracted_files = tar_ref.getnames()
+        
+        elif filepath.endswith('.rar'):
+            try:
+                import rarfile
+                with rarfile.RarFile(filepath) as rar_ref:
+                    rar_ref.extractall(extract_to)
+                    extracted_files = rar_ref.namelist()
+            except ImportError:
+                logger.error("rarfile library not installed. Cannot extract RAR files.")
+                return []
+        
+        elif filepath.endswith('.7z'):
+            try:
+                import py7zr
+                with py7zr.SevenZipFile(filepath, 'r') as sz_ref:
+                    sz_ref.extractall(extract_to)
+                    extracted_files = sz_ref.getnames()
+            except ImportError:
+                logger.error("py7zr library not installed. Cannot extract 7z files.")
+                return []
+        
+        logger.info(f"Extracted {len(extracted_files)} files from {filepath}")
+        
+    except Exception as e:
+        logger.error(f"Error extracting archive {filepath}: {e}")
+    
+    return extracted_files
+
+def process_archive_file(filepath: str) -> Dict:
+    """معالجة ملف مضغوط واستخراج الروابط من محتوياته"""
+    results = {
+        'filepath': filepath,
+        'filename': os.path.basename(filepath),
+        'file_size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+        'extracted_files': 0,
+        'processed_files': 0,
+        'total_urls_found': 0,
+        'valid_urls': 0,
+        'telegram_urls': 0,
+        'whatsapp_urls': 0,
+        'other_urls': 0,
+        'ignored_urls': 0,
+        'valid_urls_list': [],
+        'extracted_files_info': [],
+        'error': None
+    }
+    
+    try:
+        # إنشاء مجلد مؤقت للاستخراج
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # استخراج الملف المضغوط
+            extracted_files = extract_archive(filepath, temp_dir)
+            results['extracted_files'] = len(extracted_files)
+            
+            if not extracted_files:
+                results['error'] = 'No files extracted or archive is empty'
+                return results
+            
+            # معالجة كل ملف مستخرج
+            for extracted_file in extracted_files:
+                extracted_path = os.path.join(temp_dir, extracted_file)
+                
+                # التأكد من أن المسار موجود وليس مجلداً
+                if not os.path.isfile(extracted_path):
+                    continue
+                
+                # التحقق من نوع الملف
+                file_ext = os.path.splitext(extracted_file)[1].lower()
+                
+                file_info = {
+                    'filename': extracted_file,
+                    'filepath': extracted_path,
+                    'file_size': os.path.getsize(extracted_path),
+                    'processed': False,
+                    'urls_found': 0,
+                    'valid_urls': 0,
+                    'error': None
+                }
+                
+                try:
+                    # معالجة الملفات النصية فقط
+                    if file_ext in TEXT_FILE_EXTENSIONS:
+                        # معالجة الملف النصي
+                        text_results = process_text_file(extracted_path)
+                        
+                        file_info['processed'] = True
+                        file_info['urls_found'] = text_results['total_urls_found']
+                        file_info['valid_urls'] = text_results['valid_urls']
+                        
+                        # تحديث النتائج الإجمالية
+                        results['processed_files'] += 1
+                        results['total_urls_found'] += text_results['total_urls_found']
+                        results['valid_urls'] += text_results['valid_urls']
+                        results['telegram_urls'] += text_results['telegram_urls']
+                        results['whatsapp_urls'] += text_results['whatsapp_urls']
+                        results['other_urls'] += text_results['other_urls']
+                        results['ignored_urls'] += text_results['ignored_urls']
+                        
+                        # إضافة الروابط الصالحة
+                        for url_info in text_results.get('valid_urls_list', []):
+                            if url_info['should_collect']:
+                                results['valid_urls_list'].append({
+                                    'url': url_info['url'],
+                                    'source_file': extracted_file,
+                                    'platform': url_info['platform'],
+                                    'link_type': url_info['link_type']
+                                })
+                    
+                    else:
+                        file_info['error'] = f'Unsupported file type: {file_ext}'
+                
+                except Exception as e:
+                    file_info['error'] = str(e)
+                    logger.error(f"Error processing extracted file {extracted_file}: {e}")
+                
+                results['extracted_files_info'].append(file_info)
+        
+        logger.info(f"Processed archive: {filepath} - Found {results['valid_urls']} valid URLs in {results['processed_files']} files")
+        
+    except Exception as e:
+        logger.error(f"Error processing archive file {filepath}: {e}")
+        results['error'] = str(e)
+    
+    return results
+
+# ======================
+# Office File Processing
+# ======================
+
+def process_office_file(filepath: str) -> Dict:
+    """معالجة ملف مكتبي (Word, Excel, PDF, etc.)"""
+    results = {
+        'filepath': filepath,
+        'filename': os.path.basename(filepath),
+        'file_size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+        'total_urls_found': 0,
+        'valid_urls': 0,
+        'telegram_urls': 0,
+        'whatsapp_urls': 0,
+        'other_urls': 0,
+        'ignored_urls': 0,
+        'valid_urls_list': [],
+        'error': None
+    }
+    
+    try:
+        content = ""
+        file_ext = os.path.splitext(filepath)[1].lower()
+        
+        # معالجة حسب نوع الملف
+        if file_ext == '.pdf':
+            try:
+                import PyPDF2
+                with open(filepath, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    for page in pdf_reader.pages:
+                        content += page.extract_text() or ""
+            except ImportError:
+                logger.warning("PyPDF2 not installed. Cannot extract text from PDF.")
+                results['error'] = 'PDF extraction requires PyPDF2 library'
+                return results
+            except Exception as e:
+                logger.error(f"Error extracting text from PDF: {e}")
+                results['error'] = str(e)
+                return results
+        
+        elif file_ext in ['.docx', '.pptx', '.xlsx']:
+            try:
+                from docx import Document
+                doc = Document(filepath)
+                for paragraph in doc.paragraphs:
+                    content += paragraph.text + "\n"
+                
+                # معالجة الجداول
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            content += cell.text + " "
+            except ImportError:
+                logger.warning("python-docx not installed. Cannot extract text from Office files.")
+                results['error'] = 'Office file extraction requires python-docx library'
+                return results
+            except Exception as e:
+                logger.error(f"Error extracting text from Office file: {e}")
+                results['error'] = str(e)
+                return results
+        
+        elif file_ext in ['.doc', '.ppt', '.xls']:
+            # الملفات القديمة تحتاج إلى تحويل
+            results['error'] = 'Old Office format (.doc, .ppt, .xls) requires conversion'
+            return results
+        
+        else:
+            results['error'] = f'Unsupported Office file type: {file_ext}'
+            return results
+        
+        if not content:
+            results['error'] = 'No text content extracted'
+            return results
+        
+        # استخراج الروابط من المحتوى
+        urls = extract_urls_from_text_content(content)
+        results['total_urls_found'] = len(urls)
+        
+        # تحليل كل رابط
+        for url in urls:
+            try:
+                # تطبيع الرابط
+                normalized = normalize_url(url)
+                
+                # التحقق من التجاهل
+                ignored, ignore_reason = is_url_ignored(normalized)
+                if ignored:
+                    results['ignored_urls'] += 1
+                    continue
+                
+                # تحليل الرابط
+                analysis = analyze_link(normalized)
+                
+                if analysis['is_valid'] and analysis['should_collect']:
+                    results['valid_urls'] += 1
+                    results['valid_urls_list'].append({
+                        'url': normalized,
+                        'platform': analysis['platform'],
+                        'link_type': analysis['link_type']
+                    })
+                    
+                    # تعداد حسب المنصة
+                    if analysis['platform'] == 'telegram':
+                        results['telegram_urls'] += 1
+                    elif analysis['platform'] == 'whatsapp':
+                        results['whatsapp_urls'] += 1
+                    else:
+                        results['other_urls'] += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                continue
+        
+        logger.info(f"Processed office file: {filepath} - Found {results['valid_urls']} valid URLs")
+        
+    except Exception as e:
+        logger.error(f"Error processing office file {filepath}: {e}")
+        results['error'] = str(e)
+    
+    return results
+
+# ======================
+# Database File Processing
+# ======================
+
+def process_sqlite_file(filepath: str) -> Dict:
+    """معالجة ملف SQLite واستخراج الروابط"""
+    results = {
+        'filepath': filepath,
+        'filename': os.path.basename(filepath),
+        'file_size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+        'tables_found': 0,
+        'total_urls_found': 0,
+        'valid_urls': 0,
+        'telegram_urls': 0,
+        'whatsapp_urls': 0,
+        'other_urls': 0,
+        'ignored_urls': 0,
+        'valid_urls_list': [],
+        'error': None
+    }
+    
+    try:
+        import sqlite3
+        
+        if not os.path.exists(filepath):
+            results['error'] = 'File not found'
+            return results
+        
+        # الاتصال بقاعدة البيانات
+        conn = sqlite3.connect(filepath)
+        cursor = conn.cursor()
+        
+        # الحصول على قائمة الجداول
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        results['tables_found'] = len(tables)
+        
+        # البحث في كل جدول عن الروابط
+        urls_found = set()
+        
+        for table in tables:
+            table_name = table[0]
+            
+            try:
+                # الحصول على أسماء الأعمدة
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = cursor.fetchall()
+                
+                # البحث عن أعمدة قد تحتوي على روابط
+                url_columns = []
+                for col in columns:
+                    col_name = col[1].lower()
+                    if any(keyword in col_name for keyword in ['url', 'link', 'href', 'telegram', 'whatsapp', 't.me']):
+                        url_columns.append(col[1])
+                
+                if url_columns:
+                    # استعلام البيانات من الأعمدة ذات الصلة
+                    for col in url_columns:
+                        cursor.execute(f"SELECT DISTINCT {col} FROM {table_name} WHERE {col} IS NOT NULL AND {col} != ''")
+                        rows = cursor.fetchall()
+                        
+                        for row in rows:
+                            value = str(row[0])
+                            # استخراج الروابط من النص
+                            extracted_urls = extract_urls_from_text_content(value)
+                            urls_found.update(extracted_urls)
+                
+                # البحث في جميع الأعمدة النصية
+                for col in columns:
+                    col_name = col[1]
+                    col_type = col[2].lower()
+                    
+                    if 'text' in col_type or 'char' in col_type or 'varchar' in col_type:
+                        try:
+                            cursor.execute(f"SELECT {col_name} FROM {table_name} WHERE {col_name} LIKE '%t.me%' OR {col_name} LIKE '%telegram.me%' OR {col_name} LIKE '%whatsapp.com%' LIMIT 100")
+                            rows = cursor.fetchall()
+                            
+                            for row in rows:
+                                value = str(row[0])
+                                extracted_urls = extract_urls_from_text_content(value)
+                                urls_found.update(extracted_urls)
+                        except:
+                            continue
+            
+            except Exception as e:
+                logger.error(f"Error processing table {table_name}: {e}")
+                continue
+        
+        conn.close()
+        
+        results['total_urls_found'] = len(urls_found)
+        
+        # تحليل كل رابط
+        for url in urls_found:
+            try:
+                # تطبيع الرابط
+                normalized = normalize_url(url)
+                
+                # التحقق من التجاهل
+                ignored, ignore_reason = is_url_ignored(normalized)
+                if ignored:
+                    results['ignored_urls'] += 1
+                    continue
+                
+                # تحليل الرابط
+                analysis = analyze_link(normalized)
+                
+                if analysis['is_valid'] and analysis['should_collect']:
+                    results['valid_urls'] += 1
+                    results['valid_urls_list'].append({
+                        'url': normalized,
+                        'platform': analysis['platform'],
+                        'link_type': analysis['link_type']
+                    })
+                    
+                    # تعداد حسب المنصة
+                    if analysis['platform'] == 'telegram':
+                        results['telegram_urls'] += 1
+                    elif analysis['platform'] == 'whatsapp':
+                        results['whatsapp_urls'] += 1
+                    else:
+                        results['other_urls'] += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {e}")
+                continue
+        
+        logger.info(f"Processed SQLite file: {filepath} - Found {results['valid_urls']} valid URLs in {results['tables_found']} tables")
+        
+    except ImportError:
+        results['error'] = 'SQLite processing requires sqlite3 module'
+    except Exception as e:
+        logger.error(f"Error processing SQLite file {filepath}: {e}")
+        results['error'] = str(e)
+    
+    return results
+
+# ======================
+# Generic File Processing
+# ======================
+
+def get_file_type(filepath: str) -> str:
+    """الحصول على نوع الملف"""
+    if not os.path.exists(filepath):
+        return 'not_found'
+    
+    ext = os.path.splitext(filepath)[1].lower()
+    
+    if ext in TEXT_FILE_EXTENSIONS:
+        return 'text'
+    elif ext in ARCHIVE_FILE_EXTENSIONS:
+        return 'archive'
+    elif ext in OFFICE_FILE_EXTENSIONS:
+        return 'office'
+    elif ext in OTHER_SUPPORTED_EXTENSIONS:
+        return 'database'
+    else:
+        return 'unsupported'
+
+def process_file(filepath: str) -> Dict:
+    """معالجة ملف واستخراج الروابط منه"""
+    file_type = get_file_type(filepath)
+    
+    if not os.path.exists(filepath):
+        return {
+            'filepath': filepath,
+            'filename': os.path.basename(filepath),
+            'error': 'File not found',
+            'file_type': 'not_found'
+        }
+    
+    logger.info(f"Processing file: {filepath} (Type: {file_type})")
+    
+    if file_type == 'text':
+        return process_text_file(filepath)
+    
+    elif file_type == 'archive':
+        return process_archive_file(filepath)
+    
+    elif file_type == 'office':
+        return process_office_file(filepath)
+    
+    elif file_type == 'database':
+        return process_sqlite_file(filepath)
+    
+    else:
+        return {
+            'filepath': filepath,
+            'filename': os.path.basename(filepath),
+            'file_size': os.path.getsize(filepath),
+            'error': f'Unsupported file type: {os.path.splitext(filepath)[1]}',
+            'file_type': 'unsupported'
+        }
+
+def process_directory(directory_path: str, recursive: bool = True) -> Dict:
+    """معالجة مجلد كامل واستخراج الروابط من جميع الملفات"""
+    results = {
+        'directory': directory_path,
+        'total_files': 0,
+        'processed_files': 0,
+        'unsupported_files': 0,
+        'failed_files': 0,
+        'total_urls_found': 0,
+        'valid_urls': 0,
+        'telegram_urls': 0,
+        'whatsapp_urls': 0,
+        'other_urls': 0,
+        'files_processed': [],
+        'valid_urls_list': [],
+        'summary_by_type': {
+            'text': 0,
+            'archive': 0,
+            'office': 0,
+            'database': 0,
+            'unsupported': 0
+        }
+    }
+    
+    try:
+        if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
+            results['error'] = 'Directory not found or not a directory'
+            return results
+        
+        # جمع جميع الملفات
+        all_files = []
+        
+        if recursive:
+            for root, dirs, files in os.walk(directory_path):
+                for file in files:
+                    all_files.append(os.path.join(root, file))
+        else:
+            for item in os.listdir(directory_path):
+                item_path = os.path.join(directory_path, item)
+                if os.path.isfile(item_path):
+                    all_files.append(item_path)
+        
+        results['total_files'] = len(all_files)
+        
+        # معالجة كل ملف
+        for filepath in all_files:
+            try:
+                file_type = get_file_type(filepath)
+                results['summary_by_type'][file_type] += 1
+                
+                # تجاهل الملفات غير المدعومة
+                if file_type == 'unsupported':
+                    results['unsupported_files'] += 1
+                    continue
+                
+                # معالجة الملف
+                file_results = process_file(filepath)
+                
+                file_summary = {
+                    'filepath': filepath,
+                    'filename': os.path.basename(filepath),
+                    'file_type': file_type,
+                    'file_size': file_results.get('file_size', 0),
+                    'urls_found': file_results.get('total_urls_found', 0),
+                    'valid_urls': file_results.get('valid_urls', 0),
+                    'error': file_results.get('error')
+                }
+                
+                results['files_processed'].append(file_summary)
+                results['processed_files'] += 1
+                
+                if not file_results.get('error'):
+                    results['total_urls_found'] += file_results.get('total_urls_found', 0)
+                    results['valid_urls'] += file_results.get('valid_urls', 0)
+                    results['telegram_urls'] += file_results.get('telegram_urls', 0)
+                    results['whatsapp_urls'] += file_results.get('whatsapp_urls', 0)
+                    results['other_urls'] += file_results.get('other_urls', 0)
+                    
+                    # جمع الروابط الصالحة
+                    for url_info in file_results.get('valid_urls_list', []):
+                        results['valid_urls_list'].append({
+                            'url': url_info['url'],
+                            'source_file': os.path.basename(filepath),
+                            'platform': url_info.get('platform'),
+                            'link_type': url_info.get('link_type')
+                        })
+                else:
+                    results['failed_files'] += 1
+                
+                logger.info(f"Processed: {filepath} - {file_results.get('valid_urls', 0)} valid URLs")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {filepath}: {e}")
+                results['failed_files'] += 1
+                continue
+        
+        logger.info(f"Directory processing completed: {results['valid_urls']} valid URLs found in {results['processed_files']} files")
+        
+    except Exception as e:
+        logger.error(f"Error processing directory {directory_path}: {e}")
+        results['error'] = str(e)
+    
+    return results
+
+# ======================
+# Export Functions
+# ======================
+
+def export_extracted_urls(results: Dict, output_file: str = None) -> str:
+    """تصدير الروابط المستخرجة إلى ملف"""
+    try:
+        if not results.get('valid_urls_list'):
+            logger.warning("No valid URLs to export")
+            return ""
+        
+        # إنشاء اسم الملف إذا لم يتم توفيره
+        if not output_file:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"extracted_urls_{timestamp}.txt"
+        
+        # تجميع الروابط حسب المنصة والنوع
+        telegram_groups = []
+        telegram_channels = []
+        whatsapp_groups = []
+        other_urls = []
+        
+        for url_info in results['valid_urls_list']:
+            url = url_info['url']
+            platform = url_info.get('platform', '')
+            link_type = url_info.get('link_type', '')
+            
+            if platform == 'telegram':
+                if link_type in ['public_group', 'private_group']:
+                    telegram_groups.append(url)
+                elif link_type == 'channel':
+                    telegram_channels.append(url)
+                else:
+                    other_urls.append(url)
+            elif platform == 'whatsapp' and link_type == 'group':
+                whatsapp_groups.append(url)
+            else:
+                other_urls.append(url)
+        
+        # كتابة الملف
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Extracted URLs Report\n")
+            f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"# Total Valid URLs: {len(results['valid_urls_list'])}\n")
+            f.write("#" * 60 + "\n\n")
+            
+            if telegram_groups:
+                f.write(f"# Telegram Groups ({len(telegram_groups)})\n")
+                f.write("#" * 40 + "\n")
+                for url in telegram_groups:
+                    f.write(f"{url}\n")
+                f.write("\n")
+            
+            if telegram_channels:
+                f.write(f"# Telegram Channels ({len(telegram_channels)})\n")
+                f.write("#" * 40 + "\n")
+                for url in telegram_channels:
+                    f.write(f"{url}\n")
+                f.write("\n")
+            
+            if whatsapp_groups:
+                f.write(f"# WhatsApp Groups ({len(whatsapp_groups)})\n")
+                f.write("#" * 40 + "\n")
+                for url in whatsapp_groups:
+                    f.write(f"{url}\n")
+                f.write("\n")
+            
+            if other_urls:
+                f.write(f"# Other URLs ({len(other_urls)})\n")
+                f.write("#" * 40 + "\n")
+                for url in other_urls:
+                    f.write(f"{url}\n")
+        
+        logger.info(f"Exported {len(results['valid_urls_list'])} URLs to {output_file}")
+        return output_file
+        
+    except Exception as e:
+        logger.error(f"Error exporting URLs: {e}")
+        return ""
+
+def save_processing_report(results: Dict, report_file: str = None) -> str:
+    """حفظ تقرير المعالجة إلى ملف JSON"""
+    try:
+        # إنشاء اسم الملف إذا لم يتم توفيره
+        if not report_file:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_file = f"processing_report_{timestamp}.json"
+        
+        # تحضير البيانات للتصدير
+        export_data = {
+            'report_date': datetime.now().isoformat(),
+            'summary': {
+                'total_files': results.get('total_files', 0),
+                'processed_files': results.get('processed_files', 0),
+                'unsupported_files': results.get('unsupported_files', 0),
+                'failed_files': results.get('failed_files', 0),
+                'total_urls_found': results.get('total_urls_found', 0),
+                'valid_urls': results.get('valid_urls', 0),
+                'telegram_urls': results.get('telegram_urls', 0),
+                'whatsapp_urls': results.get('whatsapp_urls', 0),
+                'other_urls': results.get('other_urls', 0)
+            },
+            'file_types_summary': results.get('summary_by_type', {}),
+            'files_processed': results.get('files_processed', []),
+            'valid_urls_count': len(results.get('valid_urls_list', [])),
+            'error': results.get('error')
+        }
+        
+        # كتابة الملف
+        with open(report_file, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Saved processing report to {report_file}")
+        return report_file
+        
+    except Exception as e:
+        logger.error(f"Error saving processing report: {e}")
+        return ""
 
 # ======================
 # Test Functions
 # ======================
 
-def test_file_support():
-    """اختبار دعم أنواع الملفات"""
-    print("\n" + "="*50)
-    print("🧪 Testing File Support")
-    print("="*50)
+def test_file_extraction():
+    """اختبار استخراج الروابط من الملفات"""
+    print("🔧 اختبار استخراج الروابط من الملفات...")
+    print("=" * 80)
     
-    test_files = [
-        ("document.pdf", "application/pdf"),
-        ("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-        ("notes.txt", "text/plain"),
-        ("file.rtf", "application/rtf"),
-        ("document.odt", "application/vnd.oasis.opendocument.text"),
-        ("script.exe", "application/x-msdownload"),
-        ("archive.zip", "application/zip"),
-    ]
+    # إنشاء ملف نصي تجريبي للاختبار
+    test_content = """
+    Telegram groups:
+    https://t.me/test_group_1
+    https://t.me/+invite123
+    t.me/test_group_2
     
-    for filename, mime_type in test_files:
-        supported = is_file_supported(filename, mime_type)
-        status = "✅ مدعوم" if supported else "❌ غير مدعوم"
-        file_type = get_file_type(filename, mime_type)
-        print(f"{status} {filename} ({mime_type}) -> {file_type}")
+    WhatsApp groups:
+    https://chat.whatsapp.com/group1
+    https://whatsapp.com/channel/channel1
     
-    print("\n📊 حجم الملفات:")
-    test_sizes = [50, 100, 50000000, 60000000, 100000000]
-    for size in test_sizes:
-        valid = is_file_size_valid(size)
-        status = "✅ مقبول" if valid else "❌ مرفوض"
-        print(f"{status} {size:,} بايت")
+    Other links:
+    https://t.me/channel_news (channel)
+    https://facebook.com/groups/test
+    https://discord.gg/test
     
-    print("\n" + "="*50)
-
-async def test_extraction():
-    """اختبار وظائف الاستخراج"""
-    print("\n🧪 Testing Extraction Functions")
+    Invalid/ignored:
+    https://t.me/c/1234567890 (private channel)
+    https://t.me/botfather (bot)
+    """
     
-    # هذا اختبار نظري بدون عميل حقيقي
-    print("✅ File extractors module is ready!")
-    print("📋 الملفات المدعومة:")
-    for ext, desc in SUPPORTED_EXTENSIONS.items():
-        print(f"  • {ext} - {desc}")
+    # حفظ المحتوى في ملف مؤقت
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+        f.write(test_content)
+        test_file = f.name
     
-    print("\n📦 المكتبات المطلوبة:")
-    libraries = [
-        ("PyPDF2", "لملفات PDF"),
-        ("python-docx", "لملفات DOCX"),
-        ("pdfplumber", "لتحسين استخراج PDF"),
-        ("striprtf", "لملفات RTF"),
-    ]
-    
-    for lib_name, purpose in libraries:
-        try:
-            __import__(lib_name.replace('-', '_'))
-            print(f"  ✅ {lib_name} - {purpose}")
-        except ImportError:
-            print(f"  ⚠️  {lib_name} - {purpose} (اختياري)")
+    try:
+        print(f"\n📄 اختبار معالجة ملف نصي: {test_file}")
+        
+        # معالجة الملف
+        results = process_text_file(test_file)
+        
+        print(f"\n📊 النتائج:")
+        print(f"   • اسم الملف: {results['filename']}")
+        print(f"   • حجم الملف: {results['file_size']} bytes")
+        print(f"   • الترميز: {results['encoding']}")
+        print(f"   • الروابط الموجودة: {results['total_urls_found']}")
+        print(f"   • الروابط الصالحة: {results['valid_urls']}")
+        print(f"   • مجموعات تيليجرام: {results['telegram_urls']}")
+        print(f"   • مجموعات واتساب: {results['whatsapp_urls']}")
+        print(f"   • روابط أخرى: {results['other_urls']}")
+        print(f"   • الروابط المتجاهلة: {results['ignored_urls']}")
+        
+        if results.get('error'):
+            print(f"   • الأخطاء: {results['error']}")
+        
+        print(f"\n🔗 الروابط الصالحة:")
+        for url_info in results.get('valid_urls_list', []):
+            print(f"   • {url_info['url']} ({url_info['platform']}/{url_info['link_type']})")
+        
+        # اختبار التصدير
+        print(f"\n💾 اختبار التصدير...")
+        export_file = export_extracted_urls(results, 'test_export.txt')
+        if export_file and os.path.exists(export_file):
+            print(f"   ✅ تم التصدير إلى: {export_file}")
+            
+            # قراءة الملف المصدر لعرض المحتوى
+            with open(export_file, 'r', encoding='utf-8') as f:
+                print(f"\n📄 محتوى الملف المصدر:")
+                print("-" * 40)
+                print(f.read()[:500])  # عرض أول 500 حرف فقط
+                print("-" * 40)
+            
+            # تنظيف
+            os.remove(export_file)
+        
+        print("\n✅ اختبار استخراج الملفات اكتمل بنجاح!")
+        
+    finally:
+        # تنظيف الملف المؤقت
+        if os.path.exists(test_file):
+            os.remove(test_file)
 
 # ======================
-# Main Test
+# Main Entry Point
 # ======================
 
 if __name__ == "__main__":
-    print("🔧 Testing File Extractors Module")
+    import sys
     
-    # اختبار دعم الملفات
-    test_file_support()
+    print("🚀 تشغيل أدوات استخراج الروابط من الملفات...")
     
-    # اختبار وظائف الاستخراج
-    import asyncio
-    asyncio.run(test_extraction())
+    # اختبار الدوال الأساسية
+    test_file_extraction()
     
-    print("\n" + "="*50)
-    print("✅ File extractors module test completed successfully!")
-    print("="*50)
+    print("\n" + "=" * 80)
+    print("📋 الأنواع المدعومة:")
+    
+    print("\n📄 الملفات النصية:")
+    for ext in sorted(TEXT_FILE_EXTENSIONS):
+        print(f"   • {ext}")
+    
+    print("\n📦 الملفات المضغوطة:")
+    for ext in sorted(ARCHIVE_FILE_EXTENSIONS):
+        print(f"   • {ext}")
+    
+    print("\n📊 الملفات المكتبية:")
+    for ext in sorted(OFFICE_FILE_EXTENSIONS):
+        print(f"   • {ext}")
+    
+    print("\n🗄️ ملفات قواعد البيانات:")
+    for ext in sorted(OTHER_SUPPORTED_EXTENSIONS):
+        print(f"   • {ext}")
+    
+    print(f"\n🎯 إجمالي الأنواع المدعومة: {len(ALL_SUPPORTED_EXTENSIONS)} نوع")
+    
+    print("\n✅ أدوات استخراج الروابط جاهزة للعمل!")
