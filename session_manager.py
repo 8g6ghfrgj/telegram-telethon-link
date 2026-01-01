@@ -48,11 +48,9 @@ def save_session_to_file(session_string: str, session_id: int) -> bool:
     try:
         filepath = get_session_filepath(session_id)
         
-        # استخدام StringSession لحفظ الجلسة
-        session = StringSession(session_string)
-        
-        # حفظ الجلسة
-        session.save(filepath)
+        # حفظ الجلسة مباشرة
+        with open(filepath, 'w') as f:
+            f.write(session_string)
         
         logger.info(f"Session saved to file: {filepath}")
         return True
@@ -212,8 +210,8 @@ async def validate_session_by_id(session_id: int) -> Tuple[bool, Dict]:
         logger.error(f"Error validating session by ID {session_id}: {e}")
         return False, {}
 
-async def validate_all_sessions() -> Dict:
-    """التحقق من صحة جميع الجلسات"""
+async def validate_all_sessions_async() -> Dict:
+    """التحقق من صحة جميع الجلسات (دالة غير متزامنة)"""
     sessions = get_sessions()
     results = {
         'total': len(sessions),
@@ -283,12 +281,16 @@ async def validate_all_sessions() -> Dict:
     
     return results
 
+def validate_all_sessions() -> Dict:
+    """التحقق من صحة جميع الجلسات (دالة متزامنة)"""
+    return asyncio.run(validate_all_sessions_async())
+
 # ======================
 # Session Testing
 # ======================
 
-async def test_session_connection(session_string: str) -> Dict:
-    """اختبار اتصال الجلسة"""
+async def test_session_connection_async(session_string: str) -> Dict:
+    """اختبار اتصال الجلسة (دالة غير متزامنة)"""
     results = {
         'connection': False,
         'authorization': False,
@@ -361,8 +363,12 @@ async def test_session_connection(session_string: str) -> Dict:
     
     return results
 
-async def test_all_sessions() -> Dict:
-    """اختبار جميع الجلسات"""
+def test_session_connection(session_string: str) -> Dict:
+    """اختبار اتصال الجلسة (دالة متزامنة)"""
+    return asyncio.run(test_session_connection_async(session_string))
+
+async def test_all_sessions_async() -> Dict:
+    """اختبار جميع الجلسات (دالة غير متزامنة)"""
     sessions = get_sessions()
     results = {
         'total': len(sessions),
@@ -385,7 +391,7 @@ async def test_all_sessions() -> Dict:
         logger.info(f"Testing session: {display_name}")
         
         session_string = session.get('session_string', '')
-        test_result = await test_session_connection(session_string)
+        test_result = await test_session_connection_async(session_string)
         
         detail = {
             'session_id': session_id,
@@ -439,6 +445,10 @@ async def test_all_sessions() -> Dict:
     
     logger.info(f"Session tests completed: {results['passed']}/{results['total']} passed")
     return results
+
+def test_all_sessions() -> Dict:
+    """اختبار جميع الجلسات (دالة متزامنة)"""
+    return asyncio.run(test_all_sessions_async())
 
 # ======================
 # Session Maintenance
@@ -583,16 +593,16 @@ def cleanup_invalid_sessions() -> Dict:
     
     return results
 
-async def auto_validate_sessions():
-    """التحقق التلقائي من صحة الجلسات"""
+async def auto_validate_sessions_async():
+    """التحقق التلقائي من صحة الجلسات (دالة غير متزامنة)"""
     if not AUTO_VALIDATE_SESSIONS:
-        return
+        return None
     
     logger.info("Starting automatic session validation...")
     
     try:
         # التحقق من جميع الجلسات
-        validation_results = await validate_all_sessions()
+        validation_results = await validate_all_sessions_async()
         
         # التحقق من انتهاء الصلاحية
         expiry_results = check_session_expiry()
@@ -617,6 +627,10 @@ async def auto_validate_sessions():
         logger.error(f"Error in auto-validation: {e}")
         return None
 
+def auto_validate_sessions():
+    """التحقق التلقائي من صحة الجلسات (دالة متزامنة)"""
+    return asyncio.run(auto_validate_sessions_async())
+
 # ======================
 # Session Operations
 # ======================
@@ -627,8 +641,8 @@ def create_new_session(phone_number: str) -> Optional[Dict]:
     # يمكن استخدامها لإنشاء جلسات جديدة عبر API
     return None
 
-async def rotate_sessions() -> Dict:
-    """تدوير الجلسات (تفعيل/تعطيل بالتناوب)"""
+async def rotate_sessions_async() -> Dict:
+    """تدوير الجلسات (تفعيل/تعطيل بالتناوب) (دالة غير متزامنة)"""
     sessions = get_sessions()
     results = {
         'total': len(sessions),
@@ -689,6 +703,10 @@ async def rotate_sessions() -> Dict:
     
     return results
 
+def rotate_sessions() -> Dict:
+    """تدوير الجلسات (دالة متزامنة)"""
+    return asyncio.run(rotate_sessions_async())
+
 # ======================
 # Session Export/Import
 # ======================
@@ -739,8 +757,8 @@ def export_sessions_to_file(filepath: str = None) -> Optional[str]:
         logger.error(f"Error exporting sessions: {e}")
         return None
 
-def import_sessions_from_file(filepath: str) -> Dict:
-    """استيراد الجلسات من ملف"""
+async def import_sessions_from_file_async(filepath: str) -> Dict:
+    """استيراد الجلسات من ملف (دالة غير متزامنة)"""
     results = {
         'total': 0,
         'imported': 0,
@@ -850,6 +868,10 @@ def import_sessions_from_file(filepath: str) -> Dict:
         logger.error(f"Error importing sessions: {e}")
     
     return results
+
+def import_sessions_from_file(filepath: str) -> Dict:
+    """استيراد الجلسات من ملف (دالة متزامنة)"""
+    return asyncio.run(import_sessions_from_file_async(filepath))
 
 # ======================
 # Session Statistics
@@ -975,8 +997,8 @@ def get_session_health_report() -> Dict:
 # Test Functions
 # ======================
 
-async def test_session_manager():
-    """اختبار مدير الجلسات"""
+async def test_session_manager_async():
+    """اختبار مدير الجلسات (دالة غير متزامنة)"""
     print("🔧 اختبار مدير الجلسات...")
     print("=" * 60)
     
@@ -1031,6 +1053,10 @@ async def test_session_manager():
     print("\n" + "=" * 60)
     print("✅ اختبار مدير الجلسات اكتمل بنجاح!")
 
+def test_session_manager():
+    """اختبار مدير الجلسات (دالة متزامنة)"""
+    return asyncio.run(test_session_manager_async())
+
 # ======================
 # Main Entry Point
 # ======================
@@ -1079,7 +1105,7 @@ if __name__ == "__main__":
         
         # اختبار كامل
         print("\n" + "=" * 60)
-        await test_session_manager()
+        await test_session_manager_async()
         
         print("\n✅ مدير الجلسات جاهز للعمل!")
     
