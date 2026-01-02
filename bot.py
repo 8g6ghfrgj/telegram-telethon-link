@@ -24,6 +24,8 @@ from telethon.errors import (
     InviteHashInvalidError, InviteHashExpiredError
 )
 from telethon.tl.functions.messages import ExportChatInviteRequest
+from telethon.tl.functions.messages import SearchRequest
+from telethon.tl.types import InputMessagesFilterEmpty
 
 from config import BOT_TOKEN, LINKS_PER_PAGE, API_ID, API_HASH, init_config
 from database import (
@@ -61,7 +63,7 @@ _collection_stats = {
     'duplicate_links': 0,
     'inactive_links': 0,
     'channels_skipped': 0,
-    'join_request_links': 0,  # إضافة إحصائيات لروابط طلب الانضمام
+    'invite_links': 0,  # إضافة لحساب روابط الدعوة
     'start_time': None,
     'end_time': None
 }
@@ -112,7 +114,7 @@ def telegram_types_keyboard(page: int = 0):
             InlineKeyboardButton("🔒 المجموعات الخاصة", callback_data="telegram_private_group_0")
         ],
         [
-            InlineKeyboardButton("🔄 روابط طلب الانضمام", callback_data="telegram_join_request_0")
+            InlineKeyboardButton("📨 روابط الدعوة", callback_data="telegram_invite_group_0"),
         ],
         [
             InlineKeyboardButton("🔙 رجوع", callback_data="menu_view_links")
@@ -170,11 +172,13 @@ def export_options_keyboard():
             InlineKeyboardButton("🔒 مجموعات خاصة", callback_data="export_private_groups")
         ],
         [
-            InlineKeyboardButton("🔄 روابط طلب الانضمام", callback_data="export_join_requests"),
+            InlineKeyboardButton("📨 روابط دعوة", callback_data="export_invite_groups"),
             InlineKeyboardButton("📞 مجموعات واتساب", callback_data="export_whatsapp_groups")
         ],
         [
             InlineKeyboardButton("📊 تصدير الكل", callback_data="export_all"),
+        ],
+        [
             InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")
         ]
     ])
@@ -198,7 +202,10 @@ def pagination_keyboard(platform: str, link_type: str, page: int, has_next: bool
         )
     
     if platform == "telegram":
-        back_button = "view_telegram"
+        if link_type == "invite_group":
+            back_button = "telegram_invite_group_0"
+        else:
+            back_button = "view_telegram"
     elif platform == "whatsapp":
         back_button = "view_whatsapp"
     else:
@@ -274,6 +281,10 @@ def extract_telegram_invite_hash(url: str) -> str:
     
     return ""
 
+def is_telegram_invite_link(url: str) -> bool:
+    """التحقق مما إذا كان الرابط رابط دعوة (يحتوي على +)"""
+    return '+invite' in url.lower() or 't.me/+' in url.lower() or 'telegram.me/+' in url.lower()
+
 def is_telegram_channel_link(url: str) -> bool:
     """التحقق مما إذا كان الرابط قناة تيليجرام"""
     patterns = [
@@ -293,23 +304,6 @@ def is_telegram_channel_link(url: str) -> bool:
     
     return False
 
-def is_join_request_link(url: str) -> bool:
-    """التحقق مما إذا كان الرابط يحتوي على طلب انضمام"""
-    join_patterns = [
-        r't\.me/joinchat/[A-Za-z0-9_-]+',
-        r'telegram\.me/joinchat/[A-Za-z0-9_-]+',
-        r't\.me/\+invite/[A-Za-z0-9_-]+',
-        r'telegram\.me/\+invite/[A-Za-z0-9_-]+'
-    ]
-    
-    for pattern in join_patterns:
-        if re.search(pattern, url, re.IGNORECASE):
-            return True
-    
-    # البحث عن كلمات تشير إلى طلب انضمام في النص المحيط
-    join_keywords = ['انضم', 'انضمام', 'دعوة', 'طلب', 'join', 'invite', 'request']
-    return any(keyword in url.lower() for keyword in join_keywords)
-
 # ======================
 # Link Collection Functions
 # ======================
@@ -323,27 +317,16 @@ async def verify_telegram_group(client: TelegramClient, url: str) -> Dict:
         if is_telegram_channel_link(url_lower):
             return {'status': 'invalid', 'reason': 'قناة وليست مجموعة'}
         
-        # التحقق إذا كان رابط طلب انضمام
-        is_join_request = is_join_request_link(url_lower)
-        
         # استخراج المعرف
-        if '+invite' in url_lower or 't.me/+' in url_lower or is_join_request:
-            # رابط دعوة خاص أو طلب انضمام
+        if is_telegram_invite_link(url_lower):
+            # رابط دعوة خاص
             invite_hash = extract_telegram_invite_hash(url_lower)
-            if not invite_hash and 'joinchat/' in url_lower:
-                # استخراج hash من رابط joinchat
-                match = re.search(r'joinchat/([A-Za-z0-9_-]+)', url_lower)
-                if match:
-                    invite_hash = match.group(1)
-            
             if not invite_hash:
-                # إذا كان رابط طلب انضمام بدون hash، تعامل معه كنوع خاص
-                return {'status': 'valid', 'type': 'join_request_group', 'title': 'مجموعة طلب انضمام',
-                       'members': 0, 'link_type': 'join_request'}
+                return {'status': 'invalid', 'reason': 'رابط دعوة غير صالح'}
             
             try:
                 entity = await client.get_entity(invite_hash)
-                link_type = 'join_request' if is_join_request else 'private_group'
+                link_type = 'invite_group'
             except (InviteHashInvalidError, InviteHashExpiredError):
                 return {'status': 'invalid', 'reason': 'رابط دعوة غير صالح أو منتهي'}
         else:
@@ -354,7 +337,7 @@ async def verify_telegram_group(client: TelegramClient, url: str) -> Dict:
             
             try:
                 entity = await client.get_entity(username)
-                link_type = 'public_group'
+                link_type = 'public_group' if not is_telegram_invite_link(url_lower) else 'invite_group'
             except UsernameNotOccupiedError:
                 return {'status': 'invalid', 'reason': 'المجموعة غير موجودة'}
         
@@ -382,7 +365,7 @@ async def verify_telegram_group(client: TelegramClient, url: str) -> Dict:
             pass
         
         # التحقق من وجود أعضاء (وليس مشتركين)
-        if members_count > 0 or link_type == 'join_request':
+        if members_count > 0:
             return {'status': 'valid', 'type': 'group', 'title': getattr(entity, 'title', ''), 
                    'members': members_count, 'link_type': link_type}
         else:
@@ -412,7 +395,7 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
         'total_collected': 0,
         'telegram_groups': 0,
         'whatsapp_groups': 0,
-        'join_request_links': 0,
+        'invite_links': 0,
         'errors': 0,
         'links': []
     }
@@ -443,8 +426,7 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
             collect_from_dialogs,
             collect_from_joined_channels,
             collect_from_messages,
-            collect_from_group_search,
-            collect_from_join_requests  # إضافة مصدر جديد لجمع روابط طلب الانضمام
+            collect_from_group_search
         ]
         
         for source_func in sources:
@@ -459,9 +441,10 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
                 # تحديث الإحصائيات
                 for link in collected:
                     if 't.me' in link['url']:
-                        results['telegram_groups'] += 1
-                        if link.get('link_type') == 'join_request':
-                            results['join_request_links'] += 1
+                        if link.get('link_type') == 'invite_group':
+                            results['invite_links'] += 1
+                        else:
+                            results['telegram_groups'] += 1
                     elif 'whatsapp.com' in link['url']:
                         results['whatsapp_groups'] += 1
                 
@@ -537,18 +520,22 @@ async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[
                             
                             if success:
                                 _collection_stats['total_collected'] += 1
-                                link_type = verification.get('link_type')
+                                link_type = verification.get('link_type', 'unknown')
                                 if link_type == 'public_group':
                                     _collection_stats['public_groups'] += 1
                                     _collection_stats['telegram_collected'] += 1
                                 elif link_type == 'private_group':
                                     _collection_stats['private_groups'] += 1
                                     _collection_stats['telegram_collected'] += 1
-                                elif link_type == 'join_request':
-                                    _collection_stats['join_request_links'] += 1
+                                elif link_type == 'invite_group':
+                                    _collection_stats['invite_links'] += 1
                                     _collection_stats['telegram_collected'] += 1
                             
-                            await asyncio.sleep(0.5)  # تأخير بين الطلبات
+                            # تأخير مختلف حسب نوع الرابط
+                            if is_telegram_invite_link(url):
+                                await asyncio.sleep(60)  # 60 ثانية لروابط الدعوة
+                            else:
+                                await asyncio.sleep(1)  # 1 ثانية للروابط العادية
                 
             except Exception as e:
                 logger.debug(f"Error processing dialog: {e}")
@@ -605,8 +592,7 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
         # مصطلحات البحث عن الروابط
         search_terms = [
             "t.me", "telegram.me", "مجموعة", "group", "رابط", "دعوة",
-            "انضمام", "انضم", "join", "whatsapp", "واتساب", "chat.whatsapp.com",
-            "طلب انضمام", "انضمام للجروب", "رابط الانضمام"  # إضافة مصطلحات لطلب الانضمام
+            "انضمام", "انضم", "join", "whatsapp", "واتساب", "chat.whatsapp.com"
         ]
         
         for term in search_terms:
@@ -664,16 +650,53 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
 
                                         if success:
                                             _collection_stats['total_collected'] += 1
-                                            link_type = verification.get('link_type')
+                                            link_type = verification.get('link_type', 'unknown')
                                             if link_type == 'public_group':
                                                 _collection_stats['public_groups'] += 1
                                                 _collection_stats['telegram_collected'] += 1
                                             elif link_type == 'private_group':
                                                 _collection_stats['private_groups'] += 1
                                                 _collection_stats['telegram_collected'] += 1
-                                            elif link_type == 'join_request':
-                                                _collection_stats['join_request_links'] += 1
+                                            elif link_type == 'invite_group':
+                                                _collection_stats['invite_links'] += 1
                                                 _collection_stats['telegram_collected'] += 1
+
+                                        # تأخير مختلف حسب نوع الرابط
+                                        if is_telegram_invite_link(url):
+                                            await asyncio.sleep(60)  # 60 ثانية لروابط الدعوة
+                                        else:
+                                            await asyncio.sleep(1)  # 1 ثانية للروابط العادية
+
+                                elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
+                                    if message.date and message.date < WHATSAPP_START_DATE:
+                                        continue
+
+                                    _collected_urls.add(url)
+
+                                    collected.append({
+                                        'url': url,
+                                        'platform': 'whatsapp',
+                                        'link_type': 'group',
+                                        'title': 'WhatsApp Group',
+                                        'members': 0,
+                                        'session_id': session_id
+                                    })
+
+                                    success, _ = add_link(
+                                        url=url,
+                                        platform='whatsapp',
+                                        link_type='group',
+                                        title='WhatsApp Group',
+                                        members_count=0,
+                                        session_id=session_id
+                                    )
+
+                                    if success:
+                                        _collection_stats['total_collected'] += 1
+                                        _collection_stats['whatsapp_collected'] += 1
+                                        _collection_stats['whatsapp_groups'] += 1
+                                    
+                                    await asyncio.sleep(1)  # 1 ثانية لروابط الواتساب
 
                             except Exception as e:
                                 logger.debug(f"Error processing URL {raw_url}: {e}")
@@ -698,8 +721,7 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
         # كلمات البحث الشائعة للمجموعات العربية
         search_keywords = [
             "مجموعة", "شات", "دردشة", "تحدث", "نقاش", "حوار",
-            "اجتماع", "مجتمع", "جروب", "group", "chat", "community",
-            "انضمام", "دعوة", "طلب انضمام", "رابط الانضمام"  # إضافة كلمات لطلب الانضمام
+            "اجتماع", "مجتمع", "جروب", "group", "chat", "community"
         ]
         
         for keyword in search_keywords:
@@ -708,73 +730,76 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
             
             try:
                 # البحث في تيليجرام
-                async for dialog in client.iter_dialogs():
+                search_results = await client(SearchRequest(
+                    q=keyword,
+                    filter=InputMessagesFilterEmpty(),
+                    min_date=None,
+                    max_date=None,
+                    offset_id=0,
+                    add_offset=0,
+                    limit=20,
+                    max_id=0,
+                    min_id=0,
+                    hash=0
+                ))
+                
+                for result in getattr(search_results, 'chats', []):
                     if not _collection_active:
                         break
                     
-                    # البحث عن الرسائل التي تحتوي على الكلمة المفتاحية
                     try:
-                        async for message in client.iter_messages(dialog.id, search=keyword, limit=10):
-                            if message.text:
-                                urls = re.findall(
-                                    r'(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+|chat\.whatsapp\.com/[^\s]+)',
-                                    message.text
+                        if hasattr(result, 'username') and result.username:
+                            url = f"https://t.me/{result.username}"
+                            
+                            # تجاهل القنوات
+                            if is_telegram_channel_link(url):
+                                continue
+                            
+                            verification = await verify_telegram_group(client, url)
+                            
+                            if verification.get('status') == 'valid' and verification.get('members', 0) > 0:
+                                _collected_urls.add(url)
+                                
+                                collected.append({
+                                    'url': url,
+                                    'platform': 'telegram',
+                                    'link_type': verification.get('link_type', 'unknown'),
+                                    'title': verification.get('title', ''),
+                                    'members': verification.get('members', 0),
+                                    'session_id': session_id
+                                })
+                                
+                                # حفظ في قاعدة البيانات
+                                success, _ = add_link(
+                                    url=url,
+                                    platform='telegram',
+                                    link_type=verification.get('link_type', 'unknown'),
+                                    title=verification.get('title', ''),
+                                    members_count=verification.get('members', 0),
+                                    session_id=session_id
                                 )
                                 
-                                for raw_url in urls:
-                                    try:
-                                        url = normalize_url(raw_url)
-                                        
-                                        if url in _collected_urls:
-                                            continue
-                                        
-                                        if 't.me' in url or 'telegram.me' in url:
-                                            if is_telegram_channel_link(url):
-                                                continue
-                                            
-                                            verification = await verify_telegram_group(client, url)
-                                            
-                                            if verification.get('status') == 'valid':
-                                                _collected_urls.add(url)
-                                                
-                                                collected.append({
-                                                    'url': url,
-                                                    'platform': 'telegram',
-                                                    'link_type': verification.get('link_type', 'unknown'),
-                                                    'title': verification.get('title', ''),
-                                                    'members': verification.get('members', 0),
-                                                    'session_id': session_id
-                                                })
-                                                
-                                                # حفظ في قاعدة البيانات
-                                                success, _ = add_link(
-                                                    url=url,
-                                                    platform='telegram',
-                                                    link_type=verification.get('link_type', 'unknown'),
-                                                    title=verification.get('title', ''),
-                                                    members_count=verification.get('members', 0),
-                                                    session_id=session_id
-                                                )
-                                                
-                                                if success:
-                                                    _collection_stats['total_collected'] += 1
-                                                    link_type = verification.get('link_type')
-                                                    if link_type == 'public_group':
-                                                        _collection_stats['public_groups'] += 1
-                                                        _collection_stats['telegram_collected'] += 1
-                                                    elif link_type == 'private_group':
-                                                        _collection_stats['private_groups'] += 1
-                                                        _collection_stats['telegram_collected'] += 1
-                                                    elif link_type == 'join_request':
-                                                        _collection_stats['join_request_links'] += 1
-                                                        _collection_stats['telegram_collected'] += 1
-                                        
-                                    except Exception as e:
-                                        logger.debug(f"Error processing URL from search: {e}")
-                                        continue
-                            
+                                if success:
+                                    _collection_stats['total_collected'] += 1
+                                    link_type = verification.get('link_type', 'unknown')
+                                    if link_type == 'public_group':
+                                        _collection_stats['public_groups'] += 1
+                                        _collection_stats['telegram_collected'] += 1
+                                    elif link_type == 'private_group':
+                                        _collection_stats['private_groups'] += 1
+                                        _collection_stats['telegram_collected'] += 1
+                                    elif link_type == 'invite_group':
+                                        _collection_stats['invite_links'] += 1
+                                        _collection_stats['telegram_collected'] += 1
+                                
+                                # تأخير مختلف حسب نوع الرابط
+                                if is_telegram_invite_link(url):
+                                    await asyncio.sleep(60)  # 60 ثانية لروابط الدعوة
+                                else:
+                                    await asyncio.sleep(1)  # 1 ثانية للروابط العادية
+                    
                     except Exception as e:
-                        logger.debug(f"Error searching messages in dialog: {e}")
+                        logger.debug(f"Error processing search result: {e}")
                         continue
             
             except Exception as e:
@@ -786,178 +811,6 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
     except Exception as e:
         logger.error(f"Error collecting from group search: {e}")
     
-    return collected
-
-async def collect_from_join_requests(client: TelegramClient, session_id: int) -> List[Dict]:
-    """جمع روابط طلب الانضمام من مصادر متخصصة"""
-    collected = []
-    
-    try:
-        # قنوات وكلمات مفتاحية معروفة لنشر روابط الانضمام
-        join_request_channels = [
-            "joinGroups", "arabicgroups", "telegramgroups",
-            "group_links", "join_requests", "دردشات_عربية"
-        ]
-        
-        # قنوات بحث مخصصة
-        search_channels = [
-            "telegram", "groups", "arabic", "دردشة", "مجموعات"
-        ]
-        
-        for channel in join_request_channels:
-            if not _collection_active:
-                break
-            
-            try:
-                # البحث عن القناة
-                try:
-                    entity = await client.get_entity(channel)
-                except:
-                    continue
-                
-                # جمع الرسائل من القناة
-                async for message in client.iter_messages(entity, limit=30):
-                    if not _collection_active:
-                        break
-                    
-                    if message.text:
-                        # البحث عن روابط طلب الانضمام
-                        join_patterns = [
-                            r't\.me/joinchat/[A-Za-z0-9_-]+',
-                            r'telegram\.me/joinchat/[A-Za-z0-9_-]+',
-                            r't\.me/\+invite/[A-Za-z0-9_-]+',
-                            r't\.me/\+[A-Za-z0-9_-]+',
-                            r'رابط الانضمام:?\s*(https?://[^\s]+)',
-                            r'انضموا هنا:?\s*(https?://[^\s]+)'
-                        ]
-                        
-                        for pattern in join_patterns:
-                            matches = re.findall(pattern, message.text, re.IGNORECASE)
-                            for match in matches:
-                                if isinstance(match, tuple):
-                                    url = match[0]
-                                else:
-                                    url = match
-                                
-                                try:
-                                    url = normalize_url(url)
-                                    
-                                    if url in _collected_urls:
-                                        _collection_stats['duplicate_links'] += 1
-                                        continue
-                                    
-                                    if 't.me' in url or 'telegram.me' in url:
-                                        if is_telegram_channel_link(url):
-                                            _collection_stats['channels_skipped'] += 1
-                                            continue
-                                        
-                                        # التحقق من الرابط
-                                        verification = await verify_telegram_group(client, url)
-                                        
-                                        if verification.get('status') == 'valid' or 'joinchat' in url:
-                                            _collected_urls.add(url)
-                                            
-                                            # تحديد نوع الرابط
-                                            link_type = 'join_request' if 'joinchat' in url or is_join_request_link(url) else 'private_group'
-                                            
-                                            collected.append({
-                                                'url': url,
-                                                'platform': 'telegram',
-                                                'link_type': link_type,
-                                                'title': verification.get('title', 'مجموعة طلب انضمام'),
-                                                'members': verification.get('members', 0),
-                                                'session_id': session_id
-                                            })
-                                            
-                                            # حفظ في قاعدة البيانات
-                                            success, _ = add_link(
-                                                url=url,
-                                                platform='telegram',
-                                                link_type=link_type,
-                                                title=verification.get('title', 'مجموعة طلب انضمام'),
-                                                members_count=verification.get('members', 0),
-                                                session_id=session_id
-                                            )
-                                            
-                                            if success:
-                                                _collection_stats['total_collected'] += 1
-                                                _collection_stats['telegram_collected'] += 1
-                                                _collection_stats['join_request_links'] += 1
-                                                
-                                                logger.info(f"Collected join request link: {url}")
-                                                
-                                                await asyncio.sleep(0.3)
-                                                
-                                except Exception as e:
-                                    logger.debug(f"Error processing join request URL: {e}")
-                                    continue
-                    
-            except Exception as e:
-                logger.error(f"Error collecting from channel {channel}: {e}")
-                continue
-        
-        # البحث في الرسائل الخاصة عن روابط الانضمام
-        try:
-            async for dialog in client.iter_dialogs(limit=30):
-                if not _collection_active:
-                    break
-                
-                if dialog.is_user:
-                    try:
-                        async for message in client.iter_messages(dialog.id, search="انضمام", limit=10):
-                            if message.text:
-                                urls = re.findall(
-                                    r't\.me/joinchat/[A-Za-z0-9_-]+',
-                                    message.text
-                                )
-                                
-                                for url in urls:
-                                    try:
-                                        full_url = normalize_url(f"https://{url}")
-                                        
-                                        if full_url in _collected_urls:
-                                            continue
-                                        
-                                        _collected_urls.add(full_url)
-                                        
-                                        collected.append({
-                                            'url': full_url,
-                                            'platform': 'telegram',
-                                            'link_type': 'join_request',
-                                            'title': 'مجموعة طلب انضمام',
-                                            'members': 0,
-                                            'session_id': session_id
-                                        })
-                                        
-                                        success, _ = add_link(
-                                            url=full_url,
-                                            platform='telegram',
-                                            link_type='join_request',
-                                            title='مجموعة طلب انضمام',
-                                            members_count=0,
-                                            session_id=session_id
-                                        )
-                                        
-                                        if success:
-                                            _collection_stats['total_collected'] += 1
-                                            _collection_stats['telegram_collected'] += 1
-                                            _collection_stats['join_request_links'] += 1
-                                            
-                                    except Exception as e:
-                                        logger.debug(f"Error processing private join request: {e}")
-                                        continue
-                    
-                    except Exception as e:
-                        logger.debug(f"Error searching private messages: {e}")
-                        continue
-        
-        except Exception as e:
-            logger.error(f"Error collecting from private messages: {e}")
-    
-    except Exception as e:
-        logger.error(f"Error collecting join request links: {e}")
-    
-    logger.info(f"Collected {len(collected)} join request links")
     return collected
 
 async def start_collection_process():
@@ -976,7 +829,7 @@ async def start_collection_process():
             'duplicate_links': 0,
             'inactive_links': 0,
             'channels_skipped': 0,
-            'join_request_links': 0,  # إضافة إحصائيات لروابط طلب الانضمام
+            'invite_links': 0,
             'start_time': datetime.now().isoformat(),
             'end_time': None
         }
@@ -1005,8 +858,7 @@ async def start_collection_process():
             
             try:
                 results = await collect_links_from_session(session)
-                logger.info(f"Session {results['display_name']}: {results['total_collected']} links "
-                          f"({results['join_request_links']} join request links)")
+                logger.info(f"Session {results['display_name']}: {results['total_collected']} links")
                 
                 # تحديث إحصائيات الجلسة
                 update_collection_stats(session_id, _collection_stats)
@@ -1020,8 +872,7 @@ async def start_collection_process():
         update_collection_stats(session_id, _collection_stats)
         end_collection_session(session_id, 'completed')
         
-        logger.info(f"✅ Collection completed: {_collection_stats['total_collected']} total links "
-                  f"({_collection_stats['join_request_links']} join request links)")
+        logger.info(f"✅ Collection completed: {_collection_stats['total_collected']} total links")
         return True
         
     except Exception as e:
@@ -1044,7 +895,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     📋 *المميزات:*
     • جمع روابط مجموعات تيليجرام العامة والخاصة النشطة فقط
     • جمع روابط مجموعات واتساب النشطة فقط
-    • جمع روابط طلب الانضمام (Join Request Links)
+    • جمع روابط الدعوة (t.me/+xxx)
     • فحص الروابط للتأكد من وجود أعضاء (وليس مشتركين)
     • جمع الروابط القديمة والجديدة (من 2020 حتى المستقبل)
     • تصدير الروابط مصنفة حسب النوع
@@ -1053,7 +904,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ❌ لا يجمع القنوات (t.me/channel)
     ❌ لا يجمع المجموعات الفارغة
     
-    *جديد ✨:* الآن يدعم جمع روابط طلب الانضمام (t.me/joinchat/xxx)
+    ⏱️ *تأخيرات الفحص:*
+    • روابط الدعوة (+): 60 ثانية بين كل رابط
+    • الروابط العادية: 1 ثانية بين كل رابط
     
     اختر من القائمة:"""
     
@@ -1088,14 +941,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     • المجموعات المنضمة
     • رسائل المجموعات
     • نتائج البحث
+    • روابط الدعوة (+)
     • روابط واتساب
-    • *جديد:* روابط طلب الانضمام
+    
+    *تأخيرات الفحص:*
+    • روابط الدعوة (t.me/+): 60 ثانية
+    • الروابط العادية: 1 ثانية
     
     *تصدير الروابط:*
     يمكن تصدير الروابط حسب التصنيف:
     • مجموعات عامة
     • مجموعات خاصة
-    • روابط طلب الانضمام
+    • روابط دعوة
     • مجموعات واتساب
     """
     
@@ -1117,7 +974,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         📊 *الإحصائيات الحالية:*
         • مجموعات عامة: {stats.get('public_groups', 0)}
         • مجموعات خاصة: {stats.get('private_groups', 0)}
-        • روابط طلب انضمام: {stats.get('join_request_links', 0)}
+        • روابط دعوة: {stats.get('invite_links', 0)}
         • مجموعات واتساب: {stats.get('whatsapp_groups', 0)}
         • الإجمالي: {stats.get('total_collected', 0)}
         
@@ -1159,8 +1016,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 stats_text += f"• مجموعات عامة: {count}\n"
             elif link_type == 'private_group':
                 stats_text += f"• مجموعات خاصة: {count}\n"
-            elif link_type == 'join_request':
-                stats_text += f"• روابط طلب انضمام: {count}\n"
+            elif link_type == 'invite_group':
+                stats_text += f"• روابط دعوة: {count}\n"
     
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
@@ -1237,9 +1094,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             page = int(data.split('_')[3]) if len(data.split('_')) > 3 else 0
             await show_telegram_links(query, "private_group", page)
         
-        elif data.startswith("telegram_join_request_"):
+        elif data.startswith("telegram_invite_group_"):
             page = int(data.split('_')[3]) if len(data.split('_')) > 3 else 0
-            await show_telegram_links(query, "join_request", page)
+            await show_telegram_links(query, "invite_group", page)
         
         # إدارة الجلسات
         elif data.startswith("session_info_"):
@@ -1261,8 +1118,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "export_private_groups":
             await export_handler(query, "private_groups")
         
-        elif data == "export_join_requests":
-            await export_handler(query, "join_requests")
+        elif data == "export_invite_groups":
+            await export_handler(query, "invite_groups")
         
         elif data == "export_whatsapp_groups":
             await export_handler(query, "whatsapp_groups")
@@ -1363,8 +1220,8 @@ async def show_stats(query):
                 stats_text += f"• مجموعات عامة: {count}\n"
             elif link_type == 'private_group':
                 stats_text += f"• مجموعات خاصة: {count}\n"
-            elif link_type == 'join_request':
-                stats_text += f"• روابط طلب انضمام: {count}\n"
+            elif link_type == 'invite_group':
+                stats_text += f"• روابط دعوة: {count}\n"
     
     await query.message.edit_text(
         stats_text,
@@ -1577,12 +1434,15 @@ async def start_collection_handler(query):
         "⚡ *يتم جمع فقط:*\n"
         "• مجموعات تيليجرام العامة النشطة\n"
         "• مجموعات تيليجرام الخاصة النشطة\n"
-        "• روابط طلب الانضمام\n"
+        "• روابط الدعوة (t.me/+xxx)\n"
         "• مجموعات واتساب النشطة\n\n"
         "🔍 *فحص الروابط:*\n"
         "• التحقق من وجود أعضاء (وليس مشتركين)\n"
         "• تجاهل القنوات والمجموعات الفارغة\n"
         "• منع تكرار الروابط\n\n"
+        "⏱️ *تأخيرات الفحص:*\n"
+        "• روابط الدعوة: 60 ثانية بين كل رابط\n"
+        "• روابط عادية: 1 ثانية بين كل رابط\n\n"
         "⏳ جاري جمع الروابط من جميع الجلسات...\n"
         "سيتم إعلامك بالتقدم.",
         parse_mode="Markdown"
@@ -1614,7 +1474,7 @@ async def stop_collection_handler(query):
     📊 *إحصائيات الجمع الأخير:*
     • مجموعات عامة: {public_groups}
     • مجموعات خاصة: {private_groups}
-    • روابط طلب انضمام: {join_request_links}
+    • روابط دعوة: {invite_links}
     • مجموعات واتساب: {whatsapp_groups}
     • الإجمالي: {total_collected}
     
@@ -1623,7 +1483,7 @@ async def stop_collection_handler(query):
     """.format(
         public_groups=stats.get('public_groups', 0),
         private_groups=stats.get('private_groups', 0),
-        join_request_links=stats.get('join_request_links', 0),
+        invite_links=stats.get('invite_links', 0),
         whatsapp_groups=stats.get('whatsapp_groups', 0),
         total_collected=stats.get('total_collected', 0),
         duplicate_links=stats.get('duplicate_links', 0),
@@ -1641,7 +1501,7 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
     type_names = {
         "public_group": "المجموعات العامة",
         "private_group": "المجموعات الخاصة",
-        "join_request": "روابط طلب الانضمام"
+        "invite_group": "روابط الدعوة"
     }
     
     title = type_names.get(link_type, link_type)
@@ -1666,10 +1526,10 @@ async def show_telegram_links(query, link_type: str, page: int = 0):
             display_url = url
         
         # إضافة رمز حسب نوع الرابط
-        if link_type == "join_request":
-            symbol = "🔄"
-        elif "t.me/+" in url or "joinchat" in url:
-            symbol = "🔐"
+        if link_type == "invite_group" or "t.me/+" in url:
+            symbol = "📨"
+        elif link_type == "private_group":
+            symbol = "🔒"
         else:
             symbol = "👥"
         
@@ -1707,10 +1567,10 @@ async def export_handler(query, export_type: str):
             filename = "telegram_private_groups.txt"
             caption = "🔒 مجموعات تيليجرام الخاصة النشطة"
         
-        elif export_type == "join_requests":
-            path = export_links_by_type("telegram", "join_request")
-            filename = "telegram_join_requests.txt"
-            caption = "🔄 روابط طلب الانضمام لتليجرام"
+        elif export_type == "invite_groups":
+            path = export_links_by_type("telegram", "invite_group")
+            filename = "telegram_invite_links.txt"
+            caption = "📨 روابط دعوة تيليجرام"
         
         elif export_type == "whatsapp_groups":
             path = export_links_by_type("whatsapp", "group")
@@ -1723,7 +1583,7 @@ async def export_handler(query, export_type: str):
             
             telegram_public = export_links_by_type("telegram", "public_group")
             telegram_private = export_links_by_type("telegram", "private_group")
-            telegram_join = export_links_by_type("telegram", "join_request")
+            telegram_invite = export_links_by_type("telegram", "invite_group")
             whatsapp_groups = export_links_by_type("whatsapp", "group")
             
             files_sent = 0
@@ -1746,12 +1606,12 @@ async def export_handler(query, export_type: str):
                     )
                     files_sent += 1
             
-            if telegram_join and os.path.exists(telegram_join):
-                with open(telegram_join, 'rb') as f:
+            if telegram_invite and os.path.exists(telegram_invite):
+                with open(telegram_invite, 'rb') as f:
                     await query.message.reply_document(
                         f,
-                        filename="telegram_join_requests.txt",
-                        caption="🔄 روابط طلب الانضمام لتليجرام"
+                        filename="telegram_invite_links.txt",
+                        caption="📨 روابط دعوة تيليجرام"
                     )
                     files_sent += 1
             
@@ -1895,7 +1755,8 @@ def main():
         
         # تشغيل البوت
         logger.info("🤖 Starting Telegram Link Collector Bot...")
-        logger.info("⚡ Bot will collect active groups and join request links")
+        logger.info("⚡ Bot will collect active groups only (not channels)")
+        logger.info("⏱️ Invite links: 60s delay, Regular links: 1s delay")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
