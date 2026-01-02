@@ -685,6 +685,7 @@ class AdvancedLinkCollector:
             
         except Exception as e:
             logger.error(f"Error collecting from session {session_info['id']}: {e}")
+            # تحديث الإحصائيات العالمية
             global _collection_stats
             _collection_stats['errors'] += 1
         
@@ -757,7 +758,7 @@ class AdvancedLinkCollector:
                                 collected += 1
                                 self.collected_urls.add(url)
                                 
-                                # تحديث الإحصائيات
+                                # تحديث الإحصائيات العالمية
                                 global _collection_stats
                                 _collection_stats['total_collected'] += 1
                                 _collection_stats['telegram_collected'] += 1
@@ -836,6 +837,7 @@ class AdvancedLinkCollector:
                                 
                                 # تخطي الروابط المكررة
                                 if link_exists(url):
+                                    global _collection_stats
                                     _collection_stats['duplicate_links'] += 1
                                     continue
                                 
@@ -864,6 +866,7 @@ class AdvancedLinkCollector:
                                         messages_collected += 1
                                         self.collected_urls.add(url)
                                         
+                                        # تحديث الإحصائيات العالمية
                                         global _collection_stats
                                         _collection_stats['total_collected'] += 1
                                         
@@ -954,6 +957,7 @@ class AdvancedLinkCollector:
                                         messages_collected += 1
                                         self.collected_urls.add(url)
                                         
+                                        # تحديث الإحصائيات العالمية
                                         global _collection_stats
                                         _collection_stats['total_collected'] += 1
                                         
@@ -1016,6 +1020,7 @@ class AdvancedLinkCollector:
                                     break
                                 
                                 if link_exists(url):
+                                    global _collection_stats
                                     _collection_stats['duplicate_links'] += 1
                                     continue
                                 
@@ -1043,6 +1048,7 @@ class AdvancedLinkCollector:
                                         collected += 1
                                         self.collected_urls.add(url)
                                         
+                                        # تحديث الإحصائيات العالمية
                                         global _collection_stats
                                         _collection_stats['total_collected'] += 1
                                         
@@ -1486,6 +1492,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_text += f"• الروابط بالجلسات: {total_links_by_sessions}\n"
     
     # إحصائيات الجلسة الحالية
+    global _collection_stats
     if _collection_active:
         stats_text += f"\n*🚀 الجلسة الحالية:*\n"
         stats_text += f"• تم جمع: {_collection_stats['total_collected']}\n"
