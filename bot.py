@@ -557,7 +557,8 @@ async def collect_from_joined_channels(client: TelegramClient, session_id: int) 
 async def collect_from_messages(client: TelegramClient, session_id: int) -> List[Dict]:
     """جمع الروابط من الرسائل"""
     collected = []
-    
+    WHATSAPP_START_DATE = datetime(2025, 12, 12)
+  
     try:
         # مصطلحات البحث عن الروابط
         search_terms = [
@@ -631,32 +632,37 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
                                                 _collection_stats['telegram_collected'] += 1
                                 
                                 elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
-                                    # رابط واتساب
-                                    _collected_urls.add(url)
-                                    
-                                    collected.append({
-                                        'url': url,
-                                        'platform': 'whatsapp',
-                                        'link_type': 'group',
-                                        'title': 'WhatsApp Group',
-                                        'members': 0,
-                                        'session_id': session_id
-                                    })
-                                    
-                                    # حفظ في قاعدة البيانات
-                                    success, _ = add_link(
-                                        url=url,
-                                        platform='whatsapp',
-                                        link_type='group',
-                                        title='WhatsApp Group',
-                                        members_count=0,
-                                        session_id=session_id
-                                    )
-                                    
-                                    if success:
-                                        _collection_stats['total_collected'] += 1
-                                        _collection_stats['whatsapp_collected'] += 1
-                                        _collection_stats['whatsapp_groups'] += 1
+
+    # فلترة تاريخ واتساب (من 12/12/2025 فقط)
+    if message.date and message.date < WHATSAPP_START_DATE:
+        continue
+
+    # رابط واتساب
+    _collected_urls.add(url)
+
+    collected.append({
+        'url': url,
+        'platform': 'whatsapp',
+        'link_type': 'group',
+        'title': 'WhatsApp Group',
+        'members': 0,
+        'session_id': session_id
+    })
+
+    # حفظ في قاعدة البيانات
+    success, _ = add_link(
+        url=url,
+        platform='whatsapp',
+        link_type='group',
+        title='WhatsApp Group',
+        members_count=0,
+        session_id=session_id
+    )
+
+    if success:
+        _collection_stats['total_collected'] += 1
+        _collection_stats['whatsapp_collected'] += 1
+        _collection_stats['whatsapp_groups'] += 1= 1
                                 
                                 await asyncio.sleep(0.3)  # تأخير بين الطلبات
                                 
