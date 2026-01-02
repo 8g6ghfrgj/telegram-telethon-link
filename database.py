@@ -553,6 +553,27 @@ def get_active_collection_session() -> Optional[int]:
         logger.error(f"❌ Error getting active collection session: {e}")
         return None
 
+def end_collection_session(session_id: int, status: str = "completed"):
+    """إنهاء جلسة الجمع"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE collection_sessions
+            SET end_time = CURRENT_TIMESTAMP,
+                status = ?
+            WHERE id = ?
+        ''', (status, session_id))
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"✅ Ended collection session ID: {session_id}")
+
+    except Exception as e:
+        logger.error(f"❌ Error ending collection session: {e}")
+
 # ======================
 # Initialization
 # ======================
