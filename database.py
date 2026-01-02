@@ -3,11 +3,22 @@ import logging
 import os
 import json
 import csv
-from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Any
-import hashlib
+import shutil
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple, Any, Union
+from enum import Enum
+import threading
 
-from config import DATABASE_PATH, DATA_DIR, EXPORT_DIR, EXPORT_ENCODING
+from config import DATABASE_PATH, DATA_DIR, EXPORT_DIR, EXPORT_ENCODING, BACKUP_DIR
+
+# ======================
+# Configuration
+# ======================
+
+# إعدادات الحماية
+FORCE_DELETE = False  # يجب تعيينها يدوياً للسماح بالحذف الكامل
+PROTECTED_TABLES = ['links', 'sessions']  # الجداول المحمية
+MAX_BACKUPS = 10  # الحد الأقصى لعدد النسخ الاحتياطية
 
 # ======================
 # Logging
@@ -20,57 +31,248 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================
-# Database Connection
+# Constants & Enums
 # ======================
 
-def get_db_connection():
-    """إنشاء اتصال بقاعدة البيانات مع التعامل مع الأخطاء"""
-    try:
-        # التأكد من وجود مجلد data
-        os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-        
-        # إنشاء الاتصال
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        
-        # تحسين الأداء
-        conn.execute('PRAGMA journal_mode = WAL')
-        conn.execute('PRAGMA synchronous = NORMAL')
-        conn.execute(f'PRAGMA cache_size = -{2000}')  # 2MB
-        
-        return conn
-        
-    except Exception as e:
-        logger.error(f"❌ فشل في إنشاء اتصال بقاعدة البيانات: {e}")
-        
-        # محاولة إنشاء قاعدة بيانات جديدة
+class LinkType(Enum):
+    """تحديد أنواع الروابط بشكل ثابت ومتسق"""
+    # Telegram - الأنواع المستخدمة فقط
+    TELEGRAM_PUBLIC_GROUP = "public_group"
+    TELEGRAM_PRIVATE_GROUP = "private_group"
+    TELEGRAM_JOIN_REQUEST = "join_request"
+    
+    # WhatsApp
+    WHATSAPP_GROUP = "group"
+    
+    @classmethod
+    def get_all_types(cls):
+        """الحصول على جميع الأنواع النشطة"""
+        return [
+            cls.TELEGRAM_PUBLIC_GROUP.value,
+            cls.TELEGRAM_PRIVATE_GROUP.value,
+            cls.TELEGRAM_JOIN_REQUEST.value,
+            cls.WHATSAPP_GROUP.value,
+        ]
+    
+    @classmethod
+    def get_telegram_types(cls):
+        """الحصول على جميع أنواع تليجرام النشطة"""
+        return [
+            cls.TELEGRAM_PUBLIC_GROUP.value,
+            cls.TELEGRAM_PRIVATE_GROUP.value,
+            cls.TELEGRAM_JOIN_REQUEST.value,
+        ]
+    
+    @classmethod
+    def get_whatsapp_types(cls):
+        """الحصول على جميع أنواع واتساب النشطة"""
+        return [cls.WHATSAPP_GROUP.value]
+    
+    @classmethod
+    def is_valid_type(cls, platform: str, link_type: str) -> bool:
+        """التحقق من صحة نوع الرابط للمنصة"""
+        if platform == "telegram":
+            return link_type in cls.get_telegram_types()
+        elif platform == "whatsapp":
+            return link_type in cls.get_whatsapp_types()
+        return False
+
+# ======================
+# Database Connection with Transactions
+# ======================
+
+class DatabaseConnection:
+    """مدير اتصال قاعدة البيانات مع حماية متقدمة"""
+    
+    @staticmethod
+    def get_connection():
+        """الحصول على اتصال قاعدة البيانات"""
         try:
-            # حذف الملف التالف إذا وجد
-            if os.path.exists(DATABASE_PATH):
-                os.remove(DATABASE_PATH)
-                logger.info(f"🗑️ تم حذف قاعدة البيانات التالفة: {DATABASE_PATH}")
-            
-            # إنشاء مجلد جديد
+            # التأكد من وجود مجلد data
             os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
             
-            # إنشاء اتصال جديد
-            conn = sqlite3.connect(DATABASE_PATH)
+            # إنشاء الاتصال
+            conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             
-            # تهيئة الجداول
-            init_db()
+            # تحسين الأداء
+            conn.execute('PRAGMA journal_mode = WAL')
+            conn.execute('PRAGMA synchronous = NORMAL')
+            conn.execute('PRAGMA cache_size = -2000')
+            conn.execute('PRAGMA foreign_keys = ON')
             
-            logger.info(f"✅ تم إنشاء قاعدة بيانات جديدة: {DATABASE_PATH}")
             return conn
             
-        except Exception as e2:
-            logger.error(f"❌ فشل في إنشاء قاعدة بيانات جديدة: {e2}")
+        except Exception as e:
+            logger.error(f"❌ فشل في إنشاء اتصال قاعدة البيانات: {e}")
+            
+            # محاولة إصلاح بدلاً من الحذف
+            if DatabaseConnection.repair_database():
+                return DatabaseConnection.get_connection()
+            else:
+                logger.critical("❌ فشل إصلاح قاعدة البيانات، يرجى التحقق يدوياً")
+                raise
+    
+    @staticmethod
+    def backup_database():
+        """إنشاء نسخة احتياطية من قاعدة البيانات"""
+        try:
+            os.makedirs(BACKUP_DIR, exist_ok=True)
+            
+            # تنظيف النسخ القديمة
+            DatabaseConnection.cleanup_old_backups()
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(BACKUP_DIR, f"backup_{timestamp}.db")
+            
+            if os.path.exists(DATABASE_PATH):
+                shutil.copy2(DATABASE_PATH, backup_path)
+                logger.info(f"✅ تم إنشاء نسخة احتياطية: {backup_path}")
+                return backup_path
+            
+            logger.warning("⚠️ لا يوجد ملف قاعدة بيانات للنسخ الاحتياطي")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ فشل في إنشاء نسخة احتياطية: {e}")
+            return None
+    
+    @staticmethod
+    def cleanup_old_backups():
+        """تنظيف النسخ الاحتياطية القديمة"""
+        try:
+            if not os.path.exists(BACKUP_DIR):
+                return
+            
+            backups = []
+            for filename in os.listdir(BACKUP_DIR):
+                if filename.startswith("backup_") and filename.endswith(".db"):
+                    filepath = os.path.join(BACKUP_DIR, filename)
+                    mtime = os.path.getmtime(filepath)
+                    backups.append((mtime, filepath))
+            
+            # ترتيب حسب التاريخ (الأقدم أولاً)
+            backups.sort()
+            
+            # حذف النسخ الزائدة عن الحد
+            if len(backups) > MAX_BACKUPS:
+                for i in range(len(backups) - MAX_BACKUPS):
+                    os.remove(backups[i][1])
+                    logger.info(f"🗑️ تم حذف النسخة الاحتياطية القديمة: {backups[i][1]}")
+                    
+        except Exception as e:
+            logger.error(f"❌ فشل في تنظيف النسخ الاحتياطية: {e}")
+    
+    @staticmethod
+    def repair_database():
+        """إصلاح قاعدة البيانات التالفة"""
+        try:
+            if not os.path.exists(DATABASE_PATH):
+                logger.info("ℹ️ لا يوجد ملف قاعدة بيانات للإصلاح")
+                return True
+            
+            # 1. إنشاء نسخة احتياطية أولاً
+            backup = DatabaseConnection.backup_database()
+            if not backup:
+                logger.error("❌ لا يمكن الإصلاح بدون نسخة احتياطية")
+                return False
+            
+            # 2. محاولة فتح وإصلاح
+            conn = None
+            try:
+                conn = sqlite3.connect(DATABASE_PATH)
+                cursor = conn.cursor()
+                
+                # التحقق من الجداول
+                cursor.execute("PRAGMA integrity_check")
+                result = cursor.fetchone()[0]
+                
+                if result == "ok":
+                    logger.info("✅ فحص سلامة قاعدة البيانات ناجح")
+                    conn.close()
+                    return True
+                else:
+                    logger.warning(f"⚠️ مشكلة في سلامة قاعدة البيانات: {result}")
+                    
+                    # محاولة إصلاح
+                    cursor.execute("PRAGMA optimize")
+                    cursor.execute("VACUUM")
+                    conn.commit()
+                    
+                    cursor.execute("PRAGMA integrity_check")
+                    result = cursor.fetchone()[0]
+                    
+                    if result == "ok":
+                        logger.info("✅ تم إصلاح قاعدة البيانات بنجاح")
+                        return True
+                    else:
+                        logger.error(f"❌ فشل إصلاح قاعدة البيانات: {result}")
+                        return False
+                        
+            except Exception as e:
+                logger.error(f"❌ خطأ أثناء الإصلاح: {e}")
+                return False
+            finally:
+                if conn:
+                    conn.close()
+                    
+        except Exception as e:
+            logger.error(f"❌ خطأ عام في الإصلاح: {e}")
+            return False
+
+# ======================
+# Transaction Decorator
+# ======================
+
+def transaction(func):
+    """ديكوراتور لإدارة Transactions"""
+    def wrapper(*args, **kwargs):
+        conn = None
+        cursor = None
+        try:
+            conn = DatabaseConnection.get_connection()
+            cursor = conn.cursor()
+            
+            # بدء Transaction
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # تنفيذ الدالة
+            result = func(*args, **kwargs, conn=conn, cursor=cursor)
+            
+            # تأكيد التغييرات
+            conn.commit()
+            return result
+            
+        except Exception as e:
+            # التراجع عن التغييرات
+            if conn:
+                conn.rollback()
+            logger.error(f"❌ فشلت المعاملة في {func.__name__}: {e}")
             raise
+            
+        finally:
+            # إغلاق الاتصال
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+                
+    return wrapper
+
+# ======================
+# Database Initialization
+# ======================
 
 def init_db():
     """تهيئة قاعدة البيانات وإنشاء الجداول"""
     try:
-        conn = get_db_connection()
+        # محاولة إصلاح قاعدة البيانات التالفة
+        if os.path.exists(DATABASE_PATH):
+            if not DatabaseConnection.repair_database():
+                logger.error("❌ فشل إصلاح قاعدة البيانات الموجودة")
+                return False
+        
+        conn = DatabaseConnection.get_connection()
         cursor = conn.cursor()
         
         # جدول الجلسات
@@ -85,18 +287,19 @@ def init_db():
                 is_active BOOLEAN DEFAULT 1,
                 added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_used TIMESTAMP,
-                notes TEXT
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # جدول الروابط
-        cursor.execute('''
+        # جدول الروابط - الأنواع النشطة فقط
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL UNIQUE,
                 platform TEXT NOT NULL,
                 link_type TEXT NOT NULL,
-                subtype TEXT,
                 title TEXT,
                 description TEXT,
                 members_count INTEGER DEFAULT 0,
@@ -105,9 +308,15 @@ def init_db():
                 collected_by INTEGER,
                 session_id INTEGER,
                 metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL
+                last_checked TIMESTAMP,
+                checked_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL,
+                CHECK (platform IN ('telegram', 'whatsapp')),
+                CHECK (link_type IN ({','.join(['?'] * len(LinkType.get_all_types()))}))
             )
-        ''')
+        ''', LinkType.get_all_types())
         
         # جدول جلسات الجمع
         cursor.execute('''
@@ -120,38 +329,228 @@ def init_db():
                 total_links INTEGER DEFAULT 0,
                 duplicate_links INTEGER DEFAULT 0,
                 inactive_links INTEGER DEFAULT 0,
-                channels_skipped INTEGER DEFAULT 0
+                channels_skipped INTEGER DEFAULT 0,
+                platform TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # جدول سجل التغييرات
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS change_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                record_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                old_data TEXT,
+                new_data TEXT,
+                changed_by TEXT,
+                changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
         # فهارس للتحسين
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_links_platform_type ON links(platform, link_type)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_links_subtype ON links(subtype)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_links_collected_at ON links(collected_at DESC)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_links_url ON links(url)')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_links_platform_type 
+            ON links(platform, link_type, is_active)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_links_collected_at 
+            ON links(collected_at DESC)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_links_is_active 
+            ON links(is_active)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_links_url 
+            ON links(url)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_active 
+            ON sessions(is_active)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_links_last_checked 
+            ON links(last_checked)
+        ''')
         
         conn.commit()
         conn.close()
         
-        logger.info("✅ Database initialized successfully")
+        logger.info("✅ تم تهيئة قاعدة البيانات بنجاح")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error initializing database: {e}")
+        logger.error(f"❌ خطأ في تهيئة قاعدة البيانات: {e}")
         return False
+
+# ======================
+# Protected Delete Functions
+# ======================
+
+@transaction
+def delete_session(session_id: int, force_delete: bool = False, 
+                  conn=None, cursor=None) -> bool:
+    """حذف جلسة - مع حماية ضد الحذف العرضي"""
+    try:
+        if not force_delete and not FORCE_DELETE:
+            logger.critical(f"🚫 محاولة حذف جلسة {session_id} بدون إذن - الحذف معطل")
+            return False
+        
+        # الحصول على بيانات الجلسة قبل الحذف
+        cursor.execute('SELECT * FROM sessions WHERE id = ?', (session_id,))
+        session = cursor.fetchone()
+        
+        if not session:
+            logger.warning(f"⚠️ لم يتم العثور على جلسة بالرقم {session_id}")
+            return False
+        
+        # تسجيل في سجل التغييرات قبل الحذف
+        cursor.execute('''
+            INSERT INTO change_log 
+            (table_name, record_id, action, old_data, changed_at)
+            VALUES ('sessions', ?, 'DELETE', ?, CURRENT_TIMESTAMP)
+        ''', (session_id, json.dumps(dict(session))))
+        
+        # حذف الجلسة
+        cursor.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
+        
+        logger.warning(f"⚠️ تم حذف جلسة {session_id} (قوة الحذف: {force_delete})")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في حذف الجلسة: {e}")
+        raise
+
+@transaction
+def delete_all_sessions(force_delete: bool = False, 
+                       conn=None, cursor=None) -> bool:
+    """حذف جميع الجلسات - مع حماية مشددة"""
+    try:
+        if not force_delete or not FORCE_DELETE:
+            logger.critical("🚫 محاولة حذف جميع الجلسات بدون إذن - العملية مرفوضة")
+            return False
+        
+        # الحصول على عدد الجلسات قبل الحذف
+        cursor.execute('SELECT COUNT(*) as count FROM sessions')
+        count_before = cursor.fetchone()['count']
+        
+        if count_before == 0:
+            logger.info("ℹ️ لا توجد جلسات لحذفها")
+            return True
+        
+        # تسجيل في سجل التغييرات قبل الحذف
+        cursor.execute('SELECT * FROM sessions')
+        all_sessions = cursor.fetchall()
+        
+        for session in all_sessions:
+            session_dict = dict(session)
+            cursor.execute('''
+                INSERT INTO change_log 
+                (table_name, record_id, action, old_data, changed_at)
+                VALUES ('sessions', ?, 'DELETE_ALL', ?, CURRENT_TIMESTAMP)
+            ''', (session_dict['id'], json.dumps(session_dict)))
+        
+        # حذف جميع الجلسات
+        cursor.execute('DELETE FROM sessions')
+        
+        # إعادة ضبط السلسلة التلقائية
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="sessions"')
+        
+        logger.warning(f"⚠️ تم حذف جميع الجلسات ({count_before} جلسة) - هذه عملية خطيرة")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في حذف جميع الجلسات: {e}")
+        raise
+
+@transaction
+def delete_link(link_id: int, force_delete: bool = False, 
+               conn=None, cursor=None) -> bool:
+    """حذف رابط - مع حماية ضد الحذف العرضي"""
+    try:
+        if not force_delete and not FORCE_DELETE:
+            logger.critical(f"🚫 محاولة حذف رابط {link_id} بدون إذن - الحذف معطل")
+            return False
+        
+        # الحصول على بيانات الرابط قبل الحذف
+        cursor.execute('SELECT * FROM links WHERE id = ?', (link_id,))
+        link = cursor.fetchone()
+        
+        if not link:
+            logger.warning(f"⚠️ لم يتم العثور على رابط بالرقم {link_id}")
+            return False
+        
+        # تسجيل في سجل التغييرات قبل الحذف
+        cursor.execute('''
+            INSERT INTO change_log 
+            (table_name, record_id, action, old_data, changed_at)
+            VALUES ('links', ?, 'DELETE', ?, CURRENT_TIMESTAMP)
+        ''', (link_id, json.dumps(dict(link))))
+        
+        # حذف الرابط
+        cursor.execute('DELETE FROM links WHERE id = ?', (link_id,))
+        
+        logger.warning(f"⚠️ تم حذف رابط {link_id} (قوة الحذف: {force_delete})")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في حذف الرابط: {e}")
+        raise
+
+@transaction
+def delete_all_links(force_delete: bool = False, 
+                    conn=None, cursor=None) -> bool:
+    """حذف جميع الروابط - مع حماية مشددة"""
+    try:
+        if not force_delete or not FORCE_DELETE:
+            logger.critical("🚫 محاولة حذف جميع الروابط بدون إذن - العملية مرفوضة")
+            return False
+        
+        # الحصول على عدد الروابط قبل الحذف
+        cursor.execute('SELECT COUNT(*) as count FROM links')
+        count_before = cursor.fetchone()['count']
+        
+        if count_before == 0:
+            logger.info("ℹ️ لا توجد روابط لحذفها")
+            return True
+        
+        # تسجيل في سجل التغييرات قبل الحذف
+        cursor.execute('SELECT * FROM links')
+        all_links = cursor.fetchall()
+        
+        for link in all_links:
+            link_dict = dict(link)
+            cursor.execute('''
+                INSERT INTO change_log 
+                (table_name, record_id, action, old_data, changed_at)
+                VALUES ('links', ?, 'DELETE_ALL', ?, CURRENT_TIMESTAMP)
+            ''', (link_dict['id'], json.dumps(link_dict)))
+        
+        # حذف جميع الروابط
+        cursor.execute('DELETE FROM links')
+        
+        # إعادة ضبط السلسلة التلقائية
+        cursor.execute('DELETE FROM sqlite_sequence WHERE name="links"')
+        
+        logger.warning(f"⚠️ تم حذف جميع الروابط ({count_before} رابط) - هذه عملية خطيرة")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في حذف جميع الروابط: {e}")
+        raise
 
 # ======================
 # Session Management
 # ======================
 
+@transaction
 def add_session(session_string: str, phone: str = "", user_id: int = 0, 
-                username: str = "", display_name: str = "") -> bool:
+                username: str = "", display_name: str = "", 
+                conn=None, cursor=None) -> bool:
     """إضافة جلسة جديدة"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
         # التحقق إذا كانت الجلسة موجودة مسبقاً
         cursor.execute(
             "SELECT id FROM sessions WHERE session_string = ?",
@@ -160,34 +559,40 @@ def add_session(session_string: str, phone: str = "", user_id: int = 0,
         existing = cursor.fetchone()
         
         if existing:
-            logger.info(f"Session already exists with ID: {existing['id']}")
-            conn.close()
+            logger.info(f"ℹ️ الجلسة موجودة بالفعل بالرقم: {existing['id']}")
             return False
         
         # إضافة الجلسة الجديدة
         cursor.execute('''
             INSERT INTO sessions 
-            (session_string, phone_number, user_id, username, display_name, is_active, added_date)
-            VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            (session_string, phone_number, user_id, username, display_name, 
+             is_active, added_date, last_used)
+            VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ''', (session_string, phone, user_id, username, display_name))
         
-        conn.commit()
         session_id = cursor.lastrowid
-        conn.close()
         
-        logger.info(f"✅ Added new session: {display_name} (ID: {session_id})")
+        # تسجيل في سجل التغييرات
+        cursor.execute('''
+            INSERT INTO change_log 
+            (table_name, record_id, action, new_data, changed_at)
+            VALUES ('sessions', ?, 'CREATE', ?, CURRENT_TIMESTAMP)
+        ''', (session_id, json.dumps({
+            'session_string': session_string,
+            'display_name': display_name
+        })))
+        
+        logger.info(f"✅ تمت إضافة جلسة جديدة: {display_name} (الرقم: {session_id})")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error adding session: {e}")
-        return False
+        logger.error(f"❌ خطأ في إضافة جلسة: {e}")
+        raise
 
-def get_sessions(active_only: bool = False) -> List[Dict]:
+@transaction
+def get_sessions(active_only: bool = False, conn=None, cursor=None) -> List[Dict]:
     """الحصول على قائمة الجلسات"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
         if active_only:
             cursor.execute('''
                 SELECT * FROM sessions 
@@ -200,162 +605,165 @@ def get_sessions(active_only: bool = False) -> List[Dict]:
                 ORDER BY is_active DESC, added_date DESC
             ''')
         
-        sessions = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return sessions
+        return [dict(row) for row in cursor.fetchall()]
         
     except Exception as e:
-        logger.error(f"❌ Error getting sessions: {e}")
+        logger.error(f"❌ خطأ في الحصول على الجلسات: {e}")
         return []
 
-def delete_session(session_id: int) -> bool:
-    """حذف جلسة"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
-        
-        conn.commit()
-        rows_affected = cursor.rowcount
-        conn.close()
-        
-        if rows_affected > 0:
-            logger.info(f"✅ Deleted session ID: {session_id}")
-            return True
-        else:
-            logger.warning(f"❌ Session ID {session_id} not found")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Error deleting session: {e}")
-        return False
-
-def delete_all_sessions() -> bool:
-    """حذف جميع الجلسات"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # الحصول على عدد الجلسات قبل الحذف
-        cursor.execute('SELECT COUNT(*) as count FROM sessions')
-        count_before = cursor.fetchone()['count']
-        
-        # حذف جميع الجلسات
-        cursor.execute('DELETE FROM sessions')
-        
-        # إعادة ضبط السلسلة التلقائية
-        cursor.execute('DELETE FROM sqlite_sequence WHERE name="sessions"')
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"✅ Deleted all sessions ({count_before} sessions)")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Error deleting all sessions: {e}")
-        return False
-
-def update_session_status(session_id: int, is_active: bool) -> bool:
+@transaction  
+def update_session_status(session_id: int, is_active: bool, conn=None, cursor=None) -> bool:
     """تحديث حالة الجلسة"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # الحصول على البيانات القديمة
+        cursor.execute('SELECT * FROM sessions WHERE id = ?', (session_id,))
+        old_session = cursor.fetchone()
         
+        if not old_session:
+            logger.warning(f"⚠️ لم يتم العثور على جلسة بالرقم {session_id}")
+            return False
+        
+        # تحديث الحالة
         cursor.execute('''
             UPDATE sessions 
-            SET is_active = ?, last_used = CURRENT_TIMESTAMP 
+            SET is_active = ?, last_used = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (1 if is_active else 0, session_id))
         
-        conn.commit()
-        rows_affected = cursor.rowcount
-        conn.close()
+        # الحصول على البيانات الجديدة
+        cursor.execute('SELECT * FROM sessions WHERE id = ?', (session_id,))
+        new_session = cursor.fetchone()
         
-        if rows_affected > 0:
-            status = "activated" if is_active else "deactivated"
-            logger.info(f"✅ Session {session_id} {status}")
-            return True
-        else:
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Error updating session status: {e}")
-        return False
-
-def update_session_usage(session_id: int):
-    """تحديث وقت آخر استخدام للجلسة"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
+        # تسجيل في سجل التغييرات
         cursor.execute('''
-            UPDATE sessions 
-            SET last_used = CURRENT_TIMESTAMP 
-            WHERE id = ?
-        ''', (session_id,))
+            INSERT INTO change_log 
+            (table_name, record_id, action, old_data, new_data, changed_at)
+            VALUES ('sessions', ?, 'UPDATE', ?, ?, CURRENT_TIMESTAMP)
+        ''', (session_id, json.dumps(dict(old_session)), json.dumps(dict(new_session))))
         
-        conn.commit()
-        conn.close()
+        status = "تم تفعيل" if is_active else "تم تعطيل"
+        logger.info(f"✅ {status} الجلسة {session_id}")
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Error updating session usage: {e}")
+        logger.error(f"❌ خطأ في تحديث حالة الجلسة: {e}")
+        raise
 
 # ======================
 # Link Management
 # ======================
 
+@transaction
 def add_link(url: str, platform: str, link_type: str, 
              title: str = "", members_count: int = 0, 
-             session_id: int = None, subtype: str = None,
-             description: str = "", metadata: Dict = None) -> Tuple[bool, str]:
+             session_id: int = None, description: str = "", 
+             metadata: Dict = None, conn=None, cursor=None) -> Tuple[bool, str, Optional[int]]:
     """إضافة رابط جديد"""
     try:
         url = url.strip()
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if not LinkType.is_valid_type(platform, link_type):
+            logger.error(f"❌ نوع رابط غير صالح: {platform}/{link_type}")
+            return False, "invalid_type", None
         
         # التحقق من عدم تكرار الرابط
         cursor.execute('SELECT id FROM links WHERE url = ?', (url,))
         existing = cursor.fetchone()
         
         if existing:
-            conn.close()
-            return False, "duplicate"
+            logger.info(f"ℹ️ الرابط موجود بالفعل: {url}")
+            return False, "duplicate", existing['id']
         
-        # تحويل metadata إلى JSON إذا وجد
+        # تحويل metadata إلى JSON
         metadata_json = json.dumps(metadata) if metadata else None
         
         # إضافة الرابط الجديد
         cursor.execute('''
             INSERT INTO links 
-            (url, platform, link_type, subtype, title, description, members_count, collected_at, session_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
-        ''', (url, platform, link_type, subtype, title, description, members_count, session_id, metadata_json))
+            (url, platform, link_type, title, description, members_count, 
+             collected_at, session_id, metadata, last_checked, checked_count)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP, 1)
+        ''', (url, platform, link_type, title, description, members_count, 
+              session_id, metadata_json))
         
-        conn.commit()
         link_id = cursor.lastrowid
-        conn.close()
         
-        logger.info(f"✅ Added link: {url} ({platform}/{link_type})")
-        return True, "added"
+        # تسجيل في سجل التغييرات
+        cursor.execute('''
+            INSERT INTO change_log 
+            (table_name, record_id, action, new_data, changed_at)
+            VALUES ('links', ?, 'CREATE', ?, CURRENT_TIMESTAMP)
+        ''', (link_id, json.dumps({
+            'url': url,
+            'platform': platform,
+            'link_type': link_type,
+            'title': title
+        })))
+        
+        logger.info(f"✅ تمت إضافة رابط: {url} ({platform}/{link_type})")
+        return True, "added", link_id
         
     except Exception as e:
-        logger.error(f"❌ Error adding link: {e}")
-        return False, f"error: {str(e)}"
+        logger.error(f"❌ خطأ في إضافة رابط: {e}")
+        raise
 
-def get_links_by_type(platform: str, link_type: str = None, subtype: str = None,
-                      limit: int = 20, offset: int = 0) -> List[Dict]:
-    """الحصول على الروابط حسب النوع والتصنيف الفرعي"""
+@transaction
+def update_link_members(link_id: int, members_count: int, conn=None, cursor=None) -> bool:
+    """تحديث عدد أعضاء الرابط"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE links 
+            SET members_count = ?, 
+                last_checked = CURRENT_TIMESTAMP,
+                checked_count = checked_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (members_count, link_id))
         
+        if cursor.rowcount > 0:
+            logger.info(f"✅ تم تحديث رابط {link_id} إلى {members_count} عضو")
+            return True
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في تحديث أعضاء الرابط: {e}")
+        raise
+
+@transaction
+def deactivate_link(link_id: int, reason: str = "", conn=None, cursor=None) -> bool:
+    """تعطيل رابط"""
+    try:
+        cursor.execute('''
+            UPDATE links 
+            SET is_active = 0,
+                description = CASE 
+                    WHEN description IS NOT NULL AND description != '' 
+                    THEN description || ' | ' || ?
+                    ELSE ?
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (f"تم التعطيل: {reason}", f"تم التعطيل: {reason}", link_id))
+        
+        if cursor.rowcount > 0:
+            logger.info(f"✅ تم تعطيل رابط {link_id}: {reason}")
+            return True
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في تعطيل رابط: {e}")
+        raise
+
+@transaction
+def get_links_by_type(platform: str, link_type: str = None,
+                      active_only: bool = True, limit: int = 20, 
+                      offset: int = 0, conn=None, cursor=None) -> List[Dict]:
+    """الحصول على الروابط حسب المنصة والنوع"""
+    try:
         query = '''
             SELECT * FROM links 
-            WHERE platform = ? AND is_active = 1
+            WHERE platform = ?
         '''
         params = [platform]
         
@@ -363,49 +771,74 @@ def get_links_by_type(platform: str, link_type: str = None, subtype: str = None,
             query += ' AND link_type = ?'
             params.append(link_type)
         
-        if subtype:
-            query += ' AND subtype = ?'
-            params.append(subtype)
+        if active_only:
+            query += ' AND is_active = 1'
         
         query += ' ORDER BY collected_at DESC LIMIT ? OFFSET ?'
         params.extend([limit, offset])
         
         cursor.execute(query, params)
-        links = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return links
+        return [dict(row) for row in cursor.fetchall()]
         
     except Exception as e:
-        logger.error(f"❌ Error getting links by type: {e}")
+        logger.error(f"❌ خطأ في الحصول على الروابط حسب النوع: {e}")
         return []
 
-def get_all_links(limit: int = 100, offset: int = 0) -> List[Dict]:
-    """الحصول على جميع الروابط"""
+@transaction
+def cleanup_old_links(days_old: int = 30, force_delete: bool = False,
+                     conn=None, cursor=None) -> int:
+    """تنظيف الروابط القديمة المعطلة"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if not force_delete and not FORCE_DELETE:
+            logger.critical("🚫 محاولة تنظيف الروابط بدون إذن - العملية معطلة")
+            return 0
+        
+        cutoff_date = (datetime.now() - timedelta(days=days_old)).strftime('%Y-%m-%d')
         
         cursor.execute('''
-            SELECT * FROM links 
-            WHERE is_active = 1
-            ORDER BY collected_at DESC
-            LIMIT ? OFFSET ?
-        ''', (limit, offset))
+            SELECT COUNT(*) as count FROM links 
+            WHERE is_active = 0 
+            AND DATE(updated_at) < ?
+        ''', (cutoff_date,))
         
-        links = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return links
+        count = cursor.fetchone()['count']
+        
+        if count > 0:
+            # تسجيل في سجل التغييرات قبل الحذف
+            cursor.execute('SELECT * FROM links WHERE is_active = 0 AND DATE(updated_at) < ?', 
+                          (cutoff_date,))
+            old_links = cursor.fetchall()
+            
+            for link in old_links:
+                link_dict = dict(link)
+                cursor.execute('''
+                    INSERT INTO change_log 
+                    (table_name, record_id, action, old_data, changed_at)
+                    VALUES ('links', ?, 'CLEANUP', ?, CURRENT_TIMESTAMP)
+                ''', (link_dict['id'], json.dumps(link_dict)))
+            
+            cursor.execute('''
+                DELETE FROM links 
+                WHERE is_active = 0 
+                AND DATE(updated_at) < ?
+            ''', (cutoff_date,))
+            
+            logger.warning(f"⚠️ تم تنظيف {count} رابط قديم (قوة الحذف: {force_delete})")
+        
+        return count
         
     except Exception as e:
-        logger.error(f"❌ Error getting all links: {e}")
-        return []
+        logger.error(f"❌ خطأ في تنظيف الروابط القديمة: {e}")
+        raise
 
-def get_link_stats() -> Dict:
+# ======================
+# Statistics & Reporting
+# ======================
+
+@transaction
+def get_link_stats(conn=None, cursor=None) -> Dict:
     """الحصول على إحصائيات مفصلة للروابط"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
         stats = {}
         
         # إحصائيات حسب المنصة
@@ -421,23 +854,18 @@ def get_link_stats() -> Dict:
         cursor.execute('''
             SELECT 
                 link_type,
-                subtype,
                 COUNT(*) as count
             FROM links 
             WHERE platform = 'telegram' AND is_active = 1 
-            GROUP BY link_type, subtype
-            ORDER BY link_type, subtype
+            GROUP BY link_type
+            ORDER BY count DESC
         ''')
         
         telegram_stats = {}
         for row in cursor.fetchall():
-            link_type = row['link_type']
-            subtype = row['subtype'] or 'general'
-            if link_type not in telegram_stats:
-                telegram_stats[link_type] = {}
-            telegram_stats[link_type][subtype] = row['count']
+            telegram_stats[row['link_type']] = row['count']
         
-        stats['telegram_details'] = telegram_stats
+        stats['telegram_by_type'] = telegram_stats
         
         # إحصائيات واتساب
         cursor.execute('''
@@ -448,7 +876,7 @@ def get_link_stats() -> Dict:
             WHERE platform = 'whatsapp' AND is_active = 1 
             GROUP BY link_type
         ''')
-        stats['whatsapp_details'] = {row['link_type']: row['count'] for row in cursor.fetchall()}
+        stats['whatsapp_by_type'] = {row['link_type']: row['count'] for row in cursor.fetchall()}
         
         # إجمالي الروابط
         cursor.execute('SELECT COUNT(*) as total FROM links WHERE is_active = 1')
@@ -462,30 +890,49 @@ def get_link_stats() -> Dict:
         ''')
         stats['today_links'] = cursor.fetchone()['today_count']
         
+        # الروابط المعطلة
+        cursor.execute('SELECT COUNT(*) as inactive FROM links WHERE is_active = 0')
+        stats['inactive_links'] = cursor.fetchone()['inactive']
+        
+        # متوسط عدد الأعضاء
+        cursor.execute('''
+            SELECT platform, AVG(members_count) as avg_members
+            FROM links 
+            WHERE is_active = 1 AND members_count > 0
+            GROUP BY platform
+        ''')
+        stats['avg_members_by_platform'] = {
+            row['platform']: round(row['avg_members'], 0) 
+            for row in cursor.fetchall()
+        }
+        
         # الروابط حسب النوع
         cursor.execute('''
             SELECT platform, link_type, COUNT(*) as count
             FROM links
             WHERE is_active = 1
             GROUP BY platform, link_type
-            ORDER BY platform, link_type
+            ORDER BY platform, count DESC
         ''')
-        stats['by_platform_type'] = {}
+        stats['by_platform_and_type'] = {}
         for row in cursor.fetchall():
             platform = row['platform']
             link_type = row['link_type']
-            if platform not in stats['by_platform_type']:
-                stats['by_platform_type'][platform] = {}
-            stats['by_platform_type'][platform][link_type] = row['count']
+            if platform not in stats['by_platform_and_type']:
+                stats['by_platform_and_type'][platform] = {}
+            stats['by_platform_and_type'][platform][link_type] = row['count']
         
-        conn.close()
         return stats
         
     except Exception as e:
-        logger.error(f"❌ Error getting link stats: {e}")
+        logger.error(f"❌ خطأ في الحصول على الإحصائيات: {e}")
         return {}
 
-def export_all_links(format: str = 'txt') -> List[str]:
+# ======================
+# Export Functions
+# ======================
+
+def export_all_links() -> List[str]:
     """تصدير جميع الروابط في أقسام منفصلة"""
     try:
         # التأكد من وجود مجلد التصدير
@@ -497,26 +944,11 @@ def export_all_links(format: str = 'txt') -> List[str]:
         
         exported_files = []
         
-        # الحصول على إحصائيات للتعرف على الأقسام الموجودة
+        # الحصول على إحصائيات
         stats = get_link_stats()
         
-        # 1. تصدير روابط تليجرام - قنوات
-        telegram_channels = get_links_by_type('telegram', 'channel')
-        if telegram_channels:
-            filename = f"telegram_channels_{timestamp}.txt"
-            filepath = os.path.join(export_dir, filename)
-            with open(filepath, 'w', encoding=EXPORT_ENCODING) as f:
-                f.write(f"# Telegram Channels\n")
-                f.write(f"# Exported: {datetime.now()}\n")
-                f.write(f"# Total: {len(telegram_channels)}\n")
-                f.write("=" * 50 + "\n\n")
-                for link in telegram_channels:
-                    f.write(f"{link['url']}\n")
-            exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(telegram_channels)} Telegram channels")
-        
-        # 2. تصدير روابط تليجرام - مجموعات عامة
-        telegram_public_groups = get_links_by_type('telegram', 'group', 'public')
+        # 1. تصدير روابط تليجرام - مجموعات عامة
+        telegram_public_groups = get_links_by_type('telegram', LinkType.TELEGRAM_PUBLIC_GROUP.value)
         if telegram_public_groups:
             filename = f"telegram_public_groups_{timestamp}.txt"
             filepath = os.path.join(export_dir, filename)
@@ -528,10 +960,10 @@ def export_all_links(format: str = 'txt') -> List[str]:
                 for link in telegram_public_groups:
                     f.write(f"{link['url']}\n")
             exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(telegram_public_groups)} Telegram public groups")
+            logger.info(f"✅ تم تصدير {len(telegram_public_groups)} مجموعة عامة")
         
-        # 3. تصدير روابط تليجرام - مجموعات خاصة
-        telegram_private_groups = get_links_by_type('telegram', 'group', 'private')
+        # 2. تصدير روابط تليجرام - مجموعات خاصة
+        telegram_private_groups = get_links_by_type('telegram', LinkType.TELEGRAM_PRIVATE_GROUP.value)
         if telegram_private_groups:
             filename = f"telegram_private_groups_{timestamp}.txt"
             filepath = os.path.join(export_dir, filename)
@@ -543,10 +975,10 @@ def export_all_links(format: str = 'txt') -> List[str]:
                 for link in telegram_private_groups:
                     f.write(f"{link['url']}\n")
             exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(telegram_private_groups)} Telegram private groups")
+            logger.info(f"✅ تم تصدير {len(telegram_private_groups)} مجموعة خاصة")
         
-        # 4. تصدير روابط تليجرام - طلب انضمام
-        telegram_join_request = get_links_by_type('telegram', 'join_request')
+        # 3. تصدير روابط تليجرام - طلب انضمام
+        telegram_join_request = get_links_by_type('telegram', LinkType.TELEGRAM_JOIN_REQUEST.value)
         if telegram_join_request:
             filename = f"telegram_join_requests_{timestamp}.txt"
             filepath = os.path.join(export_dir, filename)
@@ -558,46 +990,10 @@ def export_all_links(format: str = 'txt') -> List[str]:
                 for link in telegram_join_request:
                     f.write(f"{link['url']}\n")
             exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(telegram_join_request)} Telegram join requests")
+            logger.info(f"✅ تم تصدير {len(telegram_join_request)} طلب انضمام")
         
-        # 5. تصدير روابط تليجرام - بوتات
-        telegram_bots = get_links_by_type('telegram', 'bot')
-        if telegram_bots:
-            filename = f"telegram_bots_{timestamp}.txt"
-            filepath = os.path.join(export_dir, filename)
-            with open(filepath, 'w', encoding=EXPORT_ENCODING) as f:
-                f.write(f"# Telegram Bots\n")
-                f.write(f"# Exported: {datetime.now()}\n")
-                f.write(f"# Total: {len(telegram_bots)}\n")
-                f.write("=" * 50 + "\n\n")
-                for link in telegram_bots:
-                    f.write(f"{link['url']}\n")
-            exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(telegram_bots)} Telegram bots")
-        
-        # 6. تصدير جميع روابط تليجرام
-        all_telegram = get_links_by_type('telegram', limit=10000)
-        if all_telegram:
-            filename = f"telegram_all_{timestamp}.txt"
-            filepath = os.path.join(export_dir, filename)
-            with open(filepath, 'w', encoding=EXPORT_ENCODING) as f:
-                f.write(f"# All Telegram Links\n")
-                f.write(f"# Exported: {datetime.now()}\n")
-                f.write(f"# Total: {len(all_telegram)}\n")
-                f.write("=" * 50 + "\n\n")
-                for link in all_telegram:
-                    link_type = link['link_type']
-                    subtype = link['subtype'] or ''
-                    if subtype:
-                        f.write(f"# [{link_type}/{subtype}]\n")
-                    else:
-                        f.write(f"# [{link_type}]\n")
-                    f.write(f"{link['url']}\n\n")
-            exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(all_telegram)} total Telegram links")
-        
-        # 7. تصدير روابط واتساب
-        whatsapp_groups = get_links_by_type('whatsapp', 'group')
+        # 4. تصدير روابط واتساب
+        whatsapp_groups = get_links_by_type('whatsapp', LinkType.WHATSAPP_GROUP.value)
         if whatsapp_groups:
             filename = f"whatsapp_groups_{timestamp}.txt"
             filepath = os.path.join(export_dir, filename)
@@ -609,424 +1005,146 @@ def export_all_links(format: str = 'txt') -> List[str]:
                 for link in whatsapp_groups:
                     f.write(f"{link['url']}\n")
             exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(whatsapp_groups)} WhatsApp groups")
+            logger.info(f"✅ تم تصدير {len(whatsapp_groups)} مجموعة واتساب")
         
-        # 8. تصدير جميع الروابط في ملف واحد
-        all_links = get_all_links(limit=10000)
-        if all_links:
-            filename = f"all_platforms_{timestamp}.txt"
-            filepath = os.path.join(export_dir, filename)
-            with open(filepath, 'w', encoding=EXPORT_ENCODING) as f:
-                f.write(f"# All Links - All Platforms\n")
-                f.write(f"# Exported: {datetime.now()}\n")
-                f.write(f"# Total: {len(all_links)}\n")
-                f.write("=" * 50 + "\n\n")
-                
-                current_platform = None
-                current_type = None
-                
-                for link in all_links:
-                    platform = link['platform']
-                    link_type = link['link_type']
-                    subtype = link['subtype'] or ''
-                    
-                    if platform != current_platform:
-                        f.write(f"\n{'='*50}\n")
-                        f.write(f"# {platform.upper()} LINKS\n")
-                        f.write(f"{'='*50}\n\n")
-                        current_platform = platform
-                        current_type = None
-                    
-                    type_label = f"{link_type}"
-                    if subtype:
-                        type_label += f" ({subtype})"
-                    
-                    if type_label != current_type:
-                        f.write(f"\n## {type_label}\n")
-                        current_type = type_label
-                    
-                    f.write(f"{link['url']}\n")
-            
-            exported_files.append(filepath)
-            logger.info(f"✅ Exported {len(all_links)} total links from all platforms")
-        
-        # 9. إنشاء ملف إحصائي
+        # 5. إنشاء ملف إحصائي
         stats_file = os.path.join(export_dir, f"stats_{timestamp}.txt")
         with open(stats_file, 'w', encoding=EXPORT_ENCODING) as f:
             f.write(f"# Export Statistics\n")
             f.write(f"# Generated: {datetime.now()}\n")
             f.write("=" * 50 + "\n\n")
             
-            f.write("📊 LINK STATISTICS\n")
+            f.write("📊 إحصائيات الروابط\n")
             f.write("=" * 30 + "\n")
             
             for platform, count in stats.get('by_platform', {}).items():
-                f.write(f"\n{platform.upper()}: {count} links\n")
+                f.write(f"\n{platform.upper()}: {count} رابط\n")
                 
-                if platform == 'telegram' and 'telegram_details' in stats:
-                    for link_type, subtypes in stats['telegram_details'].items():
-                        f.write(f"  └─ {link_type}:\n")
-                        for subtype, subcount in subtypes.items():
-                            f.write(f"      ├─ {subtype}: {subcount}\n")
+                if platform == 'telegram' and 'telegram_by_type' in stats:
+                    for link_type, type_count in stats['telegram_by_type'].items():
+                        f.write(f"  ├─ {link_type}: {type_count}\n")
                 
-                elif platform == 'whatsapp' and 'whatsapp_details' in stats:
-                    for link_type, count_type in stats['whatsapp_details'].items():
-                        f.write(f"  └─ {link_type}: {count_type}\n")
+                elif platform == 'whatsapp' and 'whatsapp_by_type' in stats:
+                    for link_type, type_count in stats['whatsapp_by_type'].items():
+                        f.write(f"  ├─ {link_type}: {type_count}\n")
             
-            f.write(f"\n\n📈 SUMMARY\n")
+            f.write(f"\n\n📈 ملخص\n")
             f.write("=" * 30 + "\n")
-            f.write(f"Total Links: {stats.get('total_links', 0)}\n")
-            f.write(f"Today's Links: {stats.get('today_links', 0)}\n")
+            f.write(f"إجمالي الروابط النشطة: {stats.get('total_links', 0)}\n")
+            f.write(f"روابط اليوم: {stats.get('today_links', 0)}\n")
+            f.write(f"روابط معطلة: {stats.get('inactive_links', 0)}\n")
         
         exported_files.append(stats_file)
         
-        # 10. إنشاء ملف README
+        # 6. إنشاء ملف README
         readme_file = os.path.join(export_dir, "README.txt")
         with open(readme_file, 'w', encoding=EXPORT_ENCODING) as f:
             f.write(f"# Export Directory\n")
             f.write(f"# Generated: {datetime.now()}\n")
             f.write("=" * 50 + "\n\n")
             
-            f.write("📁 FILE LIST:\n")
+            f.write("📁 قائمة الملفات:\n")
             f.write("=" * 30 + "\n")
             for file_path in exported_files:
                 filename = os.path.basename(file_path)
                 f.write(f"- {filename}\n")
             
-            f.write(f"\n\n📊 TOTAL FILES: {len(exported_files)}\n")
-            f.write(f"📅 EXPORT DATE: {datetime.now()}\n")
+            f.write(f"\n\n📊 إجمالي الملفات: {len(exported_files)}\n")
+            f.write(f"📅 تاريخ التصدير: {datetime.now()}\n")
         
-        logger.info(f"✅ Exported all links to {export_dir}")
+        logger.info(f"✅ تم تصدير جميع الروابط إلى {export_dir}")
         return exported_files
         
     except Exception as e:
-        logger.error(f"❌ Error exporting all links: {e}")
+        logger.error(f"❌ خطأ في تصدير الروابط: {e}")
         return []
 
-def export_links_by_type(platform: str, link_type: str = None, subtype: str = None, 
-                         format: str = 'txt') -> str:
-    """تصدير الروابط حسب المنصة والنوع والتصنيف الفرعي"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        query = '''
-            SELECT url, title, members_count, collected_at FROM links 
-            WHERE platform = ? AND is_active = 1
-        '''
-        params = [platform]
-        
-        if link_type:
-            query += ' AND link_type = ?'
-            params.append(link_type)
-        
-        if subtype:
-            query += ' AND subtype = ?'
-            params.append(subtype)
-        
-        query += ' ORDER BY collected_at DESC'
-        
-        cursor.execute(query, params)
-        links = cursor.fetchall()
-        conn.close()
-        
-        if not links:
-            return None
-        
-        # إنشاء اسم الملف
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        if link_type and subtype:
-            filename = f"{platform}_{link_type}_{subtype}_{timestamp}.txt"
-        elif link_type:
-            filename = f"{platform}_{link_type}_{timestamp}.txt"
-        else:
-            filename = f"{platform}_all_{timestamp}.txt"
-        
-        filepath = os.path.join(EXPORT_DIR, filename)
-        
-        # كتابة الروابط إلى الملف
-        with open(filepath, 'w', encoding=EXPORT_ENCODING) as f:
-            f.write(f"# Exported at: {datetime.now()}\n")
-            f.write(f"# Platform: {platform}\n")
-            if link_type:
-                f.write(f"# Type: {link_type}\n")
-            if subtype:
-                f.write(f"# Subtype: {subtype}\n")
-            f.write(f"# Total links: {len(links)}\n")
-            f.write("=" * 50 + "\n\n")
-            
-            for link in links:
-                f.write(f"{link['url']}\n")
-                if link['title']:
-                    f.write(f"# Title: {link['title']}\n")
-                if link['members_count'] > 0:
-                    f.write(f"# Members: {link['members_count']}\n")
-                f.write(f"# Collected: {link['collected_at']}\n")
-                f.write("\n")
-        
-        logger.info(f"✅ Exported {len(links)} links to {filepath}")
-        return filepath
-        
-    except Exception as e:
-        logger.error(f"❌ Export error: {e}")
-        return None
-
-def export_to_csv(platform: str = None, link_type: str = None) -> str:
-    """تصدير الروابط إلى ملف CSV"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        if platform:
-            if link_type:
-                cursor.execute('''
-                    SELECT url, platform, link_type, subtype, title, 
-                           members_count, collected_at 
-                    FROM links 
-                    WHERE platform = ? AND link_type = ? AND is_active = 1
-                    ORDER BY collected_at DESC
-                ''', (platform, link_type))
-            else:
-                cursor.execute('''
-                    SELECT url, platform, link_type, subtype, title, 
-                           members_count, collected_at 
-                    FROM links 
-                    WHERE platform = ? AND is_active = 1
-                    ORDER BY collected_at DESC
-                ''', (platform,))
-        else:
-            cursor.execute('''
-                SELECT url, platform, link_type, subtype, title, 
-                       members_count, collected_at 
-                FROM links 
-                WHERE is_active = 1
-                ORDER BY platform, link_type, collected_at DESC
-            ''')
-        
-        links = cursor.fetchall()
-        conn.close()
-        
-        if not links:
-            return None
-        
-        # إنشاء اسم الملف
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        if platform and link_type:
-            filename = f"{platform}_{link_type}_{timestamp}.csv"
-        elif platform:
-            filename = f"{platform}_{timestamp}.csv"
-        else:
-            filename = f"all_links_{timestamp}.csv"
-        
-        filepath = os.path.join(EXPORT_DIR, filename)
-        
-        # كتابة إلى CSV
-        with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
-            fieldnames = ['url', 'platform', 'link_type', 'subtype', 'title', 
-                         'members_count', 'collected_at']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            writer.writeheader()
-            for link in links:
-                writer.writerow(dict(link))
-        
-        logger.info(f"✅ Exported {len(links)} links to CSV: {filepath}")
-        return filepath
-        
-    except Exception as e:
-        logger.error(f"❌ CSV export error: {e}")
-        return None
-
 # ======================
-# Collection Sessions
+# Maintenance Functions
 # ======================
 
-def start_collection_session() -> int:
-    """بدء جلسة جمع جديدة"""
+def run_maintenance():
+    """تشغيل عمليات الصيانة الدورية"""
     try:
-        conn = get_db_connection()
+        logger.info("🔧 تشغيل صيانة قاعدة البيانات...")
+        
+        # 1. إنشاء نسخة احتياطية
+        backup_path = DatabaseConnection.backup_database()
+        if backup_path:
+            logger.info(f"💾 تم إنشاء نسخة احتياطية: {backup_path}")
+        
+        # 2. تحسين قاعدة البيانات
+        conn = DatabaseConnection.get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO collection_sessions 
-            (start_time, status) 
-            VALUES (CURRENT_TIMESTAMP, 'in_progress')
-        ''')
-        
-        conn.commit()
-        session_id = cursor.lastrowid
-        conn.close()
-        
-        logger.info(f"✅ Started collection session ID: {session_id}")
-        return session_id
-        
-    except Exception as e:
-        logger.error(f"❌ Error starting collection session: {e}")
-        return 0
-
-def update_collection_stats(session_id: int, stats: Dict):
-    """تحديث إحصائيات جلسة الجمع"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        stats_json = json.dumps(stats)
-        
-        cursor.execute('''
-            UPDATE collection_sessions 
-            SET stats = ?, 
-                total_links = ?,
-                duplicate_links = ?,
-                inactive_links = ?,
-                channels_skipped = ?
-            WHERE id = ?
-        ''', (
-            stats_json,
-            stats.get('total_collected', 0),
-            stats.get('duplicate_links', 0),
-            stats.get('inactive_links', 0),
-            stats.get('channels_skipped', 0),
-            session_id
-        ))
-        
+        cursor.execute("PRAGMA optimize")
+        cursor.execute("VACUUM")
         conn.commit()
         conn.close()
         
-        logger.info(f"✅ Updated collection session {session_id} stats")
+        logger.info("✅ اكتملت صيانة قاعدة البيانات")
         
     except Exception as e:
-        logger.error(f"❌ Error updating collection stats: {e}")
-
-def get_active_collection_session() -> Optional[int]:
-    """الحصول على جلسة الجمع النشطة"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT id FROM collection_sessions 
-            WHERE status = 'in_progress' 
-            ORDER BY start_time DESC 
-            LIMIT 1
-        ''')
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return result['id']
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Error getting active collection session: {e}")
-        return None
-
-def end_collection_session(session_id: int, status: str = "completed"):
-    """إنهاء جلسة الجمع"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            UPDATE collection_sessions
-            SET end_time = CURRENT_TIMESTAMP,
-                status = ?
-            WHERE id = ?
-        ''', (status, session_id))
-
-        conn.commit()
-        conn.close()
-
-        logger.info(f"✅ Ended collection session ID: {session_id}")
-
-    except Exception as e:
-        logger.error(f"❌ Error ending collection session: {e}")
+        logger.error(f"❌ خطأ في الصيانة: {e}")
 
 # ======================
 # Utility Functions
 # ======================
 
-def search_links(keyword: str, platform: str = None) -> List[Dict]:
-    """بحث في الروابط"""
+def check_database_health():
+    """فحص صحة قاعدة البيانات"""
     try:
-        conn = get_db_connection()
+        conn = DatabaseConnection.get_connection()
         cursor = conn.cursor()
         
-        query = '''
-            SELECT * FROM links 
-            WHERE (url LIKE ? OR title LIKE ? OR description LIKE ?) 
-            AND is_active = 1
-        '''
-        params = [f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"]
+        print("\n🔍 فحص صحة قاعدة البيانات:")
+        print("=" * 50)
         
-        if platform:
-            query += ' AND platform = ?'
-            params.append(platform)
+        # 1. فحص الجداول
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        print(f"✅ عدد الجداول: {len(tables)}")
         
-        query += ' ORDER BY collected_at DESC LIMIT 100'
-        
-        cursor.execute(query, params)
-        links = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return links
-        
-    except Exception as e:
-        logger.error(f"❌ Search error: {e}")
-        return []
-
-def delete_link(link_id: int) -> bool:
-    """حذف رابط"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM links WHERE id = ?', (link_id,))
-        
-        conn.commit()
-        rows_affected = cursor.rowcount
-        conn.close()
-        
-        if rows_affected > 0:
-            logger.info(f"✅ Deleted link ID: {link_id}")
-            return True
-        else:
-            logger.warning(f"❌ Link ID {link_id} not found")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Error deleting link: {e}")
-        return False
-
-def get_recent_links(limit: int = 20) -> List[Dict]:
-    """الحصول على أحدث الروابط"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
+        # 2. فحص الروابط
         cursor.execute('''
-            SELECT * FROM links 
-            WHERE is_active = 1
-            ORDER BY collected_at DESC
-            LIMIT ?
-        ''', (limit,))
+            SELECT platform, link_type, COUNT(*) as count
+            FROM links
+            GROUP BY platform, link_type
+        ''')
         
-        links = [dict(row) for row in cursor.fetchall()]
+        print("\n📊 أنواع الروابط في قاعدة البيانات:")
+        total_links = 0
+        for row in cursor.fetchall():
+            print(f"  {row['platform']}/{row['link_type']}: {row['count']}")
+            total_links += row['count']
+        
+        print(f"\n📈 إجمالي الروابط: {total_links}")
+        
+        # 3. فحص الجلسات
+        cursor.execute("SELECT COUNT(*) as count FROM sessions")
+        sessions_count = cursor.fetchone()['count']
+        print(f"👥 عدد الجلسات: {sessions_count}")
+        
         conn.close()
-        return links
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Error getting recent links: {e}")
-        return []
+        logger.error(f"❌ فحص صحة قاعدة البيانات فشل: {e}")
+        return False
 
 # ======================
 # Initialization
 # ======================
 
 if __name__ == "__main__":
-    print("🔧 Initializing database...")
+    print("🔧 تهيئة قاعدة البيانات...")
     if init_db():
-        print("✅ Database initialized successfully!")
+        print("✅ تم تهيئة قاعدة البيانات بنجاح!")
+        
+        # فحص صحة قاعدة البيانات
+        check_database_health()
+        
+        # تشغيل الصيانة الأولية
+        run_maintenance()
     else:
-        print("❌ Failed to initialize database!")
+        print("❌ فشل في تهيئة قاعدة البيانات!")
