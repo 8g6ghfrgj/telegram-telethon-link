@@ -583,117 +583,83 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
                         )
                         
                         for raw_url in urls:
-                            try:
-                                url = normalize_url(raw_url)
-                                
-                                # تجاهل الروابط المكررة
-                                if url in _collected_urls:
-                                    _collection_stats['duplicate_links'] += 1
-                                    continue
-                                # تحليل الرابط
-if 't.me' in url or 'telegram.me' in url:
-    # رابط تيليجرام
+    try:
+        url = normalize_url(raw_url)
 
-    if is_telegram_channel_link(url):
-        _collection_stats['channels_skipped'] += 1
+        if url in _collected_urls:
+            _collection_stats['duplicate_links'] += 1
+            continue
+
+        # تحليل الرابط (هنا فقط)
+        if 't.me' in url or 'telegram.me' in url:
+            if is_telegram_channel_link(url):
+                _collection_stats['channels_skipped'] += 1
+                continue
+
+            verification = await verify_telegram_group(client, url)
+
+            if verification.get('status') == 'valid':
+                _collected_urls.add(url)
+
+                collected.append({
+                    'url': url,
+                    'platform': 'telegram',
+                    'link_type': verification.get('link_type', 'unknown'),
+                    'title': verification.get('title', ''),
+                    'members': verification.get('members', 0),
+                    'session_id': session_id
+                })
+
+                success, _ = add_link(
+                    url=url,
+                    platform='telegram',
+                    link_type=verification.get('link_type', 'unknown'),
+                    title=verification.get('title', ''),
+                    members_count=verification.get('members', 0),
+                    session_id=session_id
+                )
+
+                if success:
+                    _collection_stats['total_collected'] += 1
+                    if verification.get('link_type') == 'public_group':
+                        _collection_stats['public_groups'] += 1
+                        _collection_stats['telegram_collected'] += 1
+                    elif verification.get('link_type') == 'private_group':
+                        _collection_stats['private_groups'] += 1
+                        _collection_stats['telegram_collected'] += 1
+
+        elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
+            if message.date and message.date < WHATSAPP_START_DATE:
+                continue
+
+            _collected_urls.add(url)
+
+            collected.append({
+                'url': url,
+                'platform': 'whatsapp',
+                'link_type': 'group',
+                'title': 'WhatsApp Group',
+                'members': 0,
+                'session_id': session_id
+            })
+
+            success, _ = add_link(
+                url=url,
+                platform='whatsapp',
+                link_type='group',
+                title='WhatsApp Group',
+                members_count=0,
+                session_id=session_id
+            )
+
+            if success:
+                _collection_stats['total_collected'] += 1
+                _collection_stats['whatsapp_collected'] += 1
+                _collection_stats['whatsapp_groups'] += 1
+
+    except Exception as e:
+        logger.debug(f"Error processing URL {raw_url}: {e}")
         continue
-
-    verification = await verify_telegram_group(client, url)
-
-    if verification.get('status') == 'valid':
-        _collected_urls.add(url)
-
-        collected.append({
-            'url': url,
-            'platform': 'telegram',
-            'link_type': verification.get('link_type', 'unknown'),
-            'title': verification.get('title', ''),
-            'members': verification.get('members', 0),
-            'session_id': session_id
-        })
-
-        success, _ = add_link(
-            url=url,
-            platform='telegram',
-            link_type=verification.get('link_type', 'unknown'),
-            title=verification.get('title', ''),
-            members_count=verification.get('members', 0),
-            session_id=session_id
-        )
-
-        if success:
-            _collection_stats['total_collected'] += 1
-            if verification.get('link_type') == 'public_group':
-                _collection_stats['public_groups'] += 1
-                _collection_stats['telegram_collected'] += 1
-            elif verification.get('link_type') == 'private_group':
-                _collection_stats['private_groups'] += 1
-                _collection_stats['telegram_collected'] += 1
-
-elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
-    # رابط واتساب
-
-    if message.date and message.date < WHATSAPP_START_DATE:
-        continue
-
-    _collected_urls.add(url)
-
-    collected.append({
-        'url': url,
-        'platform': 'whatsapp',
-        'link_type': 'group',
-        'title': 'WhatsApp Group',
-        'members': 0,
-        'session_id': session_id
-    })
-
-    success, _ = add_link(
-        url=url,
-        platform='whatsapp',
-        link_type='group',
-        title='WhatsApp Group',
-        members_count=0,
-        session_id=session_id
-    )
-
-    if success:
-        _collection_stats['total_collected'] += 1
-        _collection_stats['whatsapp_collected'] += 1
-        _collection_stats['whatsapp_groups'] += 1
-                                
-                                elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
-                                elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
-
-     # فلترة تاريخ واتساب (من 12/12/2025 فقط)
-     if message.date and message.date < WHATSAPP_START_DATE:
-        continue
-
-    # رابط واتساب
-    _collected_urls.add(url)
-
-    collected.append({
-        'url': url,
-        'platform': 'whatsapp',
-        'link_type': 'group',
-        'title': 'WhatsApp Group',
-        'members': 0,
-        'session_id': session_id
-    })
-
-    # حفظ في قاعدة البيانات
-    success, _ = add_link(
-        url=url,
-        platform='whatsapp',
-        link_type='group',
-        title='WhatsApp Group',
-        members_count=0,
-        session_id=session_id
-    )
-
-    if success:
-        _collection_stats['total_collected'] += 1
-        _collection_stats['whatsapp_collected'] += 1
-        _collection_stats['whatsapp_groups'] += 1
 
                                 
                                 await asyncio.sleep(0.3)  # تأخير بين الطلبات
