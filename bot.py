@@ -632,9 +632,10 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
                                                 _collection_stats['telegram_collected'] += 1
                                 
                                 elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
+                                elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
 
-    # فلترة تاريخ واتساب (من 12/12/2025 فقط)
-    if message.date and message.date < WHATSAPP_START_DATE:
+     # فلترة تاريخ واتساب (من 12/12/2025 فقط)
+     if message.date and message.date < WHATSAPP_START_DATE:
         continue
 
     # رابط واتساب
@@ -662,7 +663,8 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
     if success:
         _collection_stats['total_collected'] += 1
         _collection_stats['whatsapp_collected'] += 1
-        _collection_stats['whatsapp_groups'] += 1= 1
+        _collection_stats['whatsapp_groups'] += 1
+
                                 
                                 await asyncio.sleep(0.3)  # تأخير بين الطلبات
                                 
