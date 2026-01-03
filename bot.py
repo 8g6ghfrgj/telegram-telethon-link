@@ -4758,11 +4758,18 @@ class CacheManager:
             'slow_cache_files': len(os.listdir(self.slow_cache_dir)) if os.path.exists(self.slow_cache_dir) else 0
         }
     
-def clear(self):
-    self.fast_cache.clear()
-
-    if os.path.exists(self.slow_cache_dir):
-        ...
+async def _add_to_fast_cache(self, key: str, value: Any):
+    """Add to fast cache - إضافة للكاش السريع"""
+    if key in self.fast_cache:
+        self.fast_cache.move_to_end(key)
+        self.fast_cache[key] = value
+    else:
+        self.fast_cache[key] = value
+        
+        if len(self.fast_cache) > self.fast_cache_size:
+            oldest_key = next(iter(self.fast_cache))
+            del self.fast_cache[oldest_key]
+            self.stats['evicions'] += 1  # تم التصحيح من evictions إلى evicions
             
             if os.path.exists(self.slow_cache_dir):
                 for filename in os.listdir(self.slow_cache_dir):
