@@ -66,7 +66,7 @@ class Config:
     MAX_MEMORY_MB = 500
     
     # Performance settings - إعدادات الأداء
-    MAX_CONCURRENT_SESSIONS = 5
+    MAX_CONCURRENT_SESSIONS = 20  # 🔥 تم التعديل من 5 إلى 20
     REQUEST_DELAYS = {
         'normal': 1.0,
         'join_request': 5.0,  # تقليل من 30 إلى 5 ثواني
@@ -90,7 +90,7 @@ class Config:
     DB_PATH = "links_collector.db"
     BACKUP_ENABLED = True
     MAX_BACKUPS = 10
-    DB_POOL_SIZE = 5
+    DB_POOL_SIZE = 10  # 🔥 تم التعديل من 5 إلى 10 ليتناسب مع 20 جلسة
     
     # WhatsApp collection - جمع واتساب
     WHATSAPP_DAYS_BACK = 30
@@ -108,11 +108,11 @@ class Config:
     
     # Session management - إدارة الجلسات
     SESSION_TIMEOUT = 600
-    MAX_SESSIONS_PER_USER = 8
+    MAX_SESSIONS_PER_USER = 20  # 🔥 تم التعديل من 8 إلى 20
     
     # Export - التصدير
-    MAX_EXPORT_LINKS = 10000
-    EXPORT_CHUNK_SIZE = 1000
+    MAX_EXPORT_LINKS = 100000  # 🔥 تم التعديل من 10000 إلى 100000
+    EXPORT_CHUNK_SIZE = 5000   # 🔥 تم التعديل من 1000 إلى 5000
     
     # Advanced settings - إعدادات متقدمة
     TELEGRAM_NO_TIME_LIMIT = True   # جمع تيليجرام بدون قيود زمنية
@@ -690,7 +690,7 @@ class EnhancedDatabaseManager:
         # إنشاء تجميع الاتصالات
         self._pool = await aiosqlite.create_pool(
             self.db_path,
-            minsize=1,
+            minsize=2,
             maxsize=Config.DB_POOL_SIZE,
             timeout=30.0
         )
@@ -720,9 +720,9 @@ class EnhancedDatabaseManager:
             await conn.execute("PRAGMA foreign_keys = ON")
             await conn.execute("PRAGMA journal_mode = WAL")
             await conn.execute("PRAGMA synchronous = NORMAL")
-            await conn.execute("PRAGMA cache_size = -20000")
+            await conn.execute("PRAGMA cache_size = -40000")  # 🔥 تم التعديل من -20000 إلى -40000
             await conn.execute("PRAGMA temp_store = MEMORY")
-            await conn.execute("PRAGMA mmap_size = 1073741824")
+            await conn.execute("PRAGMA mmap_size = 2147483648")  # 🔥 تم التعديل من 1073741824 إلى 2147483648
             await conn.execute("PRAGMA optimize")
             
             yield conn
@@ -1431,7 +1431,9 @@ class AdvancedCollectionManager:
         logger.info("🚀 بدء عملية الجمع الذكية المتقدمة بدون قيود زمنية لتيليجرام", {
             'mode': mode,
             'start_time': self.stats['start_time'].isoformat(),
-            'telegram_no_time_limit': Config.TELEGRAM_NO_TIME_LIMIT
+            'telegram_no_time_limit': Config.TELEGRAM_NO_TIME_LIMIT,
+            'max_sessions': Config.MAX_CONCURRENT_SESSIONS,  # 🔥 إضافة معلومات الجلسات
+            'max_export': Config.MAX_EXPORT_LINKS  # 🔥 إضافة معلومات التصدير
         })
         
         try:
@@ -2467,11 +2469,11 @@ class AdvancedCollectionManager:
         if self.system_state['memory_pressure'] == 'high':
             return max(1, base_count // 2)
         elif self.system_state['memory_pressure'] == 'medium':
-            return max(2, base_count - 1)
+            return max(2, base_count - 5)  # 🔥 تم التعديل
         elif self.system_state['network_status'] == 'poor':
             return max(1, base_count // 2)
         
-        return base_count
+        return min(base_count, 20)  # 🔥 تأكد من ألا يتجاوز 20
     
     def _calculate_adaptive_delay(self) -> float:
         """Calculate adaptive delay between cycles - حساب تأخير متكيف بين الدورات"""
@@ -2952,6 +2954,10 @@ class AdvancedTelegramBot:
             "• 📱 واتساب: جمع من آخر 30 يوماً فقط\n"
             "• 🔍 كشف ذكي: تفريق بين المجموعات والقنوات\n"
             "• ⏱️ تحقق من طلبات الانضمام: 30 ثانية لكل رابط\n\n"
+            f"**الحدود المحسنة:**\n"
+            f"• 🔥 أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة\n"
+            f"• 📥 أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير\n"
+            f"• 👥 أقصى {Config.MAX_SESSIONS_PER_USER} جلسة لكل مستخدم\n\n"
             "**أنواع الروابط المدعومة:**\n"
             "• المجموعات العامة والخاصة\n"
             "• القنوات\n"
@@ -3070,6 +3076,11 @@ class AdvancedTelegramBot:
 • ⚖️ ضغط الذاكرة: {status['system_state']['memory_pressure']}
 • ⏱️ تأخير الدورة: {self._calculate_adaptive_delay_info()}
 
+**🔥 الحدود المحسنة:**
+• أقصى جلسات متزامنة: {Config.MAX_CONCURRENT_SESSIONS}
+• أقصى تصدير روابط: {Config.MAX_EXPORT_LINKS:,}
+• أقصى جلسات لكل مستخدم: {Config.MAX_SESSIONS_PER_USER}
+
 **👤 حالتك:**
 """
         
@@ -3082,7 +3093,7 @@ class AdvancedTelegramBot:
 • 📅 العضو منذ: {user_stats.get('account_age_days', 0)} يوم
 • 📊 طلباتك: {user_stats.get('request_count', 0):,}
 • 🔗 روابطك: {user_stats.get('total_links', 0):,}
-• 💼 جلساتك: {user_stats.get('total_sessions', 0)}
+• 💼 جلساتك: {user_stats.get('total_sessions', 0)} / {Config.MAX_SESSIONS_PER_USER}
 """
         
         recommendations = status.get('recommendations', [])
@@ -3172,6 +3183,9 @@ class AdvancedTelegramBot:
             "• 📱 واتساب: آخر 30 يوماً فقط\n"
             "• ⏱️ تحقق من طلبات الانضمام: 30 ثانية\n"
             "• 🔍 تفريق ذكي بين المجموعات والقنوات\n\n"
+            f"**الحدود المحسنة:**\n"
+            f"• 🔥 أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة\n"
+            f"• 📥 أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير\n\n"
             "اختر وضع الجمع:\n\n"
             "• ⚖️ **متوازن** - جمع متوازن مع حماية الذاكرة\n"
             "• ⚡ **سريع** - جمع سريع مع استخدام موارد أعلى\n"
@@ -3265,6 +3279,10 @@ class AdvancedTelegramBot:
 • نسبة الكاش: {report['system_health']['cache']['hit_ratio']}
 • الجلسات النشطة: {report['system_health']['sessions']['healthy_sessions']}
 
+**الحدود المحسنة:**
+• أقصى جلسات: {Config.MAX_CONCURRENT_SESSIONS}
+• أقصى تصدير: {Config.MAX_EXPORT_LINKS:,} رابط
+
 **التوصيات:**
 """
             
@@ -3312,7 +3330,7 @@ class AdvancedTelegramBot:
 
 **الإعدادات الحالية:**
 • وضع الجمع: {self.collection_manager.system_state['collection_mode']}
-• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS}
+• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS} 🔥
 • الروابط لكل دورة: {Config.MAX_LINKS_PER_CYCLE}
 • تأخير الدورة: {Config.REQUEST_DELAYS['min_cycle_delay']}-{Config.REQUEST_DELAYS['max_cycle_delay']} ثانية
 • تحقق طلبات الانضمام: {Config.JOIN_REQUEST_CHECK_DELAY} ثانية
@@ -3321,6 +3339,11 @@ class AdvancedTelegramBot:
 • تيليجرام: {"✅ جمع غير محدود" if Config.TELEGRAM_NO_TIME_LIMIT else "❌ محدود"}
 • واتساب: {"✅ آخر 30 يوماً" if Config.WHATSAPP_DAYS_BACK == 30 else f"آخر {Config.WHATSAPP_DAYS_BACK} يوم"}
 • التحقق المتقدم: {"✅ مفعل" if Config.ENABLE_ADVANCED_VALIDATION else "❌ معطل"}
+
+**الحدود المحسنة:**
+• أقصى جلسات متزامنة: {Config.MAX_CONCURRENT_SESSIONS} 🔥
+• أقصى تصدير روابط: {Config.MAX_EXPORT_LINKS:,} رابط 🔥
+• أقصى جلسات لكل مستخدم: {Config.MAX_SESSIONS_PER_USER} 🔥
 """
         
         await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -3375,17 +3398,17 @@ class AdvancedTelegramBot:
             "هذا البوت مصمم لجمع روابط المجموعات من تيليجرام وواتساب وغيرها.",
             
             "**🎯 ما يمكنك فعله:**\n"
-            "1. إضافة جلسات تيليجرام لجمع الروابط\n"
+            f"1. إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة تيليجرام\n"
             "2. بدء عملية الجمع التلقائي\n"
-            "3. تصدير الروابط المجمعة\n"
+            f"3. تصدير حتى {Config.MAX_EXPORT_LINKS:,} رابط\n"
             "4. مراقبة أداء النظام\n\n"
             "**🚀 لنبدأ:**\n"
             "اضغط على ➕ إضافة جلسة لإضافة جلستك الأولى",
             
             "**💡 نصائح سريعة:**\n"
-            "• يمكنك إضافة حتى 8 جلسات\n"
+            f"• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة\n"
             "• النظام يحفظ الروابط المكررة تلقائياً\n"
-            "• يمكنك تصدير الروابط بأنواع مختلفة\n"
+            f"• يمكنك تصدير حتى {Config.MAX_EXPORT_LINKS:,} رابط\n"
             "• هناك نسخ احتياطي تلقائي للبيانات",
             
             "**🆘 المساعدة:**\n"
@@ -3481,7 +3504,12 @@ class HelpSystem:
 
 {role_text}
 
-**✨ المميزات المتقدمة:**
+**✨ المميزات المتقدمة المحسنة:**
+
+🔥 **الحدود المحسنة:**
+• أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة
+• أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير
+• أقصى {Config.MAX_SESSIONS_PER_USER} جلسة لكل مستخدم
 
 🎯 **الذكاء الاصطناعي:**
 • خوارزميات جمع ذكية
@@ -3820,9 +3848,9 @@ class TaskManager:
             'avg_time': 0.0
         })
         
-        self.task_queue = asyncio.Queue(maxsize=100)
+        self.task_queue = asyncio.Queue(maxsize=200)  # 🔥 تم التعديل من 100 إلى 200
         self.worker_tasks = []
-        self.max_workers = 5
+        self.max_workers = 10  # 🔥 تم التعديل من 5 إلى 10
         
         self.monitoring = False
         self.paused = False
@@ -3900,10 +3928,10 @@ class TaskManager:
                 queue_size = self.task_queue.qsize()
                 active_count = len(self.active_tasks)
                 
-                if queue_size > 50:
+                if queue_size > 100:
                     logger.warning(f"حجم قائمة انتظار المهام مرتفع: {queue_size}")
                 
-                if active_count > 20:
+                if active_count > 50:
                     logger.warning(f"عدد المهام النشطة مرتفع: {active_count}")
                 
                 await self._update_metrics()
@@ -3927,7 +3955,7 @@ class TaskManager:
         results = []
         
         try:
-            semaphore = asyncio.Semaphore(10)
+            semaphore = asyncio.Semaphore(20)  # 🔥 تم التعديل من 10 إلى 20
             
             async def execute_with_limit(task):
                 async with semaphore:
@@ -3960,7 +3988,7 @@ class TaskManager:
     
     def adjust_concurrency(self, adjustment: int):
         """Adjust concurrency - ضبط التزامن"""
-        new_max = max(1, min(20, self.max_workers + adjustment))
+        new_max = max(1, min(40, self.max_workers + adjustment))  # 🔥 تم التعديل من 20 إلى 40
         
         if new_max != self.max_workers:
             logger.info(f"ضبط التزامن: {self.max_workers} -> {new_max}")
@@ -4470,7 +4498,7 @@ class CacheManager:
     
     def __init__(self):
         self.fast_cache = OrderedDict()
-        self.fast_cache_size = 5000
+        self.fast_cache_size = 10000  # 🔥 تم التعديل من 5000 إلى 10000
         
         self.slow_cache_dir = "cache_data"
         os.makedirs(self.slow_cache_dir, exist_ok=True)
@@ -4703,7 +4731,7 @@ class MemoryManager:
         try:
             process = psutil.Process(os.getpid())
             open_files = len(process.open_files())
-            if open_files > 50:
+            if open_files > 100:  # 🔥 تم التعديل من 50 إلى 100
                 logger.warning(f"عدد كبير من الملفات المفتوحة: {open_files}", {
                     'open_files': open_files
                 })
@@ -5082,8 +5110,8 @@ async def main():
     
     try:
         import resource
-        resource.setrlimit(resource.RLIMIT_NOFILE, (8192, 8192))
-        logger.info("✅ تم تعيين حدود الملفات المفتوحة")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (16384, 16384))  # 🔥 تم التعديل من 8192 إلى 16384
+        logger.info("✅ تم تعيين حدود الملفات المفتوحة المحسنة")
     except:
         logger.warning("⚠️ لم يتمكن من تعيين حدود الملفات المفتوحة")
     
@@ -5108,8 +5136,10 @@ async def main():
     bot = AdvancedTelegramBot()
     
     logger.info("🤖 بدء تشغيل بوت جمع الروابط الذكي المتقدم...")
-    logger.info("⚙️ الإعدادات المتقدمة:", {
+    logger.info("🔥 الإعدادات المحسنة:", {
         'max_sessions': Config.MAX_CONCURRENT_SESSIONS,
+        'max_export_links': Config.MAX_EXPORT_LINKS,
+        'max_sessions_per_user': Config.MAX_SESSIONS_PER_USER,
         'max_memory_mb': Config.MAX_MEMORY_MB,
         'backup_enabled': Config.BACKUP_ENABLED,
         'encryption_enabled': bool(Config.ENCRYPTION_KEY),
@@ -5128,7 +5158,7 @@ async def main():
         await bot.app.start()
         await bot.app.updater.start_polling()
         
-        logger.info("🚀 البوت يعمل بنجاح!")
+        logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
         
         while True:
             await asyncio.sleep(1)
