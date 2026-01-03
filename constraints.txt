@@ -1,0 +1,11 @@
+# Constraints to avoid conflicts
+telethon==1.34.0
+python-telegram-bot==20.7
+aiosqlite==0.19.0
+aiofiles==23.2.1
+cryptography==42.0.5
+psutil==5.9.8
+fastapi==0.104.1
+uvicorn==0.24.0
+httpx==0.25.2
+pytz==2023.3
