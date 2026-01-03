@@ -4760,8 +4760,11 @@ class CacheManager:
         }
     
     def clear(self):
-        """Clear - مسح"""
-        async def update_stats(self):
+    """Clear - مسح"""
+    asyncio.create_task(self.update_stats())
+
+
+async def update_stats(self):
     async with self.lock:
         ...
             
