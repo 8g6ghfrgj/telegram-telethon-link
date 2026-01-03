@@ -4758,10 +4758,13 @@ class CacheManager:
             'slow_cache_files': len(os.listdir(self.slow_cache_dir)) if os.path.exists(self.slow_cache_dir) else 0
         }
     
-    def clear(self):
-        """Clear - مسح"""
-        async with self.lock:
-            self.fast_cache.clear()
+    from threading import Lock
+
+self.lock = Lock()
+
+def clear(self):
+    with self.lock:
+        self.fast_cache.clear()
             
             if os.path.exists(self.slow_cache_dir):
                 for filename in os.listdir(self.slow_cache_dir):
