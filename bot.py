@@ -4761,8 +4761,9 @@ class CacheManager:
     
     def clear(self):
         """Clear - مسح"""
-        async with self.lock:
-            self.fast_cache.clear()
+        async def update_stats(self):
+    async with self.lock:
+        ...
             
             if os.path.exists(self.slow_cache_dir):
                 for filename in os.listdir(self.slow_cache_dir):
