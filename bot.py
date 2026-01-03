@@ -826,7 +826,6 @@ class EnhancedDatabaseManager:
             'db_exists': db_exists
         })
     
-    @asynccontextmanager
     async def _get_connection(self):
         """Get database connection from pool - الحصول على اتصال قاعدة البيانات من التجمع"""
         async with self._pool.acquire() as conn:
@@ -2953,7 +2952,7 @@ class AdvancedCollectionManager:
         logger.info("▶️ تم استئناف الجمع")
     
     async def stop(self):
-        """Stop collection - إيقاف الجمع"""
+        """Stop collection - إوقف الجمع"""
         self.stop_requested = True
         
         logger.info("⏹️ تم طلب إيقاف الجمع بسلاسة")
@@ -4760,13 +4759,9 @@ class CacheManager:
         }
     
     def clear(self):
-    """Clear - مسح"""
-    asyncio.create_task(self.update_stats())
-
-
-async def update_stats(self):
-    async with self.lock:
-        ...
+        """Clear - مسح"""
+        async with self.lock:
+            self.fast_cache.clear()
             
             if os.path.exists(self.slow_cache_dir):
                 for filename in os.listdir(self.slow_cache_dir):
