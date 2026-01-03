@@ -3,10 +3,9 @@ import logging
 import os
 import sys
 import re
-import time
-from typing import List, Dict, Set
+from typing import List, Dict
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import OrderedDict
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -21,9 +20,8 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import (
     FloodWaitError, ChannelPrivateError, UsernameNotOccupiedError,
-    InviteHashInvalidError, InviteHashExpiredError
+    InviteHashInvalidError, InviteHashExpiredError, ChatAdminRequiredError
 )
-from telethon.tl.functions.messages import ExportChatInviteRequest
 
 from config import BOT_TOKEN, LINKS_PER_PAGE, API_ID, API_HASH, init_config
 from database import (
@@ -51,6 +49,11 @@ logger = logging.getLogger(__name__)
 _collection_active = False
 _collection_paused = False
 _current_collection_task = None
+_stop_requested = False
+
+MAX_COLLECTED_URLS = 50000  # حد أقصى للروابط المخزنة مؤقتاً
+_collected_urls = OrderedDict()  # لمنع التكرار مع حد أقصى
+
 _collection_stats = {
     'total_collected': 0,
     'telegram_collected': 0,
@@ -62,10 +65,10 @@ _collection_stats = {
     'inactive_links': 0,
     'channels_skipped': 0,
     'join_requests': 0,
+    'admin_errors': 0,
     'start_time': None,
     'end_time': None
 }
-_collected_urls = set()  # لمنع التكرار في الجلسة الواحدة
 
 # تاريخ ديناميكي لروابط واتساب (آخر 30 يوم)
 WHATSAPP_START_DATE = datetime.now() - timedelta(days=30)
@@ -83,14 +86,17 @@ def main_menu_keyboard():
         ],
         [
             InlineKeyboardButton("▶️ بدء الجمع", callback_data="menu_start_collect"),
-            InlineKeyboardButton("⏹️ إيقاف الجمع", callback_data="menu_stop_collect")
+            InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="menu_pause_collect")
         ],
         [
-            InlineKeyboardButton("📊 عرض الروابط", callback_data="menu_view_links"),
-            InlineKeyboardButton("📤 تصدير الروابط", callback_data="menu_export_links")
+            InlineKeyboardButton("⏹️ توقيف الجمع", callback_data="menu_stop_collect"),
+            InlineKeyboardButton("📊 عرض الروابط", callback_data="menu_view_links")
         ],
         [
-            InlineKeyboardButton("📈 إحصائيات", callback_data="menu_stats"),
+            InlineKeyboardButton("📤 تصدير الروابط", callback_data="menu_export_links"),
+            InlineKeyboardButton("📈 إحصائيات", callback_data="menu_stats")
+        ],
+        [
             InlineKeyboardButton("🗑️ حذف جميع الجلسات", callback_data="menu_delete_all_sessions")
         ]
     ])
@@ -214,6 +220,21 @@ def pagination_keyboard(platform: str, link_type: str, page: int, has_next: bool
         [InlineKeyboardButton("🔙 رجوع", callback_data=back_button)]
     ])
 
+def collection_control_keyboard():
+    """أزرار التحكم في الجمع"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("▶️ استئناف", callback_data="menu_resume_collect"),
+            InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="menu_pause_collect")
+        ],
+        [
+            InlineKeyboardButton("⏹️ توقيف نهائي", callback_data="menu_stop_collect")
+        ],
+        [
+            InlineKeyboardButton("🔙 رجوع", callback_data="menu_main")
+        ]
+    ])
+
 # ======================
 # Helper Functions
 # ======================
@@ -227,6 +248,7 @@ def get_collection_status():
     return {
         'active': _collection_active,
         'paused': _collection_paused,
+        'stop_requested': _stop_requested,
         'stats': _collection_stats.copy()
     }
 
@@ -263,8 +285,8 @@ def normalize_url(url: str) -> str:
 def extract_telegram_username(url: str) -> str:
     """استخراج اسم المستخدم من رابط تيليجرام"""
     patterns = [
-        r't\.me/([A-Za-z0-9_]+)',
-        r'telegram\.me/([A-Za-z0-9_]+)'
+        r't.me/([A-Za-z0-9_]+)',
+        r'telegram.me/([A-Za-z0-9_]+)'
     ]
     
     url = normalize_url(url)
@@ -282,8 +304,8 @@ def extract_telegram_username(url: str) -> str:
 def extract_telegram_invite_hash(url: str) -> str:
     """استخراج hash الدعوة من رابط تيليجرام الخاص"""
     patterns = [
-        r't\.me/\+([A-Za-z0-9_-]+)',
-        r'telegram\.me/\+([A-Za-z0-9_-]+)'
+        r't.me/+([A-Za-z0-9_-]+)',
+        r'telegram.me/+([A-Za-z0-9_-]+)'
     ]
     
     url = normalize_url(url)
@@ -298,8 +320,8 @@ def extract_telegram_invite_hash(url: str) -> str:
 def is_telegram_channel_link(url: str) -> bool:
     """التحقق مما إذا كان الرابط قناة تيليجرام"""
     patterns = [
-        r't\.me/c/[0-9]+',
-        r't\.me/s/[A-Za-z0-9_]+'
+        r't.me/c/[0-9]+',
+        r't.me/s/[A-Za-z0-9_]+'
     ]
     
     url = normalize_url(url)
@@ -320,6 +342,11 @@ def is_join_request_link(url: str) -> bool:
     """التحقق مما إذا كان الرابط يحتوي على طلب انضمام"""
     url = normalize_url(url)
     return 't.me/+' in url or 'telegram.me/+' in url
+
+def is_whatsapp_link(url: str) -> bool:
+    """التحقق مما إذا كان الرابط واتساب"""
+    url = normalize_url(url)
+    return 'whatsapp.com' in url or 'chat.whatsapp.com' in url
 
 # ======================
 # Link Collection Functions
@@ -422,7 +449,7 @@ async def verify_telegram_group(client: TelegramClient, url: str) -> Dict:
             }
         else:
             return {'status': 'invalid', 'reason': 'مجموعة فارغة أو لا تحتوي على أعضاء'}
-        
+            
     except FloodWaitError as e:
         logger.warning(f"Flood wait: {e.seconds} seconds")
         await asyncio.sleep(e.seconds + 5)
@@ -431,8 +458,47 @@ async def verify_telegram_group(client: TelegramClient, url: str) -> Dict:
     except ChannelPrivateError:
         return {'status': 'invalid', 'reason': 'المجموعة خاصة ولا يمكن الوصول إليها'}
     
+    except ChatAdminRequiredError:
+        _collection_stats['admin_errors'] += 1
+        return {'status': 'invalid', 'reason': 'صلاحيات غير كافية'}
+    
     except Exception as e:
         logger.error(f"Error verifying telegram group {url}: {e}")
+        return {'status': 'error', 'reason': str(e)}
+
+async def verify_whatsapp_group(url: str) -> Dict:
+    """التحقق من مجموعة واتساب"""
+    try:
+        url = normalize_url(url)
+        
+        # التحقق من صيغة الرابط
+        if not is_whatsapp_link(url):
+            return {'status': 'invalid', 'reason': 'رابط واتساب غير صالح'}
+        
+        # التحقق من أن الرابط يحتوي على invite
+        if 'invite' not in url:
+            # محاولة تحويل الرابط إلى رابط دعوة
+            if 'chat.whatsapp.com/' in url:
+                # استخراج المعرف من الرابط
+                match = re.search(r'chat\.whatsapp\.com/([A-Za-z0-9]+)', url)
+                if match:
+                    group_id = match.group(1)
+                    url = f"https://chat.whatsapp.com/{group_id}"
+                else:
+                    return {'status': 'invalid', 'reason': 'رابط واتساب غير صالح'}
+        
+        # محاكاة فحص واتساب (لا يمكن فحص واتساب مباشرة عبر API)
+        # نعتبر جميع روابط واتساب غير مؤكدة
+        return {
+            'status': 'unverified',
+            'type': 'whatsapp_group',
+            'title': 'مجموعة واتساب (غير مؤكدة)',
+            'members': 0,
+            'link_type': 'whatsapp_group'
+        }
+        
+    except Exception as e:
+        logger.error(f"Error verifying whatsapp group {url}: {e}")
         return {'status': 'error', 'reason': str(e)}
 
 async def collect_links_from_session(session_data: Dict) -> Dict:
@@ -449,6 +515,7 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
         'whatsapp_groups': 0,
         'join_requests': 0,
         'errors': 0,
+        'admin_errors': 0,
         'links': []
     }
     
@@ -473,16 +540,16 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
             logger.error(f"Session {display_name} not authorized")
             return results
         
-        # مصادر الجمع
+        # مصادر الجمع (بدون إنشاء روابط دعوة)
         sources = [
-            collect_from_dialogs,
-            collect_from_joined_channels,
-            collect_from_messages,
-            collect_from_group_search
+            collect_from_dialogs_safe,
+            collect_from_messages_safe,
+            collect_from_group_search_safe,
+            collect_whatsapp_links_safe
         ]
         
         for source_func in sources:
-            if not _collection_active:
+            if not _collection_active or _stop_requested:
                 break
             
             try:
@@ -492,12 +559,12 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
                 
                 # تحديث الإحصائيات
                 for link in collected:
-                    if 't.me' in link['url']:
+                    if link['platform'] == 'telegram':
                         if link.get('link_type') == 'join_request':
                             results['join_requests'] += 1
                         else:
                             results['telegram_groups'] += 1
-                    elif 'whatsapp.com' in link['url']:
+                    elif link['platform'] == 'whatsapp':
                         results['whatsapp_groups'] += 1
                 
                 logger.info(f"Collected {len(collected)} links from {source_func.__name__}")
@@ -520,40 +587,38 @@ async def collect_links_from_session(session_data: Dict) -> Dict:
     
     return results
 
-async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[Dict]:
-    """جمع الروابط من الدردشات"""
+async def collect_from_dialogs_safe(client: TelegramClient, session_id: int) -> List[Dict]:
+    """جمع الروابط من الدردشات بأمان (بدون إنشاء روابط دعوة)"""
     collected = []
     
     try:
-        async for dialog in client.iter_dialogs(limit=100):
-            if not _collection_active:
+        async for dialog in client.iter_dialogs(limit=50):
+            if not _collection_active or _stop_requested:
                 break
             
             try:
                 if dialog.is_group or dialog.is_channel:
                     entity = dialog.entity
                     
-                    # الحصول على رابط المجموعة
+                    # الحصول على رابط المجموعة (فقط من المعرف العام)
                     url = None
                     if hasattr(entity, 'username') and entity.username:
-                        url = f"https://t.me/{entity.username}"
-                    elif hasattr(entity, 'megagroup') and entity.megagroup:
-                        # محاولة إنشاء رابط دعوة
-                        try:
-                            invite = await client(ExportChatInviteRequest(entity))
-                            if hasattr(invite, 'link'):
-                                url = invite.link
-                        except:
-                            continue
+                        url = normalize_url(f"https://t.me/{entity.username}")
                     
                     if url:
-                        # تطبيع الرابط
-                        url = normalize_url(url)
+                        # التحقق من تكرار الرابط
+                        if url in _collected_urls:
+                            _collection_stats['duplicate_links'] += 1
+                            continue
                         
                         # التحقق من الرابط
                         verification = await verify_telegram_group(client, url)
                         
                         if verification.get('status') == 'valid':
+                            _collected_urls[url] = True
+                            if len(_collected_urls) > MAX_COLLECTED_URLS:
+                                _collected_urls.popitem(last=False)
+                            
                             collected.append({
                                 'url': url,
                                 'platform': 'telegram',
@@ -563,8 +628,8 @@ async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[
                                 'session_id': session_id
                             })
                             
-                            # تحديث قاعدة البيانات
-                            success, _ = add_link(
+                            # تحديث قاعدة البيانات مع منع التكرار
+                            success, is_duplicate = add_link(
                                 url=url,
                                 platform='telegram',
                                 link_type=verification.get('link_type', 'unknown'),
@@ -573,6 +638,10 @@ async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[
                                 session_id=session_id
                             )
                             
+                            if not success and is_duplicate:
+                                _collection_stats['duplicate_links'] += 1
+                                continue
+                                
                             if success:
                                 _collection_stats['total_collected'] += 1
                                 link_type = verification.get('link_type')
@@ -591,7 +660,7 @@ async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[
                                 await asyncio.sleep(60)  # 60 ثانية لروابط طلب الانضمام
                             else:
                                 await asyncio.sleep(1)   # 1 ثانية للروابط العادية
-                
+            
             except Exception as e:
                 logger.debug(f"Error processing dialog: {e}")
                 continue
@@ -601,74 +670,8 @@ async def collect_from_dialogs(client: TelegramClient, session_id: int) -> List[
     
     return collected
 
-async def collect_from_joined_channels(client: TelegramClient, session_id: int) -> List[Dict]:
-    """جمع الروابط من القنوات المنضمة"""
-    collected = []
-    
-    try:
-        dialogs = await client.get_dialogs(limit=50)
-        
-        for dialog in dialogs:
-            if not _collection_active:
-                break
-            
-            try:
-                if dialog.is_channel and hasattr(dialog.entity, 'username') and dialog.entity.username:
-                    url = normalize_url(f"https://t.me/{dialog.entity.username}")
-                    
-                    # تجاهل القنوات (نريد المجموعات فقط)
-                    verification = await verify_telegram_group(client, url)
-                    
-                    if verification.get('status') == 'valid' and 'group' in verification.get('type', ''):
-                        collected.append({
-                            'url': url,
-                            'platform': 'telegram',
-                            'link_type': verification.get('link_type', 'unknown'),
-                            'title': verification.get('title', ''),
-                            'members': verification.get('members', 0),
-                            'session_id': session_id
-                        })
-                        
-                        # تحديث قاعدة البيانات
-                        success, _ = add_link(
-                            url=url,
-                            platform='telegram',
-                            link_type=verification.get('link_type', 'unknown'),
-                            title=verification.get('title', ''),
-                            members_count=verification.get('members', 0),
-                            session_id=session_id
-                        )
-                        
-                        if success:
-                            _collection_stats['total_collected'] += 1
-                            link_type = verification.get('link_type')
-                            if link_type == 'public_group':
-                                _collection_stats['public_groups'] += 1
-                                _collection_stats['telegram_collected'] += 1
-                            elif link_type == 'private_group':
-                                _collection_stats['private_groups'] += 1
-                                _collection_stats['telegram_collected'] += 1
-                            elif link_type == 'join_request':
-                                _collection_stats['join_requests'] += 1
-                                _collection_stats['telegram_collected'] += 1
-                        
-                        # تأخير مختلف حسب نوع الرابط
-                        if is_join_request_link(url):
-                            await asyncio.sleep(60)
-                        else:
-                            await asyncio.sleep(1)
-                
-            except Exception as e:
-                logger.debug(f"Error processing channel: {e}")
-                continue
-    
-    except Exception as e:
-        logger.error(f"Error collecting from channels: {e}")
-    
-    return collected
-
-async def collect_from_messages(client: TelegramClient, session_id: int) -> List[Dict]:
-    """جمع الروابط من الرسائل"""
+async def collect_from_messages_safe(client: TelegramClient, session_id: int) -> List[Dict]:
+    """جمع الروابط من الرسائل بأمان"""
     collected = []
     
     try:
@@ -679,114 +682,143 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
         ]
         
         for term in search_terms:
-            if not _collection_active:
+            if not _collection_active or _stop_requested:
                 break
             
             try:
-                async for message in client.iter_messages(None, search=term, limit=30):
-                    if not _collection_active:
+                # البحث فقط في الدردشات المفتوحة للحد من FloodWait
+                async for dialog in client.iter_dialogs(limit=30):
+                    if not _collection_active or _stop_requested:
                         break
                     
-                    if message.text:
-                        # استخراج جميع الروابط من النص
-                        urls = re.findall(
-                            r'(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+|chat\.whatsapp\.com/[^\s]+)',
-                            message.text
-                        )
-                        
-                        for raw_url in urls:
-                            try:
-                                url = normalize_url(raw_url)
-
-                                if url in _collected_urls:
-                                    _collection_stats['duplicate_links'] += 1
-                                    continue
-
-                                # تحليل الرابط
-                                if 't.me' in url or 'telegram.me' in url:
-                                    if is_telegram_channel_link(url):
-                                        _collection_stats['channels_skipped'] += 1
-                                        continue
-
-                                    verification = await verify_telegram_group(client, url)
-
-                                    if verification.get('status') == 'valid':
-                                        _collected_urls.add(url)
-
-                                        collected.append({
-                                            'url': url,
-                                            'platform': 'telegram',
-                                            'link_type': verification.get('link_type', 'unknown'),
-                                            'title': verification.get('title', ''),
-                                            'members': verification.get('members', 0),
-                                            'session_id': session_id
-                                        })
-
-                                        success, _ = add_link(
-                                            url=url,
-                                            platform='telegram',
-                                            link_type=verification.get('link_type', 'unknown'),
-                                            title=verification.get('title', ''),
-                                            members_count=verification.get('members', 0),
-                                            session_id=session_id
-                                        )
-
-                                        if success:
-                                            _collection_stats['total_collected'] += 1
-                                            link_type = verification.get('link_type')
-                                            if link_type == 'public_group':
-                                                _collection_stats['public_groups'] += 1
-                                                _collection_stats['telegram_collected'] += 1
-                                            elif link_type == 'private_group':
-                                                _collection_stats['private_groups'] += 1
-                                                _collection_stats['telegram_collected'] += 1
-                                            elif link_type == 'join_request':
-                                                _collection_stats['join_requests'] += 1
-                                                _collection_stats['telegram_collected'] += 1
-
-                                elif 'whatsapp.com' in url or 'chat.whatsapp.com' in url:
-                                    # استخدام التاريخ الديناميكي
-                                    if message.date and message.date < WHATSAPP_START_DATE:
-                                        continue
-
-                                    _collected_urls.add(url)
-
-                                    collected.append({
-                                        'url': url,
-                                        'platform': 'whatsapp',
-                                        'link_type': 'group',
-                                        'title': 'WhatsApp Group',
-                                        'members': 0,
-                                        'session_id': session_id
-                                    })
-
-                                    success, _ = add_link(
-                                        url=url,
-                                        platform='whatsapp',
-                                        link_type='group',
-                                        title='WhatsApp Group',
-                                        members_count=0,
-                                        session_id=session_id
-                                    )
-
-                                    if success:
-                                        _collection_stats['total_collected'] += 1
-                                        _collection_stats['whatsapp_collected'] += 1
-                                        _collection_stats['whatsapp_groups'] += 1
-
-                            except Exception as e:
-                                logger.debug(f"Error processing URL {raw_url}: {e}")
-                                continue
+                    try:
+                        async for message in client.iter_messages(dialog.entity, search=term, limit=10):
+                            if not _collection_active or _stop_requested:
+                                break
                             
-                            # تأخير مختلف حسب نوع الرابط
-                            if 't.me' in url or 'telegram.me' in url:
-                                if is_join_request_link(url):
-                                    await asyncio.sleep(60)
-                                else:
-                                    await asyncio.sleep(1)
-                            else:
-                                await asyncio.sleep(1)
+                            if message.text:
+                                # استخراج جميع الروابط من النص
+                                urls = re.findall(
+                                    r'(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+|chat\.whatsapp\.com/[^\s]+)',
+                                    message.text
+                                )
+                                
+                                for raw_url in urls:
+                                    try:
+                                        url = normalize_url(raw_url)
+                                        
+                                        # التحقق من تكرار الرابط في الذاكرة المؤقتة
+                                        if url in _collected_urls:
+                                            _collection_stats['duplicate_links'] += 1
+                                            continue
+                                        
+                                        # تحليل الرابط
+                                        if 't.me' in url or 'telegram.me' in url:
+                                            if is_telegram_channel_link(url):
+                                                _collection_stats['channels_skipped'] += 1
+                                                continue
+                                            
+                                            verification = await verify_telegram_group(client, url)
+                                            
+                                            if verification.get('status') == 'valid':
+                                                _collected_urls[url] = True
+                                                if len(_collected_urls) > MAX_COLLECTED_URLS:
+                                                    _collected_urls.popitem(last=False)
+                                                
+                                                collected.append({
+                                                    'url': url,
+                                                    'platform': 'telegram',
+                                                    'link_type': verification.get('link_type', 'unknown'),
+                                                    'title': verification.get('title', ''),
+                                                    'members': verification.get('members', 0),
+                                                    'session_id': session_id
+                                                })
+                                                
+                                                # حفظ في قاعدة البيانات مع منع التكرار
+                                                success, is_duplicate = add_link(
+                                                    url=url,
+                                                    platform='telegram',
+                                                    link_type=verification.get('link_type', 'unknown'),
+                                                    title=verification.get('title', ''),
+                                                    members_count=verification.get('members', 0),
+                                                    session_id=session_id
+                                                )
+                                                
+                                                if not success and is_duplicate:
+                                                    _collection_stats['duplicate_links'] += 1
+                                                    continue
+                                                    
+                                                if success:
+                                                    _collection_stats['total_collected'] += 1
+                                                    link_type = verification.get('link_type')
+                                                    if link_type == 'public_group':
+                                                        _collection_stats['public_groups'] += 1
+                                                        _collection_stats['telegram_collected'] += 1
+                                                    elif link_type == 'private_group':
+                                                        _collection_stats['private_groups'] += 1
+                                                        _collection_stats['telegram_collected'] += 1
+                                                    elif link_type == 'join_request':
+                                                        _collection_stats['join_requests'] += 1
+                                                        _collection_stats['telegram_collected'] += 1
+
+                                        elif is_whatsapp_link(url):
+                                            # استخدام التاريخ الديناميكي
+                                            if message.date and message.date < WHATSAPP_START_DATE:
+                                                continue
+                                            
+                                            verification = await verify_whatsapp_group(url)
+                                            
+                                            if verification.get('status') in ('valid', 'unverified'):
+                                                _collected_urls[url] = True
+                                                if len(_collected_urls) > MAX_COLLECTED_URLS:
+                                                    _collected_urls.popitem(last=False)
+                                                
+                                                collected.append({
+                                                    'url': url,
+                                                    'platform': 'whatsapp',
+                                                    'link_type': 'whatsapp_group',
+                                                    'title': verification.get('title', 'WhatsApp Group (غير مؤكد)'),
+                                                    'members': 0,
+                                                    'session_id': session_id
+                                                })
+                                                
+                                                # حفظ في قاعدة البيانات مع تصنيف الثقة
+                                                success, is_duplicate = add_link(
+                                                    url=url,
+                                                    platform='whatsapp',
+                                                    link_type='whatsapp_group',
+                                                    title='WhatsApp Group (غير مؤكد)',
+                                                    members_count=0,
+                                                    session_id=session_id,
+                                                    confidence='low'
+                                                )
+                                                
+                                                if not success and is_duplicate:
+                                                    _collection_stats['duplicate_links'] += 1
+                                                    continue
+                                                    
+                                                if success:
+                                                    _collection_stats['total_collected'] += 1
+                                                    _collection_stats['whatsapp_collected'] += 1
+                                                    _collection_stats['whatsapp_groups'] += 1
+
+                                    except Exception as e:
+                                        logger.debug(f"Error processing URL {raw_url}: {e}")
+                                        continue
+                                    
+                                    # تأخير مختلف حسب نوع الرابط
+                                    if 't.me' in url or 'telegram.me' in url:
+                                        if is_join_request_link(url):
+                                            await asyncio.sleep(60)
+                                        else:
+                                            await asyncio.sleep(1)
+                                    else:
+                                        await asyncio.sleep(1)
                     
+                    except Exception as e:
+                        logger.debug(f"Error searching in dialog {dialog.name}: {e}")
+                        continue
+            
             except Exception as e:
                 logger.error(f"Error searching for term '{term}': {e}")
                 continue
@@ -798,53 +830,47 @@ async def collect_from_messages(client: TelegramClient, session_id: int) -> List
     
     return collected
 
-async def collect_from_group_search(client: TelegramClient, session_id: int) -> List[Dict]:
-    """جمع الروابط من البحث عن المجموعات"""
+async def collect_from_group_search_safe(client: TelegramClient, session_id: int) -> List[Dict]:
+    """جمع الروابط من البحث عن المجموعات بأمان"""
     collected = []
     
     try:
-        # كلمات البحث الشائعة للمجموعات العربية
+        # البحث في المجموعات العامة فقط
         search_keywords = [
-            "مجموعة", "شات", "دردشة", "تحدث", "نقاش", "حوار",
-            "اجتماع", "مجتمع", "جروب", "group", "chat", "community"
+            "مجموعة", "شات", "دردشة", "group", "chat"
         ]
         
         for keyword in search_keywords:
-            if not _collection_active:
+            if not _collection_active or _stop_requested:
                 break
             
             try:
-                # البحث عن المجموعات في الدردشات الموجودة
+                # البحث في المجموعات العامة باستخدام اسم المستخدم
                 async for dialog in client.iter_dialogs():
-                    if not _collection_active:
+                    if not _collection_active or _stop_requested:
                         break
                     
-                    if keyword.lower() in getattr(dialog.entity, 'title', '').lower():
-                        try:
-                            url = None
-                            if hasattr(dialog.entity, 'username') and dialog.entity.username:
-                                url = normalize_url(f"https://t.me/{dialog.entity.username}")
-                            elif dialog.is_group:
-                                # محاولة إنشاء رابط دعوة
-                                try:
-                                    invite = await client(ExportChatInviteRequest(dialog.entity))
-                                    if hasattr(invite, 'link'):
-                                        url = normalize_url(invite.link)
-                                except:
-                                    continue
-                            
-                            if url:
+                    try:
+                        entity = dialog.entity
+                        if hasattr(entity, 'title') and keyword.lower() in entity.title.lower():
+                            if hasattr(entity, 'username') and entity.username:
+                                url = normalize_url(f"https://t.me/{entity.username}")
+                                
                                 # تجاهل القنوات
                                 if is_telegram_channel_link(url):
+                                    continue
+                                
+                                # التحقق من التكرار
+                                if url in _collected_urls:
+                                    _collection_stats['duplicate_links'] += 1
                                     continue
                                 
                                 verification = await verify_telegram_group(client, url)
                                 
                                 if verification.get('status') == 'valid' and verification.get('members', 0) > 0:
-                                    if url in _collected_urls:
-                                        continue
-                                    
-                                    _collected_urls.add(url)
+                                    _collected_urls[url] = True
+                                    if len(_collected_urls) > MAX_COLLECTED_URLS:
+                                        _collected_urls.popitem(last=False)
                                     
                                     collected.append({
                                         'url': url,
@@ -855,8 +881,8 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
                                         'session_id': session_id
                                     })
                                     
-                                    # حفظ في قاعدة البيانات
-                                    success, _ = add_link(
+                                    # حفظ في قاعدة البيانات مع منع التكرار
+                                    success, is_duplicate = add_link(
                                         url=url,
                                         platform='telegram',
                                         link_type=verification.get('link_type', 'unknown'),
@@ -865,6 +891,10 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
                                         session_id=session_id
                                     )
                                     
+                                    if not success and is_duplicate:
+                                        _collection_stats['duplicate_links'] += 1
+                                        continue
+                                        
                                     if success:
                                         _collection_stats['total_collected'] += 1
                                         link_type = verification.get('link_type')
@@ -884,9 +914,9 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
                                     else:
                                         await asyncio.sleep(1)
                         
-                        except Exception as e:
-                            logger.debug(f"Error processing search result: {e}")
-                            continue
+                    except Exception as e:
+                        logger.debug(f"Error processing search result: {e}")
+                        continue
             
             except Exception as e:
                 logger.error(f"Error searching for keyword '{keyword}': {e}")
@@ -899,9 +929,109 @@ async def collect_from_group_search(client: TelegramClient, session_id: int) -> 
     
     return collected
 
+async def collect_whatsapp_links_safe(client: TelegramClient, session_id: int) -> List[Dict]:
+    """جمع روابط واتساب بأمان"""
+    collected = []
+    
+    try:
+        # البحث عن روابط واتساب في الرسائل
+        search_terms = ["whatsapp", "واتساب", "chat.whatsapp.com"]
+        
+        for term in search_terms:
+            if not _collection_active or _stop_requested:
+                break
+            
+            try:
+                # البحث فقط في الدردشات المفتوحة
+                async for dialog in client.iter_dialogs(limit=30):
+                    if not _collection_active or _stop_requested:
+                        break
+                    
+                    try:
+                        async for message in client.iter_messages(dialog.entity, search=term, limit=10):
+                            if not _collection_active or _stop_requested:
+                                break
+                            
+                            if message.text:
+                                # استخراج روابط واتساب من النص
+                                whatsapp_urls = re.findall(
+                                    r'https?://chat\.whatsapp\.com/[^\s]+',
+                                    message.text
+                                )
+                                
+                                for raw_url in whatsapp_urls:
+                                    try:
+                                        url = normalize_url(raw_url)
+                                        
+                                        # التحقق من التكرار
+                                        if url in _collected_urls:
+                                            _collection_stats['duplicate_links'] += 1
+                                            continue
+                                        
+                                        # استخدام التاريخ الديناميكي
+                                        if message.date and message.date < WHATSAPP_START_DATE:
+                                            continue
+                                        
+                                        verification = await verify_whatsapp_group(url)
+                                        
+                                        if verification.get('status') in ('valid', 'unverified'):
+                                            _collected_urls[url] = True
+                                            if len(_collected_urls) > MAX_COLLECTED_URLS:
+                                                _collected_urls.popitem(last=False)
+                                            
+                                            collected.append({
+                                                'url': url,
+                                                'platform': 'whatsapp',
+                                                'link_type': 'whatsapp_group',
+                                                'title': verification.get('title', 'WhatsApp Group (غير مؤكد)'),
+                                                'members': 0,
+                                                'session_id': session_id
+                                            })
+                                            
+                                            # حفظ في قاعدة البيانات مع تصنيف الثقة
+                                            success, is_duplicate = add_link(
+                                                url=url,
+                                                platform='whatsapp',
+                                                link_type='whatsapp_group',
+                                                title='WhatsApp Group (غير مؤكد)',
+                                                members_count=0,
+                                                session_id=session_id,
+                                                confidence='low'
+                                            )
+                                            
+                                            if not success and is_duplicate:
+                                                _collection_stats['duplicate_links'] += 1
+                                                continue
+                                                
+                                            if success:
+                                                _collection_stats['total_collected'] += 1
+                                                _collection_stats['whatsapp_collected'] += 1
+                                                _collection_stats['whatsapp_groups'] += 1
+                                            
+                                            await asyncio.sleep(1)
+                                        
+                                    except Exception as e:
+                                        logger.debug(f"Error processing WhatsApp URL {raw_url}: {e}")
+                                        continue
+                    
+                    except Exception as e:
+                        logger.debug(f"Error searching for WhatsApp in dialog {dialog.name}: {e}")
+                        continue
+            
+            except Exception as e:
+                logger.error(f"Error searching for WhatsApp term '{term}': {e}")
+                continue
+            
+            await asyncio.sleep(2)
+    
+    except Exception as e:
+        logger.error(f"Error collecting WhatsApp links: {e}")
+    
+    return collected
+
 async def start_collection_process():
-    """بدء عملية الجمع الرئيسية"""
-    global _collection_active, _collection_paused, _collection_stats, _collected_urls
+    """بدء عملية الجمع الرئيسية بأمان (بدون recursion)"""
+    global _collection_active, _collection_paused, _collection_stats, _collected_urls, _stop_requested
     
     try:
         # إعادة تعيين الإحصائيات
@@ -916,66 +1046,90 @@ async def start_collection_process():
             'inactive_links': 0,
             'channels_skipped': 0,
             'join_requests': 0,
+            'admin_errors': 0,
             'start_time': datetime.now().isoformat(),
             'end_time': None
         }
         _collected_urls.clear()
+        _stop_requested = False
         
         # بدء جلسة جمع جديدة
         session_id = start_collection_session()
         
-        while _collection_active:
-            # الحصول على الجلسات النشطة
-            active_sessions = [s for s in get_sessions() if s.get('is_active')]
-            
-            if not active_sessions:
-                logger.error("No active sessions available")
-                await asyncio.sleep(10)
-                continue
-            
-            logger.info(f"Starting collection with {len(active_sessions)} active sessions")
-            
-            # جمع الروابط من كل جلسة
-            for session in active_sessions:
-                if not _collection_active:
-                    break
+        # حلقة الجمع الرئيسية (بدون recursion)
+        while _collection_active and not _stop_requested:
+            try:
+                # الحصول على الجلسات النشطة
+                active_sessions = [s for s in get_sessions() if s.get('is_active')]
                 
-                if _collection_paused:
-                    while _collection_paused and _collection_active:
+                if not active_sessions:
+                    logger.warning("No active sessions available")
+                    # انتظار دقيقة ثم المحاولة مرة أخرى
+                    for i in range(60):
+                        if not _collection_active or _stop_requested:
+                            break
                         await asyncio.sleep(1)
-                
-                try:
-                    results = await collect_links_from_session(session)
-                    logger.info(f"Session {results['display_name']}: {results['total_collected']} links")
-                    
-                    # تحديث إحصائيات الجلسة
-                    update_collection_stats(session_id, _collection_stats)
-                    
-                except Exception as e:
-                    logger.error(f"Error collecting from session {session.get('id')}: {e}")
                     continue
+                
+                logger.info(f"Starting collection with {len(active_sessions)} active sessions")
+                
+                # جمع الروابط من كل جلسة
+                for session in active_sessions:
+                    if not _collection_active or _stop_requested:
+                        break
+                    
+                    if _collection_paused:
+                        while _collection_paused and _collection_active and not _stop_requested:
+                            await asyncio.sleep(1)
+                    
+                    try:
+                        results = await collect_links_from_session(session)
+                        logger.info(f"Session {results['display_name']}: {results['total_collected']} links")
+                        
+                        # تحديث إحصائيات الجلسة
+                        update_collection_stats(session_id, _collection_stats)
+                        
+                    except Exception as e:
+                        logger.error(f"Error collecting from session {session.get('id')}: {e}")
+                        continue
+                
+                # انتظار قبل البدء من جديد (دورة مستمرة)
+                if _collection_active and not _stop_requested:
+                    logger.info("Collection cycle completed, waiting 60 seconds before next cycle")
+                    for i in range(60):
+                        if not _collection_active or _stop_requested:
+                            break
+                        await asyncio.sleep(1)
             
-            # انتظار قبل البدء من جديد (دورة مستمرة)
-            if _collection_active:
-                logger.info("Collection cycle completed, waiting 30 seconds before next cycle")
+            except Exception as e:
+                logger.error(f"❌ Error in main collection loop: {e}")
+                # انتظار 30 ثانية ثم إعادة المحاولة
                 for i in range(30):
-                    if not _collection_active:
+                    if not _collection_active or _stop_requested:
                         break
                     await asyncio.sleep(1)
+                continue
         
         # إنهاء جلسة الجمع
         _collection_stats['end_time'] = datetime.now().isoformat()
         update_collection_stats(session_id, _collection_stats)
-        end_collection_session(session_id, 'completed')
+        end_collection_session(session_id, 'completed' if not _stop_requested else 'stopped')
         
-        logger.info(f"✅ Collection completed: {_collection_stats['total_collected']} total links")
+        logger.info(f"✅ Collection {'stopped' if _stop_requested else 'completed'}: {_collection_stats['total_collected']} total links")
+        
+        # إعادة تعيين الحالة
+        if _stop_requested:
+            _collection_active = False
+            _stop_requested = False
+        
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error in collection process: {e}")
-        # لا يتم إيقاف البوت، يعاود المحاولة
-        await asyncio.sleep(10)
-        return await start_collection_process()  # إعادة المحاولة
+        logger.error(f"❌ Fatal error in collection process: {e}")
+        # لا نقوم بإعادة التشغيل التلقائي لمنع recursion و stack overflow
+        _collection_active = False
+        _stop_requested = False
+        return False
 
 # ======================
 # Command Handlers
@@ -985,30 +1139,36 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start"""
     user = update.effective_user
     
-    welcome_text = f"""
-    🤖 *مرحباً {user.first_name}!*
+    welcome_text = f"""  
+🤖 *مرحباً {user.first_name}!*  
     
-    *بوت جمع روابط المجموعات النشطة فقط*
+*بوت جمع روابط المجموعات النشطة فقط*  
     
-    📋 *المميزات:*
-    • جمع روابط مجموعات تيليجرام العامة والخاصة النشطة فقط
-    • جمع روابط مجموعات واتساب النشطة فقط
-    • جمع روابط طلبات الانضمام (+)
-    • فحص الروابط للتأكد من وجود أعضاء (وليس مشتركين)
-    • جمع الروابط القديمة والجديدة (آخر 30 يوم للواتساب)
-    • تصدير الروابط مصنفة حسب النوع
+📋 *المميزات:*  
+• جمع روابط مجموعات تيليجرام العامة والخاصة النشطة فقط  
+• جمع روابط مجموعات واتساب النشطة فقط (آخر 30 يوم)  
+• جمع روابط طلبات الانضمام (+)  
+• فحص الروابط للتأكد من وجود أعضاء (وليس مشتركين)  
+• جمع الروابط بأمان دون إنشاء دعوات جديدة  
+• تصدير الروابط مصنفة حسب النوع  
     
-    ⚠️ *ملاحظة:* البوت يجمع فقط المجموعات التي تحتوي على أعضاء
-    ❌ لا يجمع القنوات (t.me/channel)
-    ❌ لا يجمع المجموعات الفارغة
+⚠️ *ملاحظة:* البوت يجمع فقط المجموعات التي تحتوي على أعضاء  
+❌ لا يجمع القنوات (t.me/channel)  
+❌ لا يجمع المجموعات الفارغة  
     
-    📊 *أنواع الروابط:*
-    • 👥 مجموعات عامة: https://t.me/groupname
-    • 🔒 مجموعات خاصة: روابط خاصة
-    • 📋 طلبات انضمام: https://t.me/+invitehash
-    • 📞 واتساب: https://chat.whatsapp.com/invite
+📊 *أنواع الروابط:*  
+• 👥 مجموعات عامة: https://t.me/groupname  
+• 🔒 مجموعات خاصة: روابط خاصة  
+• 📋 طلبات انضمام: https://t.me/+invitehash  
+• 📞 واتساب: https://chat.whatsapp.com/invite  
     
-    اختر من القائمة:"""
+⚡ *ميزات أمان:*  
+• لا ينشئ روابط دعوة جديدة  
+• تأخير ذكي حسب نوع الرابط  
+• لا يتوقف عند الأخطاء  
+• يمكن إيقافه نهائياً في أي وقت  
+    
+اختر من القائمة:"""  
     
     await update.message.reply_text(
         welcome_text,
@@ -1019,43 +1179,45 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /help"""
     help_text = """
-    🆘 *مساعدة*
+🆘 مساعدة
+
+*الأوامر المتاحة:*  
+/start - بدء البوت وعرض القائمة  
+/help - عرض هذه الرساءة  
+/status - عرض حالة الجمع  
+/stats - عرض إحصائيات الروابط  
     
-    *الأوامر المتاحة:*
-    /start - بدء البوت وعرض القائمة
-    /help - عرض هذه الرساءة
-    /status - عرض حالة الجمع
-    /stats - عرض إحصائيات الروابط
+*إضافة جلسة:*  
+1. اضغط "➕ إضافة جلسة"  
+2. أرسل Session String  
+3. يتحقق البوت من صحتها  
     
-    *إضافة جلسة:*
-    1. اضغط "➕ إضافة جلسة"
-    2. أرسل Session String
-    3. يتحقق البوت من صحتها
+*جمع الروابط:*  
+- ▶️ بدء الجمع - بدء عملية الجمع  
+- ⏸️ إيقاف مؤقت - إيقاف مؤقت للجمع  
+- ⏹️ توقيف الجمع - إيقاف نهائي للجمع  
     
-    *جمع الروابط:*
-    - بدء الجمع: ▶️ بدء الجمع
-    - إيقاف الجمع: ⏹️ إيقاف الجمع
+*مصادر الجمع:*  
+• الدردشات والمحادثات  
+• رسائل المجموعات  
+• نتائج البحث الآمن  
+• روابط واتساب من الرسائل  
     
-    *مصادر الجمع:*
-    • الدردشات والمحادثات
-    • المجموعات المنضمة
-    • رسائل المجموعات
-    • نتائج البحث
+*تصدير الروابط:*  
+يمكن تصدير الروابط حسب التصنيف:  
+• مجموعات عامة  
+• مجموعات خاصة  
+• مجموعات واتساب  
+• طلبات الانضمام  
     
-    *تصدير الروابط:*
-    يمكن تصدير الروابط حسب التصنيف:
-    • مجموعات عامة
-    • مجموعات خاصة
-    • مجموعات واتساب
-    • طلبات الانضمام
-    
-    *ميزات خاصة:*
-    • تنظيف الروابط من النجوم والمسافات
-    • تأخير 60 ثانية لروابط طلب الانضمام
-    • تأخير 1 ثانية للروابط العادية
-    • البوت لا يتوقف عن الجمع عند الأخطاء
-    • روابط واتساب من آخر 30 يوم فقط
-    """
+*ميزات خاصة:*  
+• تنظيف الروابط من النجوم والمسافات  
+• تأخير 60 ثانية لروابط طلب الانضمام  
+• تأخير 1 ثانية للروابط العادية  
+• جمع واتساب غير مؤكد (كفاءة منخفضة)  
+• نظام أمان يمنع الحظر  
+• زر توقيف نهائي للجمع  
+"""
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -1066,23 +1228,25 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if status['active']:
         if status['paused']:
             status_text = "⏸️ *الجمع موقف مؤقتاً*"
+        elif status['stop_requested']:
+            status_text = "🛑 *جاري التوقيف...*"
         else:
             status_text = "🔄 *جاري الجمع حالياً*"
         
         stats = status['stats']
-        status_text += f"""
+        status_text += f"""  
         
-        📊 *الإحصائيات الحالية:*
-        • مجموعات عامة: {stats.get('public_groups', 0)}
-        • مجموعات خاصة: {stats.get('private_groups', 0)}
-        • طلبات انضمام: {stats.get('join_requests', 0)}
-        • مجموعات واتساب: {stats.get('whatsapp_groups', 0)}
-        • الإجمالي: {stats.get('total_collected', 0)}
+📊 *الإحصائيات الحالية:*  
+• مجموعات عامة: {stats.get('public_groups', 0)}  
+• مجموعات خاصة: {stats.get('private_groups', 0)}  
+• طلبات انضمام: {stats.get('join_requests', 0)}  
+• مجموعات واتساب: {stats.get('whatsapp_groups', 0)}  
+• الإجمالي: {stats.get('total_collected', 0)}  
         
-        • الروابط المكررة: {stats.get('duplicate_links', 0)}
-        • القنوات المتجاهلة: {stats.get('channels_skipped', 0)}
-        • الروابط غير النشطة: {stats.get('inactive_links', 0)}
-        """
+• الروابط المكررة: {stats.get('duplicate_links', 0)}  
+• القنوات المتجاهلة: {stats.get('channels_skipped', 0)}  
+• أخطاء الإدارة: {stats.get('admin_errors', 0)}  
+"""
     else:
         status_text = "🛑 *الجمع متوقف*"
     
@@ -1164,7 +1328,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "menu_start_collect":
             await start_collection_handler(query)
         
-        # إيقاف الجمع
+        # إيقاف مؤقت
+        elif data == "menu_pause_collect":
+            await pause_collection_handler(query)
+        
+        # استئناف الجمع
+        elif data == "menu_resume_collect":
+            await resume_collection_handler(query)
+        
+        # توقيف الجمع
         elif data == "menu_stop_collect":
             await stop_collection_handler(query)
         
@@ -1253,7 +1425,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(query):
     """عرض القائمة الرئيسية"""
     await query.message.edit_text(
-        "📱 *القائمة الرئيسية*\n\n"
+        "📱 القائمة الرئيسية\n\n"
         "اختر من الخيارات:",
         reply_markup=main_menu_keyboard(),
         parse_mode="Markdown"
@@ -1262,7 +1434,7 @@ async def show_main_menu(query):
 async def show_platforms_menu(query):
     """عرض قائمة المنصات"""
     await query.message.edit_text(
-        "📊 *اختر المنصة:*",
+        "📊 اختر المنصة:",
         reply_markup=platforms_keyboard(),
         parse_mode="Markdown"
     )
@@ -1270,7 +1442,7 @@ async def show_platforms_menu(query):
 async def show_telegram_types(query):
     """عرض أنواع روابط التليجرام"""
     await query.message.edit_text(
-        "📨 *روابط تيليجرام*\n\n"
+        "📨 روابط تيليجرام\n\n"
         "اختر نوع المجموعات:",
         reply_markup=telegram_types_keyboard(),
         parse_mode="Markdown"
@@ -1279,7 +1451,7 @@ async def show_telegram_types(query):
 async def show_whatsapp_types(query):
     """عرض أنواع روابط الواتساب"""
     await query.message.edit_text(
-        "📞 *روابط واتساب*\n\n"
+        "📞 روابط واتساب\n\n"
         "اختر نوع الروابط:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("👥 مجموعات واتساب", callback_data="whatsapp_group")],
@@ -1291,7 +1463,7 @@ async def show_whatsapp_types(query):
 async def show_export_menu(query):
     """عرض قائمة التصدير"""
     await query.message.edit_text(
-        "📤 *تصدير البيانات*\n\n"
+        "📤 تصدير البيانات\n\n"
         "اختر نوع التصدير:",
         reply_markup=export_options_keyboard(),
         parse_mode="Markdown"
@@ -1406,17 +1578,17 @@ async def show_session_info(query, session_id: int):
     username = session.get('username', 'غير معروف')
     display_name = session.get('display_name', 'غير معروف')
     
-    info_text = f"""
-    🔍 *معلومات الجلسة*
-    
-    • **الاسم:** {display_name}
-    • **الحالة:** {status}
-    • **رقم الهاتف:** {phone}
-    • **اسم المستخدم:** @{username}
-    • **تاريخ الإضافة:** {added_date}
-    • **آخر استخدام:** {last_used}
-    • **معرف الجلسة:** {session_id}
-    """
+    info_text = f"""  
+🔍 *معلومات الجلسة*  
+  
+• **الاسم:** {display_name}  
+• **الحالة:** {status}  
+• **رقم الهاتف:** {phone}  
+• **اسم المستخدم:** @{username}  
+• **تاريخ الإضافة:** {added_date}  
+• **آخر استخدام:** {last_used}  
+• **معرف الجلسة:** {session_id}  
+"""
     
     await query.message.edit_text(
         info_text,
@@ -1509,7 +1681,7 @@ async def toggle_session_handler(query, session_id: int):
 
 async def start_collection_handler(query):
     """بدء الجمع"""
-    global _collection_active, _current_collection_task
+    global _collection_active, _current_collection_task, _stop_requested
     
     if _collection_active:
         await query.message.edit_text("⏳ الجمع يعمل بالفعل")
@@ -1527,6 +1699,8 @@ async def start_collection_handler(query):
         return
     
     _collection_active = True
+    _collection_paused = False
+    _stop_requested = False
     
     # بدء عملية الجمع في خلفية
     _current_collection_task = asyncio.create_task(start_collection_process())
@@ -1537,65 +1711,89 @@ async def start_collection_handler(query):
         "• مجموعات تيليجرام العامة النشطة\n"
         "• مجموعات تيليجرام الخاصة النشطة\n"
         "• روابط طلبات الانضمام (+)\n"
-        "• مجموعات واتساب النشطة (آخر 30 يوم)\n\n"
-        "🔍 *فحص الروابط:*\n"
-        "• التحقق من وجود أعضاء (وليس مشتركين)\n"
-        "• تجاهل القنوات والمجموعات الفارغة\n"
-        "• منع تكرار الروابط\n"
-        "• تنظيف الروابط من النجوم والمسافات\n\n"
+        "• مجموعات واتساب غير مؤكدة (آخر 30 يوم)\n\n"
+        "🔒 *نظام أمان متقدم:*\n"
+        "• لا ينشئ روابط دعوة جديدة\n"
+        "• تجنب عمليات الحظر والتقييد\n"
+        "• فحص آمن للمجموعات\n\n"
         "⏱️ *تأخير الفحص:*\n"
         "• 60 ثانية لروابط طلب الانضمام (+)\n"
         "• 1 ثانية للروابط العادية\n\n"
-        "⚙️ *ميزة مستمرة:*\n"
-        "البوت لا يتوقف عن الجمع مهما حدث\n"
-        "يعاود المحاولة تلقائياً عند الأخطاء\n\n"
+        "⚙️ *ميزات التحكم:*\n"
+        "• ⏸️ إيقاف مؤقت\n"
+        "• ▶️ استئناف\n"
+        "• ⏹️ توقيف نهائي\n\n"
         "⏳ جاري جمع الروابط من جميع الجلسات...\n"
         "سيتم إعلامك بالتقدم.",
+        reply_markup=collection_control_keyboard(),
         parse_mode="Markdown"
     )
 
-async def stop_collection_handler(query):
-    """إيقاف الجمع"""
-    global _collection_active, _current_collection_task
+async def pause_collection_handler(query):
+    """إيقاف الجمع مؤقتاً"""
+    global _collection_paused
     
     if not _collection_active:
         await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
         return
     
-    _collection_active = False
+    _collection_paused = True
     
-    if _current_collection_task:
-        _current_collection_task.cancel()
-        try:
-            await _current_collection_task
-        except asyncio.CancelledError:
-            pass
-        _current_collection_task = None
+    await query.message.edit_text(
+        "⏸️ *تم إيقاف الجمع مؤقتاً*\n\n"
+        "يمكنك استئناف الجمع بالضغط على ▶️ استئناف\n"
+        "أو إيقافه نهائياً بالضغط على ⏹️ توقيف نهائي",
+        reply_markup=collection_control_keyboard(),
+        parse_mode="Markdown"
+    )
+
+async def resume_collection_handler(query):
+    """استئناف الجمع"""
+    global _collection_paused
+    
+    if not _collection_active:
+        await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
+        return
+    
+    _collection_paused = False
+    
+    await query.message.edit_text(
+        "▶️ *تم استئناف الجمع*\n\n"
+        "جاري استمرار عملية جمع الروابط...",
+        reply_markup=collection_control_keyboard(),
+        parse_mode="Markdown"
+    )
+
+async def stop_collection_handler(query):
+    """توقيف الجمع نهائياً"""
+    global _stop_requested
+    
+    if not _collection_active:
+        await query.message.edit_text("⚠️ الجمع غير نشط حالياً")
+        return
+    
+    _stop_requested = True
     
     stats = get_collection_status()['stats']
     
-    stop_text = """
-    ⏹️ *تم إيقاف الجمع بنجاح*
-    
-    📊 *إحصائيات الجمع الأخير:*
-    • مجموعات عامة: {public_groups}
-    • مجموعات خاصة: {private_groups}
-    • طلبات انضمام: {join_requests}
-    • مجموعات واتساب: {whatsapp_groups}
-    • الإجمالي: {total_collected}
-    
-    • الروابط المكررة: {duplicate_links}
-    • القنوات المتجاهلة: {channels_skipped}
-    • الروابط غير النشطة: {inactive_links}
-    """.format(
+    stop_text = """  
+⏹️ *تم طلب توقيف الجمع نهائياً*  
+  
+📊 *إحصائيات الجمع الحالية:*  
+• مجموعات عامة: {public_groups}  
+• مجموعات خاصة: {private_groups}  
+• طلبات انضمام: {join_requests}  
+• مجموعات واتساب: {whatsapp_groups}  
+• الإجمالي: {total_collected}  
+  
+⏳ جاري إيقاف جميع العمليات...  
+سيتم الإنهاء خلال ثوانٍ.  
+""".format(
         public_groups=stats.get('public_groups', 0),
         private_groups=stats.get('private_groups', 0),
         join_requests=stats.get('join_requests', 0),
         whatsapp_groups=stats.get('whatsapp_groups', 0),
-        total_collected=stats.get('total_collected', 0),
-        duplicate_links=stats.get('duplicate_links', 0),
-        channels_skipped=stats.get('channels_skipped', 0),
-        inactive_links=stats.get('inactive_links', 0)
+        total_collected=stats.get('total_collected', 0)
     )
     
     await query.message.edit_text(stop_text, parse_mode="Markdown")
@@ -1678,7 +1876,7 @@ async def export_handler(query, export_type: str):
         elif export_type == "whatsapp_groups":
             path = export_links_by_type("whatsapp", "group")
             filename = "whatsapp_groups.txt"
-            caption = "📞 مجموعات واتساب النشطة"
+            caption = "📞 مجموعات واتساب النشطة (غير مؤكدة)"
         
         elif export_type == "join_requests":
             path = export_links_by_type("telegram", "join_request")
@@ -1728,7 +1926,7 @@ async def export_handler(query, export_type: str):
                     await query.message.reply_document(
                         f,
                         filename="whatsapp_groups.txt",
-                        caption="📞 مجموعات واتساب النشطة"
+                        caption="📞 مجموعات واتساب النشطة (غير مؤكدة)"
                     )
                     files_sent += 1
             
@@ -1851,11 +2049,14 @@ def main():
         print("\n⚡ *مميزات البوت:*")
         print("• جمع روابط تيليجرام العامة والخاصة")
         print("• جمع روابط طلبات الانضمام (+) بانتظار 60 ثانية")
-        print("• جمع روابط واتساب (آخر 30 يوم)")
+        print("• جمع روابط واتساب غير مؤكد (آخر 30 يوم)")
         print("• تنظيف الروابط من النجوم والمسافات")
-        print("• تحديد نوع المجموعة بشكل صحيح (public/private)")
-        print("• البوت لا يتوقف عن الجمع عند الأخطاء")
-        print("• تصدير جميع أنواع الروابط")
+        print("• نظام أمان: لا ينشئ روابط دعوة جديدة")
+        print("• زر توقيف نهائي للجمع")
+        print("• تحكم كامل: إيقاف مؤقت/استئناف/توقيف")
+        print("• منع recursion و stack overflow")
+        print("• منع تسرب RAM (حد أقصى 50,000 رابط)")
+        print("• تقليل FloodWait (البحث في الدردشات فقط)")
         print("\n🤖 Starting Telegram Link Collector Bot...")
         
         # إنشاء تطبيق البوت
@@ -1876,6 +2077,8 @@ def main():
         logger.info("⚡ Bot will collect active groups only (not channels)")
         logger.info(f"📅 WhatsApp links from: {WHATSAPP_START_DATE.date()}")
         logger.info("⏱️ Join request links: 60s delay, Normal links: 1s delay")
+        logger.info("🔒 Safety: No invite link creation, Recursion protection")
+        logger.info("💾 RAM protection: Max 50,000 cached URLs")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
