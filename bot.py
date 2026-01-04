@@ -80,8 +80,27 @@ class Config:
     API_HASH = os.getenv("API_HASH", "")
     
     # Security - الأمان
-    ADMIN_USER_IDS = set(map(int, os.getenv("ADMIN_USER_IDS", "0").split(",")))
-    ALLOWED_USER_IDS = set(map(int, os.getenv("ALLOWED_USER_IDS", "0").split(",")))
+def safe_parse_ids(env_var, default="0"):
+    try:
+        value = os.getenv(env_var, default)
+        if not value or value.strip() == "":
+            return {int(default)}
+        
+        ids = []
+        for id_str in value.split(","):
+            id_str = id_str.strip()
+            if id_str:
+                ids.append(int(id_str))
+        
+        if not ids:
+            return {int(default)}
+        
+        return set(ids)
+    except (ValueError, TypeError):
+        return {int(default)}
+
+ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS")
+ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS")
     
     # Encryption - التشفير
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
