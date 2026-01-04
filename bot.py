@@ -5000,15 +5000,7 @@ def setup_logging():
         ]
     )
     
-    formatter = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
-    for handler in logging.getLogger().handlers:
-        handler.setFormatter(formatter)
-    
-    return StructuredLogger()
-
-logger = setup_logging()
-
-async def main():
+    async def main():
     """Main function - الوظيفة الرئيسية"""
     setup_signal_handlers()
     
@@ -5058,10 +5050,17 @@ async def main():
         
         asyncio.create_task(periodic_maintenance())
         
-        # تحديث طريقة التشغيل
+        # تشغيل البوت
         await bot.app.initialize()
-        await bot.app.run_polling()
+        await bot.app.start()
+        await bot.app.updater.start_polling()
         
+        logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
+        
+        # الحفاظ على البوت يعمل
+        while True:
+            await asyncio.sleep(3600)  # انتظر ساعة واحدة
+            
     except Exception as e:
         logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
         raise
@@ -5070,6 +5069,9 @@ async def main():
         logger.info("🧹 جاري التنظيف النهائي...")
         
         try:
+            if hasattr(bot, 'app'):
+                await bot.app.stop()
+            
             db = await EnhancedDatabaseManager.get_instance()
             await db.close()
             
