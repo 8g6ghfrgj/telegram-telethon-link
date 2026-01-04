@@ -5050,14 +5050,15 @@ async def main():
         
         asyncio.create_task(periodic_maintenance())
         
-        # تشغيل البوت
-        await bot.app.initialize()
+        # تشغيل البوت - تصحيح طريقة التشغيل
         await bot.app.start()
-        await bot.app.updater.start_polling()
-        
         logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
         
         # الحفاظ على البوت يعمل
+        await asyncio.sleep(1)  # تأكيد بدء التشغيل
+        logger.info("✅ البوت جاهز للعمل!")
+        
+        # انتظار إلى ما لا نهاية (أو حتى إشارة إيقاف)
         while True:
             await asyncio.sleep(3600)  # انتظر ساعة واحدة
             
@@ -5069,13 +5070,21 @@ async def main():
         logger.info("🧹 جاري التنظيف النهائي...")
         
         try:
-            if hasattr(bot, 'app'):
+            if hasattr(bot, 'app') and bot.app.is_initialized:
                 await bot.app.stop()
             
-            db = await EnhancedDatabaseManager.get_instance()
-            await db.close()
+            # إغلاق قاعدة البيانات إذا كانت موجودة
+            try:
+                db = await EnhancedDatabaseManager.get_instance()
+                await db.close()
+            except:
+                pass
             
-            cache_manager.clear()
+            # تنظيف الكاش
+            try:
+                cache_manager.clear()
+            except:
+                pass
             
             logger.info("✅ اكتمل الإغلاق السلس")
             
@@ -5104,6 +5113,36 @@ async def periodic_maintenance():
             await asyncio.sleep(60)
 
 if __name__ == "__main__":
+    # يجب استيراد المكتبات المطلوبة أولاً
+    import asyncio
+    import sys
+    import os
+    import logging
+    from cryptography.fernet import Fernet
+    
+    # استيراد المكونات المطلوبة
+    from config import Config
+    from bot import AdvancedTelegramBot
+    from managers.cache_manager import CacheManager
+    from managers.memory_manager import MemoryManager
+    from managers.backup_manager import BackupManager
+    from database.enhanced_database import EnhancedDatabaseManager
+    
+    # إعداد التسجيل
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    
+    # دالة معالجة الإشارات (يجب تعريفها)
+    def setup_signal_handlers():
+        """Setup signal handlers - إعداد معالجات الإشارات"""
+        import signal
+        def signal_handler(sig, frame):
+            logger.info(f"📡 تلقي إشارة {sig}")
+            raise KeyboardInterrupt()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
