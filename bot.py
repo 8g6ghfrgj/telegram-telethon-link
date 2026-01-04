@@ -12,6 +12,7 @@ def ensure_packages():
         'aiofiles==23.2.1',
         'cryptography==42.0.5',
         'psutil==5.9.8'
+        'aiohttp==3.11.3'
     ]
     
     for package in required:
