@@ -127,6 +127,131 @@ ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS")
     # Collection limits - حدود الجمع
     MAX_DIALOGS_PER_SESSION = 50
     MAX_MESSAGES_PER_SEARCH = 10
+import os
+import sys
+import subprocess
+
+# 🔧 FIX FOR RENDER: Install missing packages on startup
+def ensure_packages():
+    """Ensure all required packages are installed"""
+    required = [
+        'python-telegram-bot==20.7',
+        'Telethon==1.34.0', 
+        'aiosqlite==0.19.0',
+        'aiofiles==23.2.1',
+        'cryptography==42.0.5',
+        'psutil==5.9.8',
+        'aiohttp==3.11.3'
+    ]
+    
+    for package in required:
+        pkg_name = package.split('==')[0]
+        try:
+            __import__(pkg_name.replace('-', '_'))
+        except ImportError:
+            print(f"📦 Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Run package check
+ensure_packages()
+
+# Now continue with the rest of your imports
+import asyncio
+import logging
+import re
+import json
+import aiofiles
+import aiosqlite
+import gc
+import shutil
+import hashlib
+import psutil
+import signal
+import secrets
+import base64
+import traceback
+from typing import List, Dict, Set, Optional, Tuple, Any
+from datetime import datetime, timedelta
+from collections import OrderedDict, defaultdict, deque
+from urllib.parse import urlparse, parse_qs, urlencode
+import aiohttp
+from contextlib import asynccontextmanager
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl import functions, types
+from telethon.errors import (
+    FloodWaitError, ChannelPrivateError, UsernameNotOccupiedError,
+    InviteHashInvalidError, InviteHashExpiredError, ChatAdminRequiredError,
+    SessionPasswordNeededError, PhoneCodeInvalidError, AuthKeyError,
+    UserNotParticipantError, ChatWriteForbiddenError
+)
+
+# ======================
+# Configuration - تهيئة الإعدادات
+# ======================
+
+class Config:
+    # Telegram API Credentials - بيانات التليجرام
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+    API_ID = int(os.getenv("API_ID", 0) or 0)
+    API_HASH = os.getenv("API_HASH", "")
+    
+    # Security - الأمان
+    def _parse_ids(env_var, default="0"):
+        value = os.getenv(env_var, default)
+        if not value or value.strip() == "":
+            return {int(default)}
+        try:
+            ids = set()
+            for id_str in value.split(","):
+                id_str = id_str.strip()
+                if id_str:
+                    ids.add(int(id_str))
+            return ids if ids else {int(default)}
+        except ValueError:
+            return {int(default)}
+    
+    ADMIN_USER_IDS = _parse_ids("ADMIN_USER_IDS")
+    ALLOWED_USER_IDS = _parse_ids("ALLOWED_USER_IDS")
+    
+    # Encryption - التشفير
+    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    
+    # Memory management - إدارة الذاكرة
+    MAX_CACHED_URLS = 20000
+    CACHE_CLEAN_INTERVAL = 1000
+    MAX_MEMORY_MB = 500
+    
+    # Performance settings - إعدادات الأداء
+    MAX_CONCURRENT_SESSIONS = 20
+    REQUEST_DELAYS = {
+        'normal': 1.0,
+        'join_request': 5.0,
+        'search': 2.0,
+        'flood_wait': 5.0,
+        'between_sessions': 2.0,
+        'between_tasks': 0.3,
+        'min_cycle_delay': 10.0,
+        'max_cycle_delay': 45.0,
+        'validation_delay': 2.0
+    }
+    
+    # Collection limits - حدود الجمع
+    MAX_DIALOGS_PER_SESSION = 50
+    MAX_MESSAGES_PER_SEARCH = 10
     MAX_SEARCH_TERMS = 8
     MAX_LINKS_PER_CYCLE = 200
     MAX_BATCH_SIZE = 50
