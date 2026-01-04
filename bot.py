@@ -4,6 +4,7 @@ import subprocess
 
 # 🔧 FIX FOR RENDER: Install missing packages on startup
 def ensure_packages():
+def ensure_packages():
     """Ensure all required packages are installed"""
     required = [
         'python-telegram-bot==20.7',
@@ -11,7 +12,7 @@ def ensure_packages():
         'aiosqlite==0.19.0',
         'aiofiles==23.2.1',
         'cryptography==42.0.5',
-        'psutil==5.9.8'
+        'psutil==5.9.8',  # 🔥 أضف فاصلة هنا!
         'aiohttp==3.11.3'
     ]
     
