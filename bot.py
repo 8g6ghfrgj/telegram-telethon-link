@@ -138,6 +138,142 @@ class Config:
     MAX_BACKUPS = 10
     DB_POOL_SIZE = 10
     
+# 🔧 FIX FOR RENDER: Install missing packages on startup
+def ensure_packages():
+    """Ensure all required packages are installed"""
+    required = [
+        'python-telegram-bot==21.7',  # تحديث إلى الإصدار 21.7
+        'Telethon==1.34.0', 
+        'aiosqlite==0.19.0',
+        'aiofiles==23.2.1',
+        'cryptography==42.0.5',
+        'psutil==5.9.8',
+        'aiohttp==3.11.3'
+    ]
+    
+    for package in required:
+        pkg_name = package.split('==')[0]
+        try:
+            __import__(pkg_name.replace('-', '_'))
+        except ImportError:
+            print(f"📦 Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Run package check
+ensure_packages()
+
+# Now continue with the rest of your imports
+import asyncio
+import logging
+import re
+import json
+import aiofiles
+import aiosqlite
+import gc
+import shutil
+import hashlib
+import psutil
+import signal
+import secrets
+import base64
+import traceback
+from typing import List, Dict, Set, Optional, Tuple, Any
+from datetime import datetime, timedelta
+from collections import OrderedDict, defaultdict, deque
+from urllib.parse import urlparse, parse_qs, urlencode
+import aiohttp
+from contextlib import asynccontextmanager
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl import functions, types
+from telethon.errors import (
+    FloodWaitError, ChannelPrivateError, UsernameNotOccupiedError,
+    InviteHashInvalidError, InviteHashExpiredError, ChatAdminRequiredError,
+    SessionPasswordNeededError, PhoneCodeInvalidError, AuthKeyError,
+    UserNotParticipantError, ChatWriteForbiddenError
+)
+
+# ======================
+# Configuration - تهيئة الإعدادات
+# ======================
+
+class Config:
+    # Telegram API Credentials - بيانات التليجرام
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+    API_ID = int(os.getenv("API_ID", 0))
+    API_HASH = os.getenv("API_HASH", "")
+    
+    # Security - الأمان
+    def safe_parse_ids(env_var, default="0"):
+        try:
+            value = os.getenv(env_var, default)
+            if not value or value.strip() == "":
+                return {int(default)}
+            
+            ids = []
+            for id_str in value.split(","):
+                id_str = id_str.strip()
+                if id_str:
+                    ids.append(int(id_str))
+            
+            if not ids:
+                return {int(default)}
+            
+            return set(ids)
+        except (ValueError, TypeError):
+            return {int(default)}
+
+    ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS", "0")
+    ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS", "0")
+    
+    # Encryption - التشفير
+    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+    
+    # Memory management - إدارة الذاكرة
+    MAX_CACHED_URLS = 20000
+    CACHE_CLEAN_INTERVAL = 1000
+    MAX_MEMORY_MB = 500
+    
+    # Performance settings - إعدادات الأداء
+    MAX_CONCURRENT_SESSIONS = 20
+    REQUEST_DELAYS = {
+        'normal': 1.0,
+        'join_request': 5.0,
+        'search': 2.0,
+        'flood_wait': 5.0,
+        'between_sessions': 2.0,
+        'between_tasks': 0.3,
+        'min_cycle_delay': 10.0,
+        'max_cycle_delay': 45.0,
+        'validation_delay': 2.0
+    }
+    
+    # Collection limits - حدود الجمع
+    MAX_DIALOGS_PER_SESSION = 50
+    MAX_MESSAGES_PER_SEARCH = 10
+    MAX_SEARCH_TERMS = 8
+    MAX_LINKS_PER_CYCLE = 200
+    MAX_BATCH_SIZE = 50
+    
+    # Database - قاعدة البيانات
+    DB_PATH = "links_collector.db"
+    BACKUP_ENABLED = True
+    MAX_BACKUPS = 10
+    DB_POOL_SIZE = 10
+    
     # WhatsApp collection - جمع واتساب
     WHATSAPP_DAYS_BACK = 30
     
@@ -164,19 +300,6 @@ class Config:
     TELEGRAM_NO_TIME_LIMIT = True
     JOIN_REQUEST_CHECK_DELAY = 30
     ENABLE_ADVANCED_VALIDATION = True
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger(__name__)
-
 # ======================
 # Enhanced Link Processor - معالج الروابط المحسن
 # ======================
@@ -5305,15 +5428,10 @@ async def main():
         
         asyncio.create_task(periodic_maintenance())
         
+        # تحديث طريقة التشغيل
         await bot.app.initialize()
-        await bot.app.start()
-        await bot.app.updater.start_polling()
+        await bot.app.run_polling()
         
-        logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
-        
-        while True:
-            await asyncio.sleep(1)
-            
     except Exception as e:
         logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
         raise
@@ -5324,8 +5442,6 @@ async def main():
         try:
             db = await EnhancedDatabaseManager.get_instance()
             await db.close()
-            
-            await bot.app.stop()
             
             cache_manager.clear()
             
