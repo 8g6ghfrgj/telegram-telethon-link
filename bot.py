@@ -4999,8 +4999,8 @@ def setup_logging():
             logging.StreamHandler(sys.stdout)
         ]
     )
-    
-    async def main():
+
+async def main():
     """Main function - الوظيفة الرئيسية"""
     setup_signal_handlers()
     
