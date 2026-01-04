@@ -69,6 +69,7 @@ from telethon.errors import (
     SessionPasswordNeededError, PhoneCodeInvalidError, AuthKeyError,
     UserNotParticipantError, ChatWriteForbiddenError
 )
+
 # ======================
 # Configuration - تهيئة الإعدادات
 # ======================
@@ -80,152 +81,27 @@ class Config:
     API_HASH = os.getenv("API_HASH", "")
     
     # Security - الأمان
-def safe_parse_ids(env_var, default="0"):
-    try:
-        value = os.getenv(env_var, default)
-        if not value or value.strip() == "":
-            return {int(default)}
-        
-        ids = []
-        for id_str in value.split(","):
-            id_str = id_str.strip()
-            if id_str:
-                ids.append(int(id_str))
-        
-        if not ids:
-            return {int(default)}
-        
-        return set(ids)
-    except (ValueError, TypeError):
-        return {int(default)}
-
-ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS")
-ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS")
-    
-    # Encryption - التشفير
-    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
-    
-    # Memory management - إدارة الذاكرة
-    MAX_CACHED_URLS = 20000
-    CACHE_CLEAN_INTERVAL = 1000
-    MAX_MEMORY_MB = 500
-    
-    # Performance settings - إعدادات الأداء
-    MAX_CONCURRENT_SESSIONS = 20
-    REQUEST_DELAYS = {
-        'normal': 1.0,
-        'join_request': 5.0,
-        'search': 2.0,
-        'flood_wait': 5.0,
-        'between_sessions': 2.0,
-        'between_tasks': 0.3,
-        'min_cycle_delay': 10.0,
-        'max_cycle_delay': 45.0,
-        'validation_delay': 2.0
-    }
-    
-    # Collection limits - حدود الجمع
-    MAX_DIALOGS_PER_SESSION = 50
-    MAX_MESSAGES_PER_SEARCH = 10
-import os
-import sys
-import subprocess
-
-# 🔧 FIX FOR RENDER: Install missing packages on startup
-def ensure_packages():
-    """Ensure all required packages are installed"""
-    required = [
-        'python-telegram-bot==20.7',
-        'Telethon==1.34.0', 
-        'aiosqlite==0.19.0',
-        'aiofiles==23.2.1',
-        'cryptography==42.0.5',
-        'psutil==5.9.8',
-        'aiohttp==3.11.3'
-    ]
-    
-    for package in required:
-        pkg_name = package.split('==')[0]
+    def safe_parse_ids(env_var, default="0"):
         try:
-            __import__(pkg_name.replace('-', '_'))
-        except ImportError:
-            print(f"📦 Installing {package}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# Run package check
-ensure_packages()
-
-# Now continue with the rest of your imports
-import asyncio
-import logging
-import re
-import json
-import aiofiles
-import aiosqlite
-import gc
-import shutil
-import hashlib
-import psutil
-import signal
-import secrets
-import base64
-import traceback
-from typing import List, Dict, Set, Optional, Tuple, Any
-from datetime import datetime, timedelta
-from collections import OrderedDict, defaultdict, deque
-from urllib.parse import urlparse, parse_qs, urlencode
-import aiohttp
-from contextlib import asynccontextmanager
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-from telethon import TelegramClient
-from telethon.sessions import StringSession
-from telethon.tl import functions, types
-from telethon.errors import (
-    FloodWaitError, ChannelPrivateError, UsernameNotOccupiedError,
-    InviteHashInvalidError, InviteHashExpiredError, ChatAdminRequiredError,
-    SessionPasswordNeededError, PhoneCodeInvalidError, AuthKeyError,
-    UserNotParticipantError, ChatWriteForbiddenError
-)
-
-# ======================
-# Configuration - تهيئة الإعدادات
-# ======================
-
-class Config:
-    # Telegram API Credentials - بيانات التليجرام
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-    API_ID = int(os.getenv("API_ID", 0) or 0)
-    API_HASH = os.getenv("API_HASH", "")
-    
-    # Security - الأمان
-    def _parse_ids(env_var, default="0"):
-        value = os.getenv(env_var, default)
-        if not value or value.strip() == "":
-            return {int(default)}
-        try:
-            ids = set()
+            value = os.getenv(env_var, default)
+            if not value or value.strip() == "":
+                return {int(default)}
+            
+            ids = []
             for id_str in value.split(","):
                 id_str = id_str.strip()
                 if id_str:
-                    ids.add(int(id_str))
-            return ids if ids else {int(default)}
-        except ValueError:
+                    ids.append(int(id_str))
+            
+            if not ids:
+                return {int(default)}
+            
+            return set(ids)
+        except (ValueError, TypeError):
             return {int(default)}
-    
-    ADMIN_USER_IDS = _parse_ids("ADMIN_USER_IDS")
-    ALLOWED_USER_IDS = _parse_ids("ALLOWED_USER_IDS")
+
+    ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS", "0")
+    ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS", "0")
     
     # Encryption - التشفير
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -300,82 +176,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-# ======================
-# Configuration - تهيئة الإعدادات
-# ======================
-
-class Config:
-    # Telegram API Credentials - بيانات التليجرام
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-    API_ID = int(os.getenv("API_ID", 0))
-    API_HASH = os.getenv("API_HASH", "")
-    
-    # Security - الأمان
-    ADMIN_USER_IDS = set(map(int, os.getenv("ADMIN_USER_IDS", "0").split(",")))
-    ALLOWED_USER_IDS = set(map(int, os.getenv("ALLOWED_USER_IDS", "0").split(",")))
-    
-    # Encryption - التشفير
-    ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
-    
-    # Memory management - إدارة الذاكرة
-    MAX_CACHED_URLS = 20000
-    CACHE_CLEAN_INTERVAL = 1000
-    MAX_MEMORY_MB = 500
-    
-    # Performance settings - إعدادات الأداء
-    MAX_CONCURRENT_SESSIONS = 20  # 🔥 تم التعديل من 5 إلى 20
-    REQUEST_DELAYS = {
-        'normal': 1.0,
-        'join_request': 5.0,  # تقليل من 30 إلى 5 ثواني
-        'search': 2.0,
-        'flood_wait': 5.0,
-        'between_sessions': 2.0,
-        'between_tasks': 0.3,
-        'min_cycle_delay': 10.0,  # تقليل من 15 إلى 10
-        'max_cycle_delay': 45.0,  # تقليل من 60 إلى 45
-        'validation_delay': 2.0    # تأخير جديد للتحقق
-    }
-    
-    # Collection limits - حدود الجمع
-    MAX_DIALOGS_PER_SESSION = 50
-    MAX_MESSAGES_PER_SEARCH = 10
-    MAX_SEARCH_TERMS = 8
-    MAX_LINKS_PER_CYCLE = 200      # زيادة من 150 إلى 200
-    MAX_BATCH_SIZE = 50
-    
-    # Database - قاعدة البيانات
-    DB_PATH = "links_collector.db"
-    BACKUP_ENABLED = True
-    MAX_BACKUPS = 10
-    DB_POOL_SIZE = 10  # 🔥 تم التعديل من 5 إلى 10 ليتناسب مع 20 جلسة
-    
-    # WhatsApp collection - جمع واتساب
-    WHATSAPP_DAYS_BACK = 30
-    
-    # Link verification - التحقق من الروابط
-    MIN_GROUP_MEMBERS = 3
-    MAX_LINK_LENGTH = 200
-    VALIDATION_TIMEOUT = 30        # وقت انتهاء التحقق
-    
-    # Rate limiting - الحد من الطلبات
-    USER_RATE_LIMIT = {
-        'max_requests': 15,
-        'per_seconds': 60
-    }
-    
-    # Session management - إدارة الجلسات
-    SESSION_TIMEOUT = 600
-    MAX_SESSIONS_PER_USER = 20  # 🔥 تم التعديل من 8 إلى 20
-    
-    # Export - التصدير
-    MAX_EXPORT_LINKS = 100000  # 🔥 تم التعديل من 10000 إلى 100000
-    EXPORT_CHUNK_SIZE = 5000   # 🔥 تم التعديل من 1000 إلى 5000
-    
-    # Advanced settings - إعدادات متقدمة
-    TELEGRAM_NO_TIME_LIMIT = True   # جمع تيليجرام بدون قيود زمنية
-    JOIN_REQUEST_CHECK_DELAY = 30   # 30 ثانية لفحص طلبات الانضمام
-    ENABLE_ADVANCED_VALIDATION = True  # تمكين التحقق المتقدم
 
 # ======================
 # Enhanced Link Processor - معالج الروابط المحسن
@@ -964,11 +764,7 @@ class EnhancedDatabaseManager:
         self._initialized = True
         self._metrics['connection_count'] = Config.DB_POOL_SIZE
         
-        logger.info("تم تهيئة قاعدة البيانات بنجاح مع تجميع الاتصالات", {
-            'pool_size': Config.DB_POOL_SIZE,
-            'db_path': self.db_path,
-            'db_exists': db_exists
-        })
+        logger.info(f"تم تهيئة قاعدة البيانات بنجاح مع تجميع الاتصالات - pool_size: {Config.DB_POOL_SIZE}, db_path: {self.db_path}, db_exists: {db_exists}")
     
     async def _get_connection(self):
         """Get database connection from pool - الحصول على اتصال قاعدة البيانات من التجمع"""
@@ -977,12 +773,12 @@ class EnhancedDatabaseManager:
             await conn.execute("PRAGMA foreign_keys = ON")
             await conn.execute("PRAGMA journal_mode = WAL")
             await conn.execute("PRAGMA synchronous = NORMAL")
-            await conn.execute("PRAGMA cache_size = -40000")  # 🔥 تم التعديل من -20000 إلى -40000
+            await conn.execute("PRAGMA cache_size = -40000")
             await conn.execute("PRAGMA temp_store = MEMORY")
-            await conn.execute("PRAGMA mmap_size = 2147483648")  # 🔥 تم التعديل من 1073741824 إلى 2147483648
+            await conn.execute("PRAGMA mmap_size = 2147483648")
             await conn.execute("PRAGMA optimize")
             
-            yield conn
+            return conn
     
     async def _create_tables(self):
         """Create database tables with enhanced structure - إنشاء جداول قاعدة البيانات مع هيكل محسن"""
@@ -1214,7 +1010,31 @@ class EnhancedDatabaseManager:
                      is_active, requires_join, is_verified, validation_score, metadata, 
                      tags, added_by_user, source, is_channel, is_group, is_join_request, is_supergroup)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', tuple(link_data.values()))
+                ''', (
+                    link_data['url_hash'],
+                    link_data['url'],
+                    link_data['original_url'],
+                    link_data['platform'],
+                    link_data['link_type'],
+                    link_data['telegram_type'],
+                    link_data['title'],
+                    link_data['description'],
+                    link_data['members_count'],
+                    link_data['session_id'],
+                    link_data['confidence'],
+                    link_data['is_active'],
+                    link_data['requires_join'],
+                    link_data['is_verified'],
+                    link_data['validation_score'],
+                    link_data['metadata'],
+                    link_data['tags'],
+                    link_data['added_by_user'],
+                    link_data['source'],
+                    link_data['is_channel'],
+                    link_data['is_group'],
+                    link_data['is_join_request'],
+                    link_data['is_supergroup']
+                ))
                 
                 link_id = cursor.lastrowid
                 
@@ -1594,6 +1414,103 @@ class EnhancedDatabaseManager:
                 
         except Exception as e:
             logger.debug(f"خطأ في تحديث إحصائيات المستخدم: {e}")
+    
+    async def get_active_sessions(self, limit: int = 10):
+        """Get active sessions - الحصول على الجلسات النشطة"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.execute('''
+                    SELECT * FROM sessions 
+                    WHERE is_active = 1 
+                    ORDER BY health_score DESC, last_used ASC
+                    LIMIT ?
+                ''', (limit,))
+                
+                rows = await cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                
+                sessions = []
+                for row in rows:
+                    session_dict = dict(zip(columns, row))
+                    if session_dict.get('metadata'):
+                        try:
+                            session_dict['metadata'] = json.loads(session_dict['metadata'])
+                        except:
+                            session_dict['metadata'] = {}
+                    sessions.append(session_dict)
+                
+                return sessions
+        except Exception as e:
+            logger.error(f"خطأ في الحصول على الجلسات النشطة: {e}")
+            return []
+    
+    async def add_or_update_user(self, user_id: int, username: str = None, 
+                                first_name: str = None, last_name: str = None):
+        """Add or update user - إضافة أو تحديث مستخدم"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.execute('''
+                    SELECT user_id FROM bot_users WHERE user_id = ?
+                ''', (user_id,))
+                
+                existing = await cursor.fetchone()
+                
+                if existing:
+                    await conn.execute('''
+                        UPDATE bot_users 
+                        SET username = ?, 
+                            first_name = ?, 
+                            last_name = ?,
+                            last_active = CURRENT_TIMESTAMP
+                        WHERE user_id = ?
+                    ''', (
+                        username or '',
+                        first_name or '',
+                        last_name or '',
+                        user_id
+                    ))
+                else:
+                    await conn.execute('''
+                        INSERT INTO bot_users (user_id, username, first_name, last_name, added_date)
+                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (
+                        user_id,
+                        username or '',
+                        first_name or '',
+                        last_name or ''
+                    ))
+                
+                await conn.commit()
+        except Exception as e:
+            logger.error(f"خطأ في إضافة/تحديث المستخدم: {e}")
+    
+    async def get_user_stats(self, user_id: int):
+        """Get user statistics - الحصول على إحصائيات المستخدم"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.execute('''
+                    SELECT *, 
+                           (SELECT COUNT(*) FROM links WHERE added_by_user = ?) as total_links,
+                           (SELECT COUNT(*) FROM sessions WHERE added_by_user = ?) as total_sessions,
+                           julianday(CURRENT_TIMESTAMP) - julianday(added_date) as account_age_days
+                    FROM bot_users 
+                    WHERE user_id = ?
+                ''', (user_id, user_id, user_id))
+                
+                row = await cursor.fetchone()
+                if row:
+                    columns = [desc[0] for desc in cursor.description]
+                    return dict(zip(columns, row))
+                return None
+        except Exception as e:
+            logger.error(f"خطأ في الحصول على إحصائيات المستخدم: {e}")
+            return None
+    
+    async def close(self):
+        """Close database connection - إغلاق اتصال قاعدة البيانات"""
+        if self._pool:
+            await self._pool.close()
+            self._initialized = False
 
 # ======================
 # Advanced Collection Manager - مدير الجمع المتقدم
@@ -1685,13 +1602,7 @@ class AdvancedCollectionManager:
         self.stats['current_session'] = self.stats['start_time'].strftime('%Y%m%d_%H%M%S')
         self.system_state['collection_mode'] = mode
         
-        logger.info("🚀 بدء عملية الجمع الذكية المتقدمة بدون قيود زمنية لتيليجرام", {
-            'mode': mode,
-            'start_time': self.stats['start_time'].isoformat(),
-            'telegram_no_time_limit': Config.TELEGRAM_NO_TIME_LIMIT,
-            'max_sessions': Config.MAX_CONCURRENT_SESSIONS,  # 🔥 إضافة معلومات الجلسات
-            'max_export': Config.MAX_EXPORT_LINKS  # 🔥 إضافة معلومات التصدير
-        })
+        logger.info(f"🚀 بدء عملية الجمع الذكية المتقدمة بدون قيود زمنية لتيليجرام - mode: {mode}, start_time: {self.stats['start_time'].isoformat()}, telegram_no_time_limit: {Config.TELEGRAM_NO_TIME_LIMIT}")
         
         try:
             # بدء أنظمة المراقبة
@@ -1783,11 +1694,7 @@ class AdvancedCollectionManager:
                 'stats_snapshot': self.stats.copy()
             })
             
-            logger.info(f"اكتملت دورة {cycle_id}: {successful} ناجحة، {failed} فاشلة", {
-                'duration': cycle_duration,
-                'performance_score': self.stats['performance_score'],
-                'telegram_collected': self.stats['telegram_public'] + self.stats['telegram_private'] + self.stats['telegram_join']
-            })
+            logger.info(f"اكتملت دورة {cycle_id}: {successful} ناجحة، {failed} فاشلة - duration: {cycle_duration}, performance_score: {self.stats['performance_score']}")
             
         except Exception as e:
             logger.error(f"خطأ في دورة الجمع المحسنة: {e}", exc_info=True)
@@ -1800,11 +1707,7 @@ class AdvancedCollectionManager:
         session_hash = session.get('session_hash')
         added_by_user = session.get('added_by_user', 0)
         
-        logger.info(f"معالجة الجلسة {session_id} في دورة {cycle_id} (جمع غير محدود)", {
-            'session_id': session_id,
-            'health_status': session.get('health_status'),
-            'cycle_id': cycle_id
-        })
+        logger.info(f"معالجة الجلسة {session_id} في دورة {cycle_id} (جمع غير محدود)")
         
         if index > 0:
             delay = self._calculate_session_delay(index)
@@ -1864,10 +1767,7 @@ class AdvancedCollectionManager:
             }
             
         except FloodWaitError as e:
-            logger.warning(f"انتظار flood للجلسة {session_id}: {e.seconds} ثانية", {
-                'session_id': session_id,
-                'wait_seconds': e.seconds
-            })
+            logger.warning(f"انتظار flood للجلسة {session_id}: {e.seconds} ثانية")
             
             self.stats['flood_waits'] += 1
             self.collection_log.add('session', 'flood_wait', {
@@ -2382,10 +2282,7 @@ class AdvancedCollectionManager:
             
             self.stats['join_links_found'] += 1
             
-            logger.info(f"تمت إضافة رابط انضمام للتحقق: {url}", {
-                'url_hash': url_info['url_hash'],
-                'requires_join': validated.get('requires_join', True)
-            })
+            logger.info(f"تمت إضافة رابط انضمام للتحقق: {url}")
             
         except Exception as e:
             logger.error(f"خطأ في معالجة رابط الانضمام: {e}")
@@ -2521,11 +2418,7 @@ class AdvancedCollectionManager:
                     
                     self.stats['join_links_validated'] += 1
                     
-                    logger.info(f"تم التحقق من رابط الانضمام: {url}", {
-                        'link_id': details.get('link_id'),
-                        'type': validated.get('type'),
-                        'requires_join': validated.get('requires_join')
-                    })
+                    logger.info(f"تم التحقق من رابط الانضمام: {url}")
                 else:
                     await db.update_pending_link_status(pending_id, 'failed', {
                         'error': f'فشل الإضافة: {message}'
@@ -2726,11 +2619,11 @@ class AdvancedCollectionManager:
         if self.system_state['memory_pressure'] == 'high':
             return max(1, base_count // 2)
         elif self.system_state['memory_pressure'] == 'medium':
-            return max(2, base_count - 5)  # 🔥 تم التعديل
+            return max(2, base_count - 5)
         elif self.system_state['network_status'] == 'poor':
             return max(1, base_count // 2)
         
-        return min(base_count, 20)  # 🔥 تأكد من ألا يتجاوز 20
+        return min(base_count, 20)
     
     def _calculate_adaptive_delay(self) -> float:
         """Calculate adaptive delay between cycles - حساب تأخير متكيف بين الدورات"""
@@ -2809,10 +2702,7 @@ class AdvancedCollectionManager:
         memory_result = self.memory_manager.check_and_optimize()
         
         if memory_result['optimized']:
-            logger.info("تم تحسين الذاكرة بين الدورات", {
-                'saved_mb': memory_result.get('saved_mb', 0),
-                'duration_ms': memory_result.get('duration_ms', 0)
-            })
+            logger.info(f"تم تحسين الذاكرة بين الدورات - saved_mb: {memory_result.get('saved_mb', 0)}, duration_ms: {memory_result.get('duration_ms', 0)}")
         
         await self.cache_manager.cleanup_expired()
         
@@ -3084,9 +2974,7 @@ class AdvancedCollectionManager:
         self.paused = True
         self.task_manager.pause()
         
-        logger.info("⏸️ تم إيقاف الجمع مؤقتاً مع الحفاظ على الحالة", {
-            'stats_snapshot': self.stats.copy()
-        })
+        logger.info(f"⏸️ تم إوقف الجمع مؤقتاً مع الحفاظ على الحالة")
     
     async def resume(self):
         """Resume collection - استئناف الجمع"""
@@ -3218,7 +3106,7 @@ class AdvancedTelegramBot:
             "**أنواع الروابط المدعومة:**\n"
             "• المجموعات العامة والخاصة\n"
             "• القنوات\n"
-            "• طلبات الانضمام (+\n"
+            "• طلبات الانضمام (+)\n"
             "• مجموعات واتساب\n"
             "• دعوات ديسكورد وسيجنال\n",
             reply_markup=keyboard,
@@ -3271,7 +3159,7 @@ class AdvancedTelegramBot:
         await update.message.reply_text(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
         
         user_stats = await db.get_user_stats(user.id)
-        if user_stats.get('account_age_days', 365) < 1:
+        if user_stats and user_stats.get('account_age_days', 365) < 1:
             await self._send_welcome_tutorial(update.message, user)
     
     async def advanced_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3331,7 +3219,6 @@ class AdvancedTelegramBot:
 • 🧠 الذاكرة: {status['memory']['current_mb']:.1f} MB
 • 📶 حالة الشبكة: {status['system_state']['network_status']}
 • ⚖️ ضغط الذاكرة: {status['system_state']['memory_pressure']}
-• ⏱️ تأخير الدورة: {self._calculate_adaptive_delay_info()}
 
 **🔥 الحدود المحسنة:**
 • أقصى جلسات متزامنة: {Config.MAX_CONCURRENT_SESSIONS}
@@ -3367,15 +3254,6 @@ class AdvancedTelegramBot:
         ])
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
-    
-    def _calculate_adaptive_delay_info(self) -> str:
-        """Calculate adaptive delay info - حساب معلومات التأخير المتكيف"""
-        base_delay = Config.REQUEST_DELAYS['min_cycle_delay']
-        max_delay = Config.REQUEST_DELAYS['max_cycle_delay']
-        
-        current_delay = base_delay + min(self.collection_manager.stats['errors'] * 1.5, 20)
-        
-        return f"{current_delay:.1f} ثانية"
     
     async def handle_advanced_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle advanced callback - معالجة الاستدعاء المتقدم"""
@@ -3738,6 +3616,54 @@ class AdvancedTelegramBot:
         except Exception as e:
             logger.error(f"خطأ في معالج الأخطاء: {e}", exc_info=True)
 
+    async def advanced_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help command - معالجة أمر /help"""
+        await update.message.reply_text("مساعدة")
+    
+    async def advanced_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command - معالجة أمر /stats"""
+        await update.message.reply_text("إحصائيات")
+    
+    async def advanced_sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /sessions command - معالجة أمر /sessions"""
+        await update.message.reply_text("الجلسات")
+    
+    async def advanced_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /export command - معالجة أمر /export"""
+        await update.message.reply_text("تصدير")
+    
+    async def advanced_backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /backup command - معالجة أمر /backup"""
+        await update.message.reply_text("نسخ احتياطي")
+    
+    async def advanced_cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /cleanup command - معالجة أمر /cleanup"""
+        await update.message.reply_text("تنظيف")
+    
+    async def security_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /security command - معالجة أمر /security"""
+        await update.message.reply_text("أمان")
+    
+    async def report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /report command - معالجة أمر /report"""
+        await update.message.reply_text("تقرير")
+    
+    async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /settings command - معالجة أمر /settings"""
+        await update.message.reply_text("إعدادات")
+    
+    async def handle_advanced_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle advanced message - معالجة رسالة متقدمة"""
+        await update.message.reply_text("تم استلام رسالتك")
+    
+    async def _handle_advanced_add_session(self, query):
+        """Handle add session - معالجة إضافة جلسة"""
+        await query.message.edit_text("إضافة جلسة")
+    
+    async def _handle_advanced_pause_collection(self, query):
+        """Handle pause collection - معالجة إيقاف الجمع مؤقتاً"""
+        await query.message.edit_text("إيقاف مؤقت")
+
 # ======================
 # Help System - نظام المساعدة
 # ======================
@@ -3810,15 +3736,15 @@ class NotificationSystem:
     
     async def send_admin_notification(self, message: str, data: Dict = None):
         """Send admin notification - إرسال إشعار للمدير"""
-        logger.info(f"إشعار للمديرين: {message}", data or {})
+        logger.info(f"إشعار للمديرين: {message}")
     
     async def send_error_notification(self, error: str, details: Dict):
         """Send error notification - إرسال إشعار خطأ"""
-        logger.error(f"إشعار خطأ: {error}", details)
+        logger.error(f"إشعار خطأ: {error}")
     
     async def send_security_alert(self, alert: str, details: Dict):
         """Send security alert - إرسال تنبيه أمني"""
-        logger.warning(f"تنبيه أمني: {alert}", details)
+        logger.warning(f"تنبيه أمني: {alert}")
 
 # ======================
 # Signal Handlers - معالجات الإشارات
@@ -3829,10 +3755,7 @@ def setup_signal_handlers():
     def signal_handler(signum, frame):
         logger.info(f"📶 تم استقبال إشارة {signum}. جاري الإغلاق السلس...")
         
-        logger.info("📊 إحصائيات النظام النهائية:", {
-            'memory': MemoryManager.get_instance().get_metrics(),
-            'cache': CacheManager.get_instance().get_stats()
-        })
+        logger.info("📊 إحصائيات النظام النهائية:")
         
         sys.exit(0)
     
@@ -3951,7 +3874,7 @@ class AdvancedSecurityManager:
         if len(self.suspicious_activity[user_id]) > 10:
             self.suspicious_activity[user_id] = self.suspicious_activity[user_id][-10:]
         
-        logger.warning(f"نشاط مشبوه: {activity_type} للمستخدم {user_id}", details)
+        logger.warning(f"نشاط مشبوه: {activity_type} للمستخدم {user_id}")
     
     def is_admin(self, user_id: int) -> bool:
         """Check if admin - التحقق إذا كان مدير"""
@@ -4105,9 +4028,9 @@ class TaskManager:
             'avg_time': 0.0
         })
         
-        self.task_queue = asyncio.Queue(maxsize=200)  # 🔥 تم التعديل من 100 إلى 200
+        self.task_queue = asyncio.Queue(maxsize=200)
         self.worker_tasks = []
-        self.max_workers = 10  # 🔥 تم التعديل من 5 إلى 10
+        self.max_workers = 10
         
         self.monitoring = False
         self.paused = False
@@ -4212,7 +4135,7 @@ class TaskManager:
         results = []
         
         try:
-            semaphore = asyncio.Semaphore(20)  # 🔥 تم التعديل من 10 إلى 20
+            semaphore = asyncio.Semaphore(20)
             
             async def execute_with_limit(task):
                 async with semaphore:
@@ -4245,7 +4168,7 @@ class TaskManager:
     
     def adjust_concurrency(self, adjustment: int):
         """Adjust concurrency - ضبط التزامن"""
-        new_max = max(1, min(40, self.max_workers + adjustment))  # 🔥 تم التعديل من 20 إلى 40
+        new_max = max(1, min(40, self.max_workers + adjustment))
         
         if new_max != self.max_workers:
             logger.info(f"ضبط التزامن: {self.max_workers} -> {new_max}")
@@ -4258,7 +4181,7 @@ class TaskManager:
             self._start_workers()
     
     def pause(self):
-        """Pause - إيقاف مؤقت"""
+        """Pause - إوقف مؤقت"""
         self.paused = True
     
     def resume(self):
@@ -4452,7 +4375,7 @@ class IntelligentLog:
 class EnhancedSessionManager:
     """Enhanced session manager - مدير الجلسات المحسن"""
     
-    _session_cache = CacheManager.get_instance()
+    _session_cache = None
     _session_health = {}
     _session_metrics = defaultdict(lambda: {
         'uses': 0,
@@ -4462,6 +4385,13 @@ class EnhancedSessionManager:
         'created_at': None
     })
     _lock = asyncio.Lock()
+    
+    @staticmethod
+    def _get_cache_manager():
+        """Get cache manager - الحصول على مدير الكاش"""
+        if EnhancedSessionManager._session_cache is None:
+            EnhancedSessionManager._session_cache = CacheManager.get_instance()
+        return EnhancedSessionManager._session_cache
     
     @staticmethod
     async def create_client(session_string: str, session_id: int, user_id: int = 0) -> Optional[TelegramClient]:
@@ -4474,7 +4404,8 @@ class EnhancedSessionManager:
                 logger.warning(f"تخطي الجلسة {session_id} غير الصحية")
                 return None
             
-            cached = await EnhancedSessionManager._session_cache.get(cache_key, 'sessions')
+            cache_manager = EnhancedSessionManager._get_cache_manager()
+            cached = await cache_manager.get(cache_key, 'sessions')
             
             if cached and isinstance(cached, dict) and 'client_data' in cached:
                 try:
@@ -4547,7 +4478,7 @@ class EnhancedSessionManager:
                     }
                 }
                 
-                await EnhancedSessionManager._session_cache.set(
+                await cache_manager.set(
                     cache_key, 
                     {'client_data': client_data},
                     'sessions',
@@ -4599,7 +4530,8 @@ class EnhancedSessionManager:
         cache_key = f"client_{session_id}"
         
         async with EnhancedSessionManager._lock:
-            cached = await EnhancedSessionManager._session_cache.get(cache_key, 'sessions')
+            cache_manager = EnhancedSessionManager._get_cache_manager()
+            cached = await cache_manager.get(cache_key, 'sessions')
             
             if cached and isinstance(cached, dict) and 'client_data' in cached:
                 try:
@@ -4622,7 +4554,7 @@ class EnhancedSessionManager:
                 except Exception as e:
                     logger.debug(f"خطأ في إغلاق العميل: {e}")
             
-            await EnhancedSessionManager._session_cache.delete(cache_key, 'sessions')
+            await cache_manager.delete(cache_key, 'sessions')
             
             EnhancedSessionManager._update_health(cache_key, 'closed', reason)
     
@@ -4661,7 +4593,7 @@ class EnhancedSessionManager:
         return {
             'health': EnhancedSessionManager._session_health.get(cache_key, {}),
             'metrics': EnhancedSessionManager._session_metrics.get(cache_key, {}),
-            'cached': await EnhancedSessionManager._session_cache.exists(cache_key, 'sessions')
+            'cached': await EnhancedSessionManager._get_cache_manager().exists(cache_key, 'sessions')
         }
     
     @staticmethod
@@ -4733,7 +4665,7 @@ class EnhancedSessionManager:
     @staticmethod
     def clear_cache():
         """Clear cache - مسح الكاش"""
-        EnhancedSessionManager._session_cache.clear()
+        EnhancedSessionManager._get_cache_manager().clear()
         EnhancedSessionManager._session_health.clear()
         EnhancedSessionManager._session_metrics.clear()
 
@@ -4755,7 +4687,7 @@ class CacheManager:
     
     def __init__(self):
         self.fast_cache = OrderedDict()
-        self.fast_cache_size = 10000  # 🔥 تم التعديل من 5000 إلى 10000
+        self.fast_cache_size = 10000
         
         self.slow_cache_dir = "cache_data"
         os.makedirs(self.slow_cache_dir, exist_ok=True)
@@ -4831,7 +4763,7 @@ class CacheManager:
                 del self.fast_cache[oldest_key]
                 self.stats['evictions'] += 1
     
-    def exists(self, key: str, category: str = 'general') -> bool:
+    async def exists(self, key: str, category: str = 'general') -> bool:
         """Check if exists - التحقق من الوجود"""
         cache_key = f"{category}_{key}"
         return cache_key in self.fast_cache
@@ -4902,34 +4834,16 @@ class CacheManager:
             'slow_cache_files': len(os.listdir(self.slow_cache_dir)) if os.path.exists(self.slow_cache_dir) else 0
         }
     
-async def _add_to_fast_cache(self, key: str, value: Any):
-    """Add to fast cache - إضافة للكاش السريع"""
-    if key in self.fast_cache:
-        self.fast_cache.move_to_end(key)
-        self.fast_cache[key] = value
-    else:
-        self.fast_cache[key] = value
-        
-        if len(self.fast_cache) > self.fast_cache_size:
-            oldest_key = next(iter(self.fast_cache))
-            del self.fast_cache[oldest_key]
-            self.stats['evicions'] += 1  # تم التصحيح من evictions إلى evicions
-            
-            if os.path.exists(self.slow_cache_dir):
-                for filename in os.listdir(self.slow_cache_dir):
-                    if filename.endswith('.cache'):
-                        try:
-                            os.remove(os.path.join(self.slow_cache_dir, filename))
-                        except:
-                            pass
-            
-            self.stats = {
-                'fast_hits': 0,
-                'slow_hits': 0,
-                'misses': 0,
-                'evictions': 0,
-                'total_operations': 0
-            }
+    def clear(self):
+        """Clear - مسح"""
+        self.fast_cache.clear()
+        self.stats = {
+            'fast_hits': 0,
+            'slow_hits': 0,
+            'misses': 0,
+            'evictions': 0,
+            'total_operations': 0
+        }
 
 # ======================
 # Memory Manager - مدير الذاكرة
@@ -4996,10 +4910,8 @@ class MemoryManager:
         try:
             process = psutil.Process(os.getpid())
             open_files = len(process.open_files())
-            if open_files > 100:  # 🔥 تم التعديل من 50 إلى 100
-                logger.warning(f"عدد كبير من الملفات المفتوحة: {open_files}", {
-                    'open_files': open_files
-                })
+            if open_files > 100:
+                logger.warning(f"عدد كبير من الملفات المفتوحة: {open_files}")
         except:
             pass
         
@@ -5012,12 +4924,7 @@ class MemoryManager:
         self.metrics['total_saved_mb'] += saved if saved > 0 else 0
         self.metrics['last_optimization'] = datetime.now()
         
-        logger.info(f"تحسين الذاكرة: {saved:.2f} MB", {
-            'saved_mb': saved,
-            'before_mb': before,
-            'after_mb': after,
-            'optimization_count': self.metrics['optimizations']
-        })
+        logger.info(f"تحسين الذاكرة: {saved:.2f} MB")
         
         return {
             'saved_mb': saved,
@@ -5040,12 +4947,7 @@ class MemoryManager:
         }
         
         if current_mb > Config.MAX_MEMORY_MB or current_percent > threshold_percent:
-            logger.warning(f"استخدام عالي للذاكرة: {current_mb:.2f} MB, {current_percent:.1f}%", {
-                'memory_mb': current_mb,
-                'memory_percent': current_percent,
-                'threshold_mb': Config.MAX_MEMORY_MB,
-                'threshold_percent': threshold_percent
-            })
+            logger.warning(f"استخدام عالي للذاكرة: {current_mb:.2f} MB, {current_percent:.1f}%")
             
             self.metrics['high_memory_warnings'] += 1
             optimization_result = self.optimize_memory()
@@ -5179,10 +5081,7 @@ class BackupManager:
             async with aiofiles.open(metadata_path, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(metadata, indent=2))
             
-            logger.info(f"تم إنشاء نسخة احتياطية: {backup_path}", {
-                'backup_size_mb': metadata['size_mb'],
-                'backup_id': metadata['backup_id']
-            })
+            logger.info(f"تم إنشاء نسخة احتياطية: {backup_path}")
             
             return metadata
             
@@ -5254,10 +5153,7 @@ class BackupManager:
                         os.remove(meta_path)
                     
                     deleted_count += 1
-                    logger.info(f"تم حذف النسخة القديمة: {backup['path']}", {
-                        'size_mb': backup['size'] / 1024 / 1024,
-                        'age_days': (now - datetime.fromtimestamp(backup['created'])).days
-                    })
+                    logger.info(f"تم حذف النسخة القديمة: {backup['path']}")
                     
                 except Exception as e:
                     logger.error(f"خطأ في حذف النسخة القديمة: {e}")
@@ -5329,7 +5225,7 @@ class StructuredLogger:
             'request_id': self.generate_request_id(),
             'timestamp': datetime.now().isoformat(),
             'memory_mb': MemoryManager.get_instance().get_memory_usage(),
-            'cache_hits': CacheManager.get_instance().get_stats()['hits']
+            'cache_hits': CacheManager.get_instance().get_stats()['fast_hits']
         }
         if extra:
             context.update(extra)
@@ -5375,7 +5271,7 @@ async def main():
     
     try:
         import resource
-        resource.setrlimit(resource.RLIMIT_NOFILE, (16384, 16384))  # 🔥 تم التعديل من 8192 إلى 16384
+        resource.setrlimit(resource.RLIMIT_NOFILE, (16384, 16384))
         logger.info("✅ تم تعيين حدود الملفات المفتوحة المحسنة")
     except:
         logger.warning("⚠️ لم يتمكن من تعيين حدود الملفات المفتوحة")
@@ -5401,17 +5297,7 @@ async def main():
     bot = AdvancedTelegramBot()
     
     logger.info("🤖 بدء تشغيل بوت جمع الروابط الذكي المتقدم...")
-    logger.info("🔥 الإعدادات المحسنة:", {
-        'max_sessions': Config.MAX_CONCURRENT_SESSIONS,
-        'max_export_links': Config.MAX_EXPORT_LINKS,
-        'max_sessions_per_user': Config.MAX_SESSIONS_PER_USER,
-        'max_memory_mb': Config.MAX_MEMORY_MB,
-        'backup_enabled': Config.BACKUP_ENABLED,
-        'encryption_enabled': bool(Config.ENCRYPTION_KEY),
-        'telegram_no_time_limit': Config.TELEGRAM_NO_TIME_LIMIT,
-        'whatsapp_days_back': Config.WHATSAPP_DAYS_BACK,
-        'join_request_check_delay': Config.JOIN_REQUEST_CHECK_DELAY
-    })
+    logger.info(f"🔥 الإعدادات المحسنة - max_sessions: {Config.MAX_CONCURRENT_SESSIONS}, max_export_links: {Config.MAX_EXPORT_LINKS}, max_sessions_per_user: {Config.MAX_SESSIONS_PER_USER}")
     
     try:
         cache_manager = CacheManager.get_instance()
@@ -5461,10 +5347,7 @@ async def periodic_maintenance():
             if Config.BACKUP_ENABLED:
                 await BackupManager.rotate_backups()
             
-            logger.debug("✅ الصيانة الدورية مكتملة", {
-                'memory_mb': memory_manager.get_memory_usage(),
-                'cache_size': cache_manager.get_stats()['fast_cache_size']
-            })
+            logger.debug("✅ الصيانة الدورية مكتملة")
             
             await asyncio.sleep(300)
             
