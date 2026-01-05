@@ -6,7 +6,7 @@ import subprocess
 def ensure_packages():
     """Ensure all required packages are installed"""
     required = [
-        'python-telegram-bot==20.7',  # الإصدار المستقر
+        'python-telegram-bot==21.1',  # تحديث للإصدار المتوافق مع Python 3.13
         'Telethon==1.34.0', 
         'aiosqlite==0.19.0',
         'aiofiles==23.2.1',
@@ -16,7 +16,8 @@ def ensure_packages():
         'fastapi==0.104.1',
         'uvicorn==0.24.0',
         'httpx==0.25.2',
-        'pytz==2023.3'
+        'pytz==2023.3',
+        'uvloop==0.19.0'  # إضافة uvloop لتحسين الأداء
     ]
     
     for package in required:
@@ -57,13 +58,15 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     ContextTypes,
     filters,
+    ApplicationBuilder
 )
+from telegram.error import TelegramError
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl import functions, types
@@ -5309,19 +5312,13 @@ async def main():
         await bot.app.initialize()
         await bot.app.start()
         
-        # استخدام start_polling بدون Updater
-        await bot.app.updater.start_polling()
-        
         logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
         
         # الحفاظ على البوت يعمل
-        idle_task = asyncio.create_task(bot.app.updater.idle())
+        await bot.app.updater.start_polling()
         
-        # انتظار حتى ينتهي idle (أو أي مهمة أخرى)
-        try:
-            await idle_task
-        except asyncio.CancelledError:
-            logger.info("تم إلغاء مهمة البوت")
+        # انتظار حتى انتهاء البوت
+        await asyncio.Event().wait()
         
     except Exception as e:
         logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
