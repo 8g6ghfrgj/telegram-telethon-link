@@ -6,7 +6,7 @@ import subprocess
 def ensure_packages():
     """Ensure all required packages are installed"""
     required = [
-        'python-telegram-bot==21.1',  # تحديث للإصدار المتوافق مع Python 3.13
+        'python-telegram-bot==21.1',
         'Telethon==1.34.0', 
         'aiosqlite==0.19.0',
         'aiofiles==23.2.1',
@@ -17,7 +17,7 @@ def ensure_packages():
         'uvicorn==0.24.0',
         'httpx==0.25.2',
         'pytz==2023.3',
-        'uvloop==0.19.0'  # إضافة uvloop لتحسين الأداء
+        'uvloop==0.19.0'
     ]
     
     for package in required:
@@ -78,16 +78,16 @@ from telethon.errors import (
 )
 
 # ======================
-# Configuration - تهيئة الإعدادات
+# Configuration
 # ======================
 
 class Config:
-    # Telegram API Credentials - بيانات التليجرام
+    # Telegram API Credentials
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
     
-    # Security - الأمان
+    # Security
     @staticmethod
     def safe_parse_ids(env_var, default="0"):
         try:
@@ -111,16 +111,16 @@ class Config:
     ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS", "0")
     ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS", "0")
     
-    # Encryption - التشفير
+    # Encryption
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     
-    # Memory management - إدارة الذاكرة
+    # Memory management
     MAX_CACHED_URLS = 20000
     CACHE_CLEAN_INTERVAL = 1000
     MAX_MEMORY_MB = 500
     
-    # Performance settings - إعدادات الأداء
-    MAX_CONCURRENT_SESSIONS = 20
+    # Performance settings
+    MAX_CONCURRENT_SESSIONS = 10
     REQUEST_DELAYS = {
         'normal': 1.0,
         'join_request': 5.0,
@@ -133,42 +133,42 @@ class Config:
         'validation_delay': 2.0
     }
     
-    # Collection limits - حدود الجمع
+    # Collection limits
     MAX_DIALOGS_PER_SESSION = 50
     MAX_MESSAGES_PER_SEARCH = 10
     MAX_SEARCH_TERMS = 8
     MAX_LINKS_PER_CYCLE = 200
     MAX_BATCH_SIZE = 50
     
-    # Database - قاعدة البيانات
+    # Database
     DB_PATH = "links_collector.db"
     BACKUP_ENABLED = True
     MAX_BACKUPS = 10
-    DB_POOL_SIZE = 10
+    DB_POOL_SIZE = 5
     
-    # WhatsApp collection - جمع واتساب
+    # WhatsApp collection
     WHATSAPP_DAYS_BACK = 30
     
-    # Link verification - التحقق من الروابط
+    # Link verification
     MIN_GROUP_MEMBERS = 3
     MAX_LINK_LENGTH = 200
     VALIDATION_TIMEOUT = 30
     
-    # Rate limiting - الحد من الطلبات
+    # Rate limiting
     USER_RATE_LIMIT = {
         'max_requests': 15,
         'per_seconds': 60
     }
     
-    # Session management - إدارة الجلسات
+    # Session management
     SESSION_TIMEOUT = 600
-    MAX_SESSIONS_PER_USER = 20
+    MAX_SESSIONS_PER_USER = 5
     
-    # Export - التصدير
-    MAX_EXPORT_LINKS = 100000
+    # Export
+    MAX_EXPORT_LINKS = 50000
     EXPORT_CHUNK_SIZE = 5000
     
-    # Advanced settings - إعدادات متقدمة
+    # Advanced settings
     TELEGRAM_NO_TIME_LIMIT = True
     JOIN_REQUEST_CHECK_DELAY = 30
     ENABLE_ADVANCED_VALIDATION = True
@@ -186,11 +186,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================
-# Enhanced Link Processor - معالج الروابط المحسن
+# Enhanced Link Processor
 # ======================
 
 class EnhancedLinkProcessor:
-    """Advanced link processing with improved Telegram detection - معالجة روابط متقدمة مع تحسين كشف تيليجرام"""
+    """Advanced link processing with improved Telegram detection"""
     
     TRACKING_PARAMS = [
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
@@ -208,18 +208,18 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def normalize_url(url: str, aggressive: bool = False) -> str:
-        """Normalize URL with enhanced Telegram handling - توحيد الرابط مع معالجة تيليجرام محسنة"""
+        """Normalize URL with enhanced Telegram handling"""
         if not url or not isinstance(url, str):
             return ""
         
         original_url = url
         
-        # إزالة المسافات والرموز غير المرغوبة
+        # Remove unwanted characters
         url = url.strip()
         url = re.sub(r'^["\'\s*]+|["\'\s*]+$', '', url)
         url = re.sub(r'[,\s]+$', '', url)
         
-        # استخراج الرابط من النص
+        # Extract URL from text
         url_patterns = [
             r'(https?://[^\s<>]+)',
             r'(t\.me/[^\s<>]+)',
@@ -239,24 +239,24 @@ class EnhancedLinkProcessor:
         if extracted_url:
             url = extracted_url
         
-        # إضافة https إذا كانت مفقودة
+        # Add https if missing
         if not url.startswith(('http://', 'https://')):
             if any(domain in url for domain in EnhancedLinkProcessor.ALLOWED_DOMAINS):
                 url = 'https://' + url.lstrip('/')
         
-        # تحليل الرابط
+        # Parse URL
         try:
             parsed = urlparse(url)
             
-            # التحقق من النطاق المسموح
+            # Check allowed domain
             domain = parsed.netloc.lower()
             allowed = any(allowed_domain in domain for allowed_domain in EnhancedLinkProcessor.ALLOWED_DOMAINS)
             
             if not allowed and not aggressive:
-                logger.debug(f"النطاق غير مسموح: {domain}")
+                logger.debug(f"Domain not allowed: {domain}")
                 return ""
             
-            # إزالة معاملات التتبع
+            # Remove tracking parameters
             query_params = []
             if parsed.query:
                 params = parse_qs(parsed.query, keep_blank_values=True)
@@ -277,34 +277,31 @@ class EnhancedLinkProcessor:
                 if filtered_params:
                     query_params.append(urlencode(filtered_params, doseq=True))
             
-            # إعادة بناء المسار
+            # Rebuild path
             path = parsed.path
             
-            # معالجة خاصة لروابط تيليجرام
+            # Special handling for Telegram links
             if 't.me' in domain or 'telegram.' in domain:
-                # الحفاظ على جميع أجزاء المسار لروابط تيليجرام
                 path_parts = path.strip('/').split('/')
                 if len(path_parts) >= 1:
-                    # إزالة المسارات الزائدة فقط للمسارات الطويلة جداً
                     if len(path_parts) > 4:
                         path = '/' + '/'.join(path_parts[:4])
             
-            # إعادة بناء الرابط
+            # Rebuild URL
             clean_url = f"{parsed.scheme}://{parsed.netloc}{path}"
             if query_params:
                 clean_url += f"?{'&'.join(query_params)}"
             if parsed.fragment and not aggressive:
                 clean_url += f"#{parsed.fragment}"
             
-            # إزالة الشرطة المائلة الأخيرة
+            # Remove trailing slash
             if clean_url.endswith('/'):
                 clean_url = clean_url[:-1]
             
             return clean_url.lower()
             
         except Exception as e:
-            logger.debug(f"خطأ في توحيد الرابط {original_url}: {e}")
-            # محاولة تنظيف بسيط
+            logger.debug(f"Error normalizing URL {original_url}: {e}")
             url = re.sub(r'[?#].*$', '', url)
             if url.endswith('/'):
                 url = url[:-1]
@@ -312,7 +309,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def extract_url_info(url: str) -> Dict:
-        """Extract comprehensive information from URL with enhanced Telegram detection - استخراج معلومات شاملة مع كشف تيليجرام محسن"""
+        """Extract comprehensive information from URL"""
         normalized_url = EnhancedLinkProcessor.normalize_url(url)
         
         result = {
@@ -331,7 +328,7 @@ class EnhancedLinkProcessor:
             parsed = urlparse(normalized_url)
             domain = parsed.netloc.lower()
             
-            # تحديد المنصة
+            # Determine platform
             if 't.me' in domain or 'telegram.' in domain:
                 result['platform'] = 'telegram'
                 result['details'] = EnhancedLinkProcessor._extract_telegram_info_enhanced(normalized_url, parsed)
@@ -348,13 +345,13 @@ class EnhancedLinkProcessor:
             result['is_valid'] = bool(result['details'].get('is_valid', False))
             
         except Exception as e:
-            logger.debug(f"خطأ في استخراج معلومات الرابط: {e}")
+            logger.debug(f"Error extracting URL info: {e}")
         
         return result
     
     @staticmethod
     def _extract_telegram_info_enhanced(url: str, parsed) -> Dict:
-        """Extract Telegram specific information with improved detection - استخراج معلومات تيليجرام خاصة مع كشف محسن"""
+        """Extract Telegram specific information"""
         result = {
             'is_valid': False,
             'username': '',
@@ -367,7 +364,7 @@ class EnhancedLinkProcessor:
             'is_supergroup': False,
             'is_broadcast': False,
             'path_segments': [],
-            'is_active': True  # افتراضي نشط
+            'is_active': True
         }
         
         path = parsed.path.strip('/')
@@ -377,7 +374,7 @@ class EnhancedLinkProcessor:
         segments = path.split('/')
         result['path_segments'] = segments
         
-        # كشف روابط الانضمام (joinchat)
+        # Detect join links
         join_patterns = [
             r'\+(?:joinchat/)?([A-Za-z0-9_-]+)',
             r'joinchat/([A-Za-z0-9_-]+)',
@@ -396,15 +393,14 @@ class EnhancedLinkProcessor:
             result['is_private'] = True
             result['invite_hash'] = join_hash
             result['is_valid'] = True
-            result['is_group'] = True  # افتراضي مجموعة
+            result['is_group'] = True
             
-            # محاولة تحديد النوع من الباقي
             if 'channel' in url.lower() or 'c/' in url.lower():
                 result['is_channel'] = True
                 result['is_group'] = False
             return result
         
-        # كشف القنوات
+        # Detect channels
         channel_patterns = [
             r'c/([^/]+)',
             r'channel/([^/]+)',
@@ -422,12 +418,11 @@ class EnhancedLinkProcessor:
                 result['username'] = channel_name
                 return result
         
-        # كشف المجموعات العامة
+        # Detect public groups
         if len(segments) == 1:
             username = segments[0].lower()
             result['username'] = username
             
-            # استثناء الروابط الخاصة
             if username.startswith('+'):
                 result['is_join_request'] = True
                 result['is_private'] = True
@@ -435,13 +430,11 @@ class EnhancedLinkProcessor:
                 result['is_group'] = True
                 result['is_valid'] = True
             else:
-                # افتراض مجموعة عامة
                 result['is_group'] = True
                 result['is_public'] = True
                 result['is_valid'] = True
                 result['is_supergroup'] = True
         
-        # كشف المجموعات مع مسار أطول
         elif len(segments) >= 2:
             if segments[0].lower() in ['c', 'channel', 's']:
                 result['is_channel'] = True
@@ -454,7 +447,6 @@ class EnhancedLinkProcessor:
                 result['is_group'] = True
                 result['is_valid'] = True
             else:
-                # افتراض مجموعة عامة
                 result['is_group'] = True
                 result['is_public'] = True
                 result['is_supergroup'] = True
@@ -464,7 +456,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def _extract_whatsapp_info(url: str, parsed) -> Dict:
-        """Extract WhatsApp specific information - استخراج معلومات واتساب خاصة"""
+        """Extract WhatsApp specific information"""
         return {
             'is_valid': True,
             'invite_code': parsed.path.strip('/'),
@@ -473,7 +465,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def _extract_discord_info(url: str, parsed) -> Dict:
-        """Extract Discord specific information - استخراج معلومات ديسكورد خاصة"""
+        """Extract Discord specific information"""
         return {
             'is_valid': True,
             'invite_code': parsed.path.strip('/'),
@@ -482,7 +474,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def _extract_signal_info(url: str, parsed) -> Dict:
-        """Extract Signal specific information - استخراج معلومات سيجنال خاصة"""
+        """Extract Signal specific information"""
         return {
             'is_valid': True,
             'group_code': parsed.path.strip('/'),
@@ -491,7 +483,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     async def validate_telegram_link_advanced(client: TelegramClient, url: str, check_join_request: bool = False) -> Dict:
-        """Advanced validation for Telegram links - تحقق متقدم لروابط تيليجرام"""
+        """Advanced validation for Telegram links"""
         try:
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             details = url_info.get('details', {})
@@ -513,15 +505,14 @@ class EnhancedLinkProcessor:
             }
             
             if not url_info['is_valid']:
-                result['reason'] = 'رابط غير صالح'
+                result['reason'] = 'Invalid URL'
                 return result
             
-            # التحقق من روابط الانضمام
+            # Check join request links
             if details.get('is_join_request') and check_join_request:
                 try:
                     invite_hash = details.get('invite_hash', '')
                     if invite_hash:
-                        # محاولة الانضمام لتحقق
                         invite = await client(functions.messages.CheckChatInviteRequest(
                             hash=invite_hash
                         ))
@@ -548,15 +539,15 @@ class EnhancedLinkProcessor:
                             result['is_verified'] = True
                             result['validation_score'] = 80
                     else:
-                        result['reason'] = 'لا يوجد رمز دعوة'
+                        result['reason'] = 'No invite code'
                 except InviteHashInvalidError:
-                    result['reason'] = 'رابط دعوة غير صالح'
+                    result['reason'] = 'Invalid invite link'
                 except InviteHashExpiredError:
-                    result['reason'] = 'رابط دعوة منتهي'
+                    result['reason'] = 'Expired invite link'
                 except Exception as e:
-                    result['reason'] = f'خطأ في التحقق: {str(e)[:50]}'
+                    result['reason'] = f'Verification error: {str(e)[:50]}'
             
-            # التحقق من المجموعات العامة
+            # Check public groups
             elif details.get('is_public') or details.get('username'):
                 username = details.get('username', '')
                 if username:
@@ -583,13 +574,13 @@ class EnhancedLinkProcessor:
                         result['validation_score'] = 95
                         
                     except UsernameNotOccupiedError:
-                        result['reason'] = 'المستخدم/المجموعة غير موجودة'
+                        result['reason'] = 'Username not found'
                     except ChannelPrivateError:
-                        result['reason'] = 'القناة/المجموعة خاصة'
+                        result['reason'] = 'Private channel/group'
                     except Exception as e:
-                        result['reason'] = f'خطأ في الوصول: {str(e)[:50]}'
+                        result['reason'] = f'Access error: {str(e)[:50]}'
             
-            # التحقق من الروابط الأخرى
+            # Check other links
             else:
                 result['is_valid'] = True
                 result['is_active'] = True
@@ -599,37 +590,30 @@ class EnhancedLinkProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"خطأ في التحقق المتقدم للرابط: {e}")
+            logger.error(f"Error in advanced link validation: {e}")
             return {
                 'is_valid': False,
                 'is_active': False,
                 'type': 'error',
-                'reason': f'خطأ في التحقق: {str(e)[:50]}',
+                'reason': f'Validation error: {str(e)[:50]}',
                 'validation_score': 0
             }
 
 # ======================
-# Enhanced Database Manager - مدير قاعدة البيانات المحسن
+# Enhanced Database Manager
 # ======================
 
 class EnhancedDatabaseManager:
-    """Advanced database management with improved link handling - إدارة قاعدة بيانات متقدمة مع معالجة روابط محسنة"""
+    """Advanced database management"""
     
     _instance = None
     _lock = asyncio.Lock()
     _initialized = False
     _pool = None
-    _metrics = {
-        'queries_executed': 0,
-        'transactions': 0,
-        'errors': 0,
-        'connection_count': 0,
-        'avg_query_time': 0.0
-    }
     
     @classmethod
     async def get_instance(cls):
-        """Get database instance with proper async initialization - الحصول على مثيل قاعدة البيانات مع تهيئة غير متزامنة صحيحة"""
+        """Get database instance"""
         if cls._instance is None:
             async with cls._lock:
                 if cls._instance is None:
@@ -638,201 +622,196 @@ class EnhancedDatabaseManager:
         return cls._instance
     
     async def _initialize(self):
-        """Initialize database asynchronously with connection pooling - تهيئة قاعدة البيانات بشكل غير متزامن مع تجميع الاتصالات"""
+        """Initialize database"""
         if self._initialized:
             return
         
         self.db_path = Config.DB_PATH
         
-        # التحقق من وجود الملف
+        # Check if file exists
         db_exists = os.path.exists(self.db_path)
         
-        # إنشاء مجلد إذا لم يكن موجوداً
+        # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else '.', exist_ok=True)
         
-        # إنشاء تجميع الاتصالات
-        self._pool = await aiosqlite.create_pool(
-            self.db_path,
-            minsize=2,
-            maxsize=Config.DB_POOL_SIZE,
-            timeout=30.0
-        )
+        # Create connection pool
+        self._pool = await aiosqlite.connect(self.db_path)
         
-        # تهيئة الجداول
+        # Initialize tables
         await self._create_tables()
         
-        # إنشاء نسخة احتياطية إذا كانت قاعدة البيانات موجودة مسبقاً
+        # Create backup if database existed previously
         if db_exists and Config.BACKUP_ENABLED:
             await BackupManager.create_backup()
             await BackupManager.rotate_backups()
         
         self._initialized = True
-        self._metrics['connection_count'] = Config.DB_POOL_SIZE
         
-        logger.info(f"تم تهيئة قاعدة البيانات بنجاح مع تجميع الاتصالات - pool_size: {Config.DB_POOL_SIZE}, db_path: {self.db_path}, db_exists: {db_exists}")
+        logger.info(f"Database initialized successfully - db_path: {self.db_path}, db_exists: {db_exists}")
     
     async def _get_connection(self):
-        """Get database connection from pool - الحصول على اتصال قاعدة البيانات من التجمع"""
-        async with self._pool.acquire() as conn:
-            # تمكين الميزات المتقدمة
-            await conn.execute("PRAGMA foreign_keys = ON")
-            await conn.execute("PRAGMA journal_mode = WAL")
-            await conn.execute("PRAGMA synchronous = NORMAL")
-            await conn.execute("PRAGMA cache_size = -40000")
-            await conn.execute("PRAGMA temp_store = MEMORY")
-            await conn.execute("PRAGMA mmap_size = 2147483648")
-            await conn.execute("PRAGMA optimize")
-            
-            return conn
+        """Get database connection"""
+        conn = await aiosqlite.connect(self.db_path)
+        
+        # Enable advanced features
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.execute("PRAGMA journal_mode = WAL")
+        await conn.execute("PRAGMA synchronous = NORMAL")
+        await conn.execute("PRAGMA cache_size = -20000")
+        await conn.execute("PRAGMA temp_store = MEMORY")
+        
+        return conn
     
     async def _create_tables(self):
-        """Create database tables with enhanced structure - إنشاء جداول قاعدة البيانات مع هيكل محسن"""
-        async with self._get_connection() as conn:
-            # جدول الجلسات المحسن
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_string TEXT UNIQUE NOT NULL,
-                    session_hash TEXT NOT NULL,
-                    phone_number TEXT,
-                    user_id INTEGER,
-                    username TEXT,
-                    display_name TEXT,
-                    added_by_user INTEGER,
-                    is_active BOOLEAN DEFAULT 1,
-                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_used TIMESTAMP,
-                    last_success TIMESTAMP,
-                    total_uses INTEGER DEFAULT 0,
-                    total_links INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'active',
-                    health_score INTEGER DEFAULT 100,
-                    notes TEXT,
-                    metadata TEXT,
-                    CONSTRAINT unique_session_hash UNIQUE(session_hash)
-                )
-            ''')
-            
-            # جدول الروابط المحسن مع تفاصيل أكثر
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS links (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url_hash TEXT UNIQUE NOT NULL,
-                    url TEXT NOT NULL,
-                    original_url TEXT,
-                    platform TEXT NOT NULL,
-                    link_type TEXT,
-                    telegram_type TEXT,
-                    title TEXT,
-                    description TEXT,
-                    members_count INTEGER DEFAULT 0,
-                    session_id INTEGER,
-                    collected_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_checked TIMESTAMP,
-                    check_count INTEGER DEFAULT 0,
-                    confidence TEXT DEFAULT 'medium',
-                    is_active BOOLEAN DEFAULT 1,
-                    requires_join BOOLEAN DEFAULT 0,
-                    is_verified BOOLEAN DEFAULT 0,
-                    validation_score INTEGER DEFAULT 0,
-                    metadata TEXT,
-                    tags TEXT,
-                    added_by_user INTEGER,
-                    source TEXT,
-                    is_channel BOOLEAN DEFAULT 0,
-                    is_group BOOLEAN DEFAULT 0,
-                    is_join_request BOOLEAN DEFAULT 0,
-                    is_supergroup BOOLEAN DEFAULT 0,
-                    FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL,
-                    CONSTRAINT unique_url_hash UNIQUE(url_hash)
-                )
-            ''')
-            
-            # جدول جلسات الجمع المحسن
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS collection_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_uid TEXT UNIQUE NOT NULL,
-                    start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    end_time TIMESTAMP,
-                    status TEXT DEFAULT 'running',
-                    stats TEXT,
-                    duration_seconds INTEGER,
-                    user_id INTEGER,
-                    metadata TEXT
-                )
-            ''')
-            
-            # جدول المستخدمين المحسن
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS bot_users (
-                    user_id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT,
-                    last_name TEXT,
-                    is_admin BOOLEAN DEFAULT 0,
-                    is_allowed BOOLEAN DEFAULT 1,
-                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_active TIMESTAMP,
-                    request_count INTEGER DEFAULT 0,
-                    session_count INTEGER DEFAULT 0,
-                    link_count INTEGER DEFAULT 0,
-                    total_links_added INTEGER DEFAULT 0,
-                    last_command TEXT,
-                    settings TEXT
-                )
-            ''')
-            
-            # جدول إحصائيات النظام
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS system_stats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    metric_name TEXT NOT NULL,
-                    metric_value TEXT,
-                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    metadata TEXT,
-                    UNIQUE(metric_name, recorded_at)
-                )
-            ''')
-            
-            # جدول الأخطاء والتحذيرات
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS error_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    error_type TEXT,
-                    error_message TEXT,
-                    stack_trace TEXT,
-                    user_id INTEGER,
-                    command TEXT,
-                    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    resolved BOOLEAN DEFAULT 0,
-                    metadata TEXT
-                )
-            ''')
-            
-            # جدول جديد: روابط الانضمام المؤقتة
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS pending_join_links (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url_hash TEXT UNIQUE NOT NULL,
-                    url TEXT NOT NULL,
-                    platform TEXT NOT NULL,
-                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_checked TIMESTAMP,
-                    check_attempts INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    metadata TEXT,
-                    CONSTRAINT unique_pending_hash UNIQUE(url_hash)
-                )
-            ''')
-            
-            await conn.commit()
+        """Create database tables"""
+        conn = await self._get_connection()
         
-        # إنشاء فهارس
+        # Enhanced sessions table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_string TEXT UNIQUE NOT NULL,
+                session_hash TEXT NOT NULL,
+                phone_number TEXT,
+                user_id INTEGER,
+                username TEXT,
+                display_name TEXT,
+                added_by_user INTEGER,
+                is_active BOOLEAN DEFAULT 1,
+                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP,
+                last_success TIMESTAMP,
+                total_uses INTEGER DEFAULT 0,
+                total_links INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'active',
+                health_score INTEGER DEFAULT 100,
+                notes TEXT,
+                metadata TEXT,
+                CONSTRAINT unique_session_hash UNIQUE(session_hash)
+            )
+        ''')
+        
+        # Enhanced links table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url_hash TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                original_url TEXT,
+                platform TEXT NOT NULL,
+                link_type TEXT,
+                telegram_type TEXT,
+                title TEXT,
+                description TEXT,
+                members_count INTEGER DEFAULT 0,
+                session_id INTEGER,
+                collected_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_checked TIMESTAMP,
+                check_count INTEGER DEFAULT 0,
+                confidence TEXT DEFAULT 'medium',
+                is_active BOOLEAN DEFAULT 1,
+                requires_join BOOLEAN DEFAULT 0,
+                is_verified BOOLEAN DEFAULT 0,
+                validation_score INTEGER DEFAULT 0,
+                metadata TEXT,
+                tags TEXT,
+                added_by_user INTEGER,
+                source TEXT,
+                is_channel BOOLEAN DEFAULT 0,
+                is_group BOOLEAN DEFAULT 0,
+                is_join_request BOOLEAN DEFAULT 0,
+                is_supergroup BOOLEAN DEFAULT 0,
+                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL,
+                CONSTRAINT unique_url_hash UNIQUE(url_hash)
+            )
+        ''')
+        
+        # Collection sessions table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS collection_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_uid TEXT UNIQUE NOT NULL,
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                end_time TIMESTAMP,
+                status TEXT DEFAULT 'running',
+                stats TEXT,
+                duration_seconds INTEGER,
+                user_id INTEGER,
+                metadata TEXT
+            )
+        ''')
+        
+        # Users table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS bot_users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                is_admin BOOLEAN DEFAULT 0,
+                is_allowed BOOLEAN DEFAULT 1,
+                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_active TIMESTAMP,
+                request_count INTEGER DEFAULT 0,
+                session_count INTEGER DEFAULT 0,
+                link_count INTEGER DEFAULT 0,
+                total_links_added INTEGER DEFAULT 0,
+                last_command TEXT,
+                settings TEXT
+            )
+        ''')
+        
+        # System stats table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS system_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                metric_name TEXT NOT NULL,
+                metric_value TEXT,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT,
+                UNIQUE(metric_name, recorded_at)
+            )
+        ''')
+        
+        # Error log table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS error_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                error_type TEXT,
+                error_message TEXT,
+                stack_trace TEXT,
+                user_id INTEGER,
+                command TEXT,
+                occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved BOOLEAN DEFAULT 0,
+                metadata TEXT
+            )
+        ''')
+        
+        # Pending join links table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS pending_join_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url_hash TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_checked TIMESTAMP,
+                check_attempts INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'pending',
+                metadata TEXT,
+                CONSTRAINT unique_pending_hash UNIQUE(url_hash)
+            )
+        ''')
+        
+        await conn.commit()
+        await conn.close()
+    
+        # Create indexes
         await self._create_indexes()
     
     async def _create_indexes(self):
-        """Create database indexes for performance - إنشاء فهارس قاعدة البيانات للأداء"""
+        """Create database indexes"""
         indexes = [
             ('idx_links_url_hash', 'links(url_hash)'),
             ('idx_links_platform_type', 'links(platform, link_type)'),
@@ -850,327 +829,338 @@ class EnhancedDatabaseManager:
             ('idx_pending_join_status', 'pending_join_links(status, last_checked)')
         ]
         
-        async with self._get_connection() as conn:
-            for index_name, index_sql in indexes:
-                try:
-                    await conn.execute(f'CREATE INDEX IF NOT EXISTS {index_name} ON {index_sql}')
-                except Exception as e:
-                    logger.error(f"خطأ في إنشاء الفهرس {index_name}: {e}", exc_info=True)
+        conn = await self._get_connection()
+        for index_name, index_sql in indexes:
+            try:
+                await conn.execute(f'CREATE INDEX IF NOT EXISTS {index_name} ON {index_sql}')
+            except Exception as e:
+                logger.error(f"Error creating index {index_name}: {e}")
+        await conn.close()
     
     async def add_link_enhanced(self, link_info: Dict) -> Tuple[bool, str, Dict]:
-        """Add link with enhanced Telegram information - إضافة رابط مع معلومات تيليجرام محسنة"""
+        """Add link with enhanced information"""
         try:
-            # استخراج معلومات الرابط
+            # Extract link information
             url = link_info.get('url', '')
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
             if not url_info['is_valid']:
-                return False, "رابط غير صالح", {}
+                return False, "Invalid URL", {}
             
             details = url_info['details']
             
-            async with self._get_connection() as conn:
-                # التحقق من التكرار
-                cursor = await conn.execute(
-                    'SELECT id FROM links WHERE url_hash = ?',
-                    (url_info['url_hash'],)
-                )
-                existing = await cursor.fetchone()
-                
-                if existing:
-                    return False, "الرابط موجود مسبقاً", {'link_id': existing[0]}
-                
-                # إعداد بيانات الرابط
-                link_data = {
-                    'url_hash': url_info['url_hash'],
-                    'url': url_info['normalized_url'],
-                    'original_url': url_info['original_url'],
-                    'platform': url_info['platform'],
-                    'link_type': link_info.get('link_type', 'unknown'),
-                    'telegram_type': details.get('telegram_type', ''),
-                    'title': link_info.get('title', '')[:500],
-                    'description': link_info.get('description', '')[:1000],
-                    'members_count': link_info.get('members', 0),
-                    'session_id': link_info.get('session_id'),
-                    'confidence': link_info.get('confidence', 'medium'),
-                    'is_active': link_info.get('is_active', True),
-                    'requires_join': details.get('requires_join', False) or details.get('is_join_request', False),
-                    'is_verified': link_info.get('is_verified', False),
-                    'validation_score': link_info.get('validation_score', 0),
-                    'metadata': json.dumps(link_info.get('metadata', {})),
-                    'tags': json.dumps(link_info.get('tags', [])),
-                    'added_by_user': link_info.get('added_by_user', 0),
-                    'source': link_info.get('source', 'manual'),
-                    'is_channel': details.get('is_channel', False),
-                    'is_group': details.get('is_group', True),
-                    'is_join_request': details.get('is_join_request', False),
-                    'is_supergroup': details.get('is_supergroup', False)
-                }
-                
-                # إدخال الرابط
-                cursor = await conn.execute('''
-                    INSERT INTO links 
-                    (url_hash, url, original_url, platform, link_type, telegram_type, title, 
-                     description, members_count, session_id, collected_date, confidence, 
-                     is_active, requires_join, is_verified, validation_score, metadata, 
-                     tags, added_by_user, source, is_channel, is_group, is_join_request, is_supergroup)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    link_data['url_hash'],
-                    link_data['url'],
-                    link_data['original_url'],
-                    link_data['platform'],
-                    link_data['link_type'],
-                    link_data['telegram_type'],
-                    link_data['title'],
-                    link_data['description'],
-                    link_data['members_count'],
-                    link_data['session_id'],
-                    link_data['confidence'],
-                    link_data['is_active'],
-                    link_data['requires_join'],
-                    link_data['is_verified'],
-                    link_data['validation_score'],
-                    link_data['metadata'],
-                    link_data['tags'],
-                    link_data['added_by_user'],
-                    link_data['source'],
-                    link_data['is_channel'],
-                    link_data['is_group'],
-                    link_data['is_join_request'],
-                    link_data['is_supergroup']
-                ))
-                
-                link_id = cursor.lastrowid
-                
-                await conn.commit()
-                
-                # تحديث إحصائيات المستخدم
-                if link_data['added_by_user']:
-                    await self.update_user_stats(link_data['added_by_user'], 'link_added')
-                
-                return True, "تمت إضافة الرابط بنجاح", {
-                    'link_id': link_id,
-                    'url_hash': url_info['url_hash']
-                }
+            conn = await self._get_connection()
+            
+            # Check for duplicates
+            cursor = await conn.execute(
+                'SELECT id FROM links WHERE url_hash = ?',
+                (url_info['url_hash'],)
+            )
+            existing = await cursor.fetchone()
+            
+            if existing:
+                await conn.close()
+                return False, "Link already exists", {'link_id': existing[0]}
+            
+            # Prepare link data
+            link_data = {
+                'url_hash': url_info['url_hash'],
+                'url': url_info['normalized_url'],
+                'original_url': url_info['original_url'],
+                'platform': url_info['platform'],
+                'link_type': link_info.get('link_type', 'unknown'),
+                'telegram_type': details.get('telegram_type', ''),
+                'title': link_info.get('title', '')[:500],
+                'description': link_info.get('description', '')[:1000],
+                'members_count': link_info.get('members', 0),
+                'session_id': link_info.get('session_id'),
+                'confidence': link_info.get('confidence', 'medium'),
+                'is_active': link_info.get('is_active', True),
+                'requires_join': details.get('requires_join', False) or details.get('is_join_request', False),
+                'is_verified': link_info.get('is_verified', False),
+                'validation_score': link_info.get('validation_score', 0),
+                'metadata': json.dumps(link_info.get('metadata', {})),
+                'tags': json.dumps(link_info.get('tags', [])),
+                'added_by_user': link_info.get('added_by_user', 0),
+                'source': link_info.get('source', 'manual'),
+                'is_channel': details.get('is_channel', False),
+                'is_group': details.get('is_group', True),
+                'is_join_request': details.get('is_join_request', False),
+                'is_supergroup': details.get('is_supergroup', False)
+            }
+            
+            # Insert link
+            cursor = await conn.execute('''
+                INSERT INTO links 
+                (url_hash, url, original_url, platform, link_type, telegram_type, title, 
+                 description, members_count, session_id, collected_date, confidence, 
+                 is_active, requires_join, is_verified, validation_score, metadata, 
+                 tags, added_by_user, source, is_channel, is_group, is_join_request, is_supergroup)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                link_data['url_hash'],
+                link_data['url'],
+                link_data['original_url'],
+                link_data['platform'],
+                link_data['link_type'],
+                link_data['telegram_type'],
+                link_data['title'],
+                link_data['description'],
+                link_data['members_count'],
+                link_data['session_id'],
+                link_data['confidence'],
+                link_data['is_active'],
+                link_data['requires_join'],
+                link_data['is_verified'],
+                link_data['validation_score'],
+                link_data['metadata'],
+                link_data['tags'],
+                link_data['added_by_user'],
+                link_data['source'],
+                link_data['is_channel'],
+                link_data['is_group'],
+                link_data['is_join_request'],
+                link_data['is_supergroup']
+            ))
+            
+            link_id = cursor.lastrowid
+            
+            await conn.commit()
+            await conn.close()
+            
+            # Update user stats
+            if link_data['added_by_user']:
+                await self.update_user_stats(link_data['added_by_user'], 'link_added')
+            
+            return True, "Link added successfully", {
+                'link_id': link_id,
+                'url_hash': url_info['url_hash']
+            }
                 
         except Exception as e:
-            logger.error(f"خطأ في إضافة الرابط المحسن: {e}", exc_info=True)
-            return False, f"خطأ في الإضافة: {str(e)[:100]}", {}
+            logger.error(f"Error adding enhanced link: {e}")
+            return False, f"Error adding: {str(e)[:100]}", {}
     
     async def add_pending_join_link(self, url: str, platform: str = 'telegram', metadata: Dict = None) -> Tuple[bool, str, Dict]:
-        """Add pending join link for later verification - إضافة رابط انضمام مؤقت للتحقق لاحقاً"""
+        """Add pending join link"""
         try:
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
             if not url_info['is_valid']:
-                return False, "رابط غير صالح", {}
+                return False, "Invalid URL", {}
             
-            async with self._get_connection() as conn:
-                # التحقق من التكرار
-                cursor = await conn.execute(
-                    'SELECT id FROM pending_join_links WHERE url_hash = ?',
-                    (url_info['url_hash'],)
+            conn = await self._get_connection()
+            
+            # Check for duplicates
+            cursor = await conn.execute(
+                'SELECT id FROM pending_join_links WHERE url_hash = ?',
+                (url_info['url_hash'],)
+            )
+            existing = await cursor.fetchone()
+            
+            if existing:
+                # Update check time
+                await conn.execute(
+                    'UPDATE pending_join_links SET last_checked = CURRENT_TIMESTAMP WHERE id = ?',
+                    (existing[0],)
                 )
-                existing = await cursor.fetchone()
-                
-                if existing:
-                    # تحديث وقت الفحص
-                    await conn.execute(
-                        'UPDATE pending_join_links SET last_checked = CURRENT_TIMESTAMP WHERE id = ?',
-                        (existing[0],)
-                    )
-                    await conn.commit()
-                    return False, "الرابط موجود مسبقاً في قائمة الانتظار", {'pending_id': existing[0]}
-                
-                # إضافة جديدة
-                cursor = await conn.execute('''
-                    INSERT INTO pending_join_links 
-                    (url_hash, url, platform, metadata)
-                    VALUES (?, ?, ?, ?)
-                ''', (
-                    url_info['url_hash'],
-                    url_info['normalized_url'],
-                    platform,
-                    json.dumps(metadata or {})
-                ))
-                
-                pending_id = cursor.lastrowid
                 await conn.commit()
-                
-                return True, "تمت إضافة الرابط لقائمة الانتظار", {
-                    'pending_id': pending_id,
-                    'url_hash': url_info['url_hash']
-                }
+                await conn.close()
+                return False, "Link already exists in pending list", {'pending_id': existing[0]}
+            
+            # Add new
+            cursor = await conn.execute('''
+                INSERT INTO pending_join_links 
+                (url_hash, url, platform, metadata)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                url_info['url_hash'],
+                url_info['normalized_url'],
+                platform,
+                json.dumps(metadata or {})
+            ))
+            
+            pending_id = cursor.lastrowid
+            await conn.commit()
+            await conn.close()
+            
+            return True, "Link added to pending list", {
+                'pending_id': pending_id,
+                'url_hash': url_info['url_hash']
+            }
                 
         except Exception as e:
-            logger.error(f"خطأ في إضافة رابط انتظار: {e}")
-            return False, f"خطأ في الإضافة: {str(e)[:100]}", {}
+            logger.error(f"Error adding pending link: {e}")
+            return False, f"Error adding: {str(e)[:100]}", {}
     
     async def get_pending_join_links(self, limit: int = 50) -> List[Dict]:
-        """Get pending join links for verification - الحصول على روابط الانضمام المؤقتة للتحقق"""
+        """Get pending join links"""
         try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute('''
-                    SELECT * FROM pending_join_links 
-                    WHERE status = 'pending' 
-                    ORDER BY last_checked ASC NULLS FIRST, added_date ASC
-                    LIMIT ?
-                ''', (limit,))
-                
-                rows = await cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
-                
-                pending_links = []
-                for row in rows:
-                    pending_dict = dict(zip(columns, row))
-                    if pending_dict.get('metadata'):
-                        pending_dict['metadata'] = json.loads(pending_dict['metadata'])
-                    pending_links.append(pending_dict)
-                
-                return pending_links
+            conn = await self._get_connection()
+            cursor = await conn.execute('''
+                SELECT * FROM pending_join_links 
+                WHERE status = 'pending' 
+                ORDER BY last_checked ASC NULLS FIRST, added_date ASC
+                LIMIT ?
+            ''', (limit,))
+            
+            rows = await cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            pending_links = []
+            for row in rows:
+                pending_dict = dict(zip(columns, row))
+                if pending_dict.get('metadata'):
+                    pending_dict['metadata'] = json.loads(pending_dict['metadata'])
+                pending_links.append(pending_dict)
+            
+            await conn.close()
+            return pending_links
                 
         except Exception as e:
-            logger.error(f"خطأ في الحصول على روابط الانتظار: {e}")
+            logger.error(f"Error getting pending links: {e}")
             return []
     
     async def update_pending_link_status(self, pending_id: int, status: str, 
                                         metadata: Dict = None, 
                                         check_attempts: int = 1) -> bool:
-        """Update pending link status - تحديث حالة رابط الانتظار"""
+        """Update pending link status"""
         try:
-            async with self._get_connection() as conn:
-                await conn.execute('''
-                    UPDATE pending_join_links 
-                    SET status = ?, 
-                        last_checked = CURRENT_TIMESTAMP,
-                        check_attempts = check_attempts + ?,
-                        metadata = COALESCE(?, metadata)
-                    WHERE id = ?
-                ''', (status, check_attempts, 
-                     json.dumps(metadata) if metadata else None, 
-                     pending_id))
-                
-                await conn.commit()
-                return True
+            conn = await self._get_connection()
+            await conn.execute('''
+                UPDATE pending_join_links 
+                SET status = ?, 
+                    last_checked = CURRENT_TIMESTAMP,
+                    check_attempts = check_attempts + ?,
+                    metadata = COALESCE(?, metadata)
+                WHERE id = ?
+            ''', (status, check_attempts, 
+                 json.dumps(metadata) if metadata else None, 
+                 pending_id))
+            
+            await conn.commit()
+            await conn.close()
+            return True
                 
         except Exception as e:
-            logger.error(f"خطأ في تحديث حالة رابط الانتظار: {e}")
+            logger.error(f"Error updating pending link status: {e}")
             return False
     
     async def get_stats_summary_enhanced(self, detailed: bool = False) -> Dict:
-        """Get comprehensive database statistics with Telegram breakdown - الحصول على إحصائيات قاعدة بيانات شاملة مع تفصيل تيليجرام"""
+        """Get comprehensive database statistics"""
         try:
             stats = {}
             
-            async with self._get_connection() as conn:
-                # إحصائيات أساسية
-                cursor = await conn.execute("SELECT COUNT(*) FROM links")
-                stats['total_links'] = (await cursor.fetchone())[0]
-                
-                cursor = await conn.execute("SELECT COUNT(*) FROM sessions WHERE is_active = 1")
-                stats['active_sessions'] = (await cursor.fetchone())[0]
-                
-                cursor = await conn.execute("SELECT COUNT(*) FROM bot_users")
-                stats['total_users'] = (await cursor.fetchone())[0]
-                
-                cursor = await conn.execute("SELECT COUNT(*) FROM pending_join_links WHERE status = 'pending'")
-                stats['pending_join_links'] = (await cursor.fetchone())[0]
-                
-                # الروابط حسب المنصة
-                cursor = await conn.execute(
-                    "SELECT platform, COUNT(*) FROM links GROUP BY platform ORDER BY COUNT(*) DESC"
-                )
-                stats['links_by_platform'] = dict(await cursor.fetchall())
-                
-                # تفصيل تيليجرام المتقدم
-                cursor = await conn.execute('''
-                    SELECT 
-                        telegram_type,
-                        is_channel,
-                        is_group,
-                        is_supergroup,
-                        is_join_request,
-                        COUNT(*) as count
-                    FROM links 
-                    WHERE platform = 'telegram' 
-                    GROUP BY telegram_type, is_channel, is_group, is_supergroup, is_join_request
-                    ORDER BY count DESC
-                ''')
-                
-                telegram_details = []
-                for row in await cursor.fetchall():
-                    telegram_details.append({
-                        'type': row[0] or 'unknown',
-                        'is_channel': bool(row[1]),
-                        'is_group': bool(row[2]),
-                        'is_supergroup': bool(row[3]),
-                        'is_join_request': bool(row[4]),
-                        'count': row[5]
-                    })
-                
-                stats['telegram_details'] = telegram_details
-                
-                # إحصائيات الروابط النشطة
-                cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE is_active = 1")
-                stats['active_links'] = (await cursor.fetchone())[0]
-                
-                cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE requires_join = 1")
-                stats['requires_join'] = (await cursor.fetchone())[0]
-                
-                # النشاط حسب اليوم (آخر 7 أيام)
-                cursor = await conn.execute('''
-                    SELECT DATE(collected_date) as date, COUNT(*) as count
-                    FROM links 
-                    WHERE collected_date > datetime('now', '-7 days')
-                    GROUP BY DATE(collected_date)
-                    ORDER BY date DESC
-                ''')
-                stats['daily_activity'] = dict(await cursor.fetchall())
-                
-                if detailed:
-                    # أفضل المستخدمين
-                    cursor = await conn.execute('''
-                        SELECT u.user_id, u.username, COUNT(l.id) as link_count
-                        FROM bot_users u
-                        LEFT JOIN links l ON u.user_id = l.added_by_user
-                        GROUP BY u.user_id
-                        ORDER BY link_count DESC
-                        LIMIT 10
-                    ''')
-                    stats['top_users'] = [dict(zip(['user_id', 'username', 'link_count'], row)) 
-                                        for row in await cursor.fetchall()]
-                    
-                    # أفضل الجلسات
-                    cursor = await conn.execute('''
-                        SELECT s.id, s.display_name, s.username, COUNT(l.id) as link_count
-                        FROM sessions s
-                        LEFT JOIN links l ON s.id = l.session_id
-                        WHERE s.is_active = 1
-                        GROUP BY s.id
-                        ORDER BY link_count DESC
-                        LIMIT 10
-                    ''')
-                    stats['top_sessions'] = [dict(zip(['id', 'display_name', 'username', 'link_count'], row)) 
-                                           for row in await cursor.fetchall()]
-                    
-                    # إحصائيات التحقق
-                    cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE is_verified = 1")
-                    stats['verified_links'] = (await cursor.fetchone())[0]
-                    
-                    cursor = await conn.execute("SELECT AVG(validation_score) FROM links WHERE validation_score > 0")
-                    avg_score = (await cursor.fetchone())[0]
-                    stats['avg_validation_score'] = float(avg_score) if avg_score else 0
+            conn = await self._get_connection()
             
+            # Basic statistics
+            cursor = await conn.execute("SELECT COUNT(*) FROM links")
+            stats['total_links'] = (await cursor.fetchone())[0]
+            
+            cursor = await conn.execute("SELECT COUNT(*) FROM sessions WHERE is_active = 1")
+            stats['active_sessions'] = (await cursor.fetchone())[0]
+            
+            cursor = await conn.execute("SELECT COUNT(*) FROM bot_users")
+            stats['total_users'] = (await cursor.fetchone())[0]
+            
+            cursor = await conn.execute("SELECT COUNT(*) FROM pending_join_links WHERE status = 'pending'")
+            stats['pending_join_links'] = (await cursor.fetchone())[0]
+            
+            # Links by platform
+            cursor = await conn.execute(
+                "SELECT platform, COUNT(*) FROM links GROUP BY platform ORDER BY COUNT(*) DESC"
+            )
+            stats['links_by_platform'] = dict(await cursor.fetchall())
+            
+            # Advanced Telegram breakdown
+            cursor = await conn.execute('''
+                SELECT 
+                    telegram_type,
+                    is_channel,
+                    is_group,
+                    is_supergroup,
+                    is_join_request,
+                    COUNT(*) as count
+                FROM links 
+                WHERE platform = 'telegram' 
+                GROUP BY telegram_type, is_channel, is_group, is_supergroup, is_join_request
+                ORDER BY count DESC
+            ''')
+            
+            telegram_details = []
+            for row in await cursor.fetchall():
+                telegram_details.append({
+                    'type': row[0] or 'unknown',
+                    'is_channel': bool(row[1]),
+                    'is_group': bool(row[2]),
+                    'is_supergroup': bool(row[3]),
+                    'is_join_request': bool(row[4]),
+                    'count': row[5]
+                })
+            
+            stats['telegram_details'] = telegram_details
+            
+            # Active links statistics
+            cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE is_active = 1")
+            stats['active_links'] = (await cursor.fetchone())[0]
+            
+            cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE requires_join = 1")
+            stats['requires_join'] = (await cursor.fetchone())[0]
+            
+            # Daily activity (last 7 days)
+            cursor = await conn.execute('''
+                SELECT DATE(collected_date) as date, COUNT(*) as count
+                FROM links 
+                WHERE collected_date > datetime('now', '-7 days')
+                GROUP BY DATE(collected_date)
+                ORDER BY date DESC
+            ''')
+            stats['daily_activity'] = dict(await cursor.fetchall())
+            
+            if detailed:
+                # Top users
+                cursor = await conn.execute('''
+                    SELECT u.user_id, u.username, COUNT(l.id) as link_count
+                    FROM bot_users u
+                    LEFT JOIN links l ON u.user_id = l.added_by_user
+                    GROUP BY u.user_id
+                    ORDER BY link_count DESC
+                    LIMIT 10
+                ''')
+                stats['top_users'] = [dict(zip(['user_id', 'username', 'link_count'], row)) 
+                                    for row in await cursor.fetchall()]
+                
+                # Top sessions
+                cursor = await conn.execute('''
+                    SELECT s.id, s.display_name, s.username, COUNT(l.id) as link_count
+                    FROM sessions s
+                    LEFT JOIN links l ON s.id = l.session_id
+                    WHERE s.is_active = 1
+                    GROUP BY s.id
+                    ORDER BY link_count DESC
+                    LIMIT 10
+                ''')
+                stats['top_sessions'] = [dict(zip(['id', 'display_name', 'username', 'link_count'], row)) 
+                                       for row in await cursor.fetchall()]
+                
+                # Verification statistics
+                cursor = await conn.execute("SELECT COUNT(*) FROM links WHERE is_verified = 1")
+                stats['verified_links'] = (await cursor.fetchone())[0]
+                
+                cursor = await conn.execute("SELECT AVG(validation_score) FROM links WHERE validation_score > 0")
+                avg_score = (await cursor.fetchone())[0]
+                stats['avg_validation_score'] = float(avg_score) if avg_score else 0
+            
+            await conn.close()
             return stats
             
         except Exception as e:
-            logger.error(f"خطأ في الحصول على ملخص الإحصائيات المحسن: {e}", exc_info=True)
+            logger.error(f"Error getting stats summary: {e}")
             return {}
     
     async def export_links_enhanced(self, filters: Dict = None, limit: int = Config.MAX_EXPORT_LINKS, 
                                    offset: int = 0) -> Tuple[List[str], Dict]:
-        """Export links with enhanced filtering and Telegram classification - تصدير الروابط مع تصفية محسنة وتصنيف تيليجرام"""
+        """Export links with enhanced filtering"""
         try:
             query = '''
                 SELECT url, platform, link_type, telegram_type, collected_date, 
@@ -1237,192 +1227,198 @@ class EnhancedDatabaseManager:
             query += " ORDER BY collected_date DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
             
-            async with self._get_connection() as conn:
-                cursor = await conn.execute(query, params)
-                rows = await cursor.fetchall()
-                
-                # الحصول على العدد الإجمالي
-                count_query = query.replace(
-                    "SELECT url, platform, link_type, telegram_type, collected_date, members_count, is_channel, is_group, is_supergroup, is_join_request", 
-                    "SELECT COUNT(*)"
-                )
-                count_query = count_query.split("ORDER BY")[0]
-                
-                count_cursor = await conn.execute(count_query, params[:-2] if filters else [])
-                total_count = (await count_cursor.fetchone())[0]
-                
-                links = [row[0] for row in rows]
-                
-                metadata = {
-                    'total_count': total_count,
-                    'exported_count': len(links),
-                    'limit': limit,
-                    'offset': offset,
-                    'filters': filters or {},
-                    'platform_distribution': {},
-                    'telegram_classification': {
-                        'channels': 0,
-                        'groups': 0,
-                        'supergroups': 0,
-                        'join_requests': 0
-                    }
-                }
-                
-                # تحليل التصنيف
-                if rows:
-                    platform_counts = {}
-                    for row in rows:
-                        platform = row[1]
-                        platform_counts[platform] = platform_counts.get(platform, 0) + 1
-                        
-                        # تصنيف تيليجرام
-                        if platform == 'telegram':
-                            if row[6]:  # is_channel
-                                metadata['telegram_classification']['channels'] += 1
-                            if row[7]:  # is_group
-                                metadata['telegram_classification']['groups'] += 1
-                            if row[8]:  # is_supergroup
-                                metadata['telegram_classification']['supergroups'] += 1
-                            if row[9]:  # is_join_request
-                                metadata['telegram_classification']['join_requests'] += 1
-                    
-                    metadata['platform_distribution'] = platform_counts
+            conn = await self._get_connection()
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
             
+            # Get total count
+            count_query = query.replace(
+                "SELECT url, platform, link_type, telegram_type, collected_date, members_count, is_channel, is_group, is_supergroup, is_join_request", 
+                "SELECT COUNT(*)"
+            )
+            count_query = count_query.split("ORDER BY")[0]
+            
+            count_cursor = await conn.execute(count_query, params[:-2] if filters else [])
+            total_count = (await count_cursor.fetchone())[0]
+            
+            links = [row[0] for row in rows]
+            
+            metadata = {
+                'total_count': total_count,
+                'exported_count': len(links),
+                'limit': limit,
+                'offset': offset,
+                'filters': filters or {},
+                'platform_distribution': {},
+                'telegram_classification': {
+                    'channels': 0,
+                    'groups': 0,
+                    'supergroups': 0,
+                    'join_requests': 0
+                }
+            }
+            
+            # Analyze classification
+            if rows:
+                platform_counts = {}
+                for row in rows:
+                    platform = row[1]
+                    platform_counts[platform] = platform_counts.get(platform, 0) + 1
+                    
+                    # Telegram classification
+                    if platform == 'telegram':
+                        if row[6]:  # is_channel
+                            metadata['telegram_classification']['channels'] += 1
+                        if row[7]:  # is_group
+                            metadata['telegram_classification']['groups'] += 1
+                        if row[8]:  # is_supergroup
+                            metadata['telegram_classification']['supergroups'] += 1
+                        if row[9]:  # is_join_request
+                            metadata['telegram_classification']['join_requests'] += 1
+                
+                metadata['platform_distribution'] = platform_counts
+            
+            await conn.close()
             return links, metadata
             
         except Exception as e:
-            logger.error(f"خطأ في تصدير الروابط المحسن: {e}", exc_info=True)
+            logger.error(f"Error exporting links: {e}")
             return [], {}
     
     async def update_user_stats(self, user_id: int, action: str, value: int = 1):
-        """Update user statistics - تحديث إحصائيات المستخدم"""
+        """Update user statistics"""
         try:
-            async with self._get_connection() as conn:
-                update_query = '''
-                    UPDATE bot_users 
-                    SET last_active = CURRENT_TIMESTAMP,
-                        request_count = request_count + 1
-                '''
-                params = []
-                
-                if action == 'session_added':
-                    update_query += ', session_count = session_count + 1'
-                elif action == 'link_added':
-                    update_query += ', link_count = link_count + ?, total_links_added = total_links_added + ?'
-                    params.extend([value, value])
-                
-                update_query += ' WHERE user_id = ?'
-                params.append(user_id)
-                
-                await conn.execute(update_query, params)
-                await conn.commit()
-                
+            conn = await self._get_connection()
+            update_query = '''
+                UPDATE bot_users 
+                SET last_active = CURRENT_TIMESTAMP,
+                    request_count = request_count + 1
+            '''
+            params = []
+            
+            if action == 'session_added':
+                update_query += ', session_count = session_count + 1'
+            elif action == 'link_added':
+                update_query += ', link_count = link_count + ?, total_links_added = total_links_added + ?'
+                params.extend([value, value])
+            
+            update_query += ' WHERE user_id = ?'
+            params.append(user_id)
+            
+            await conn.execute(update_query, params)
+            await conn.commit()
+            await conn.close()
+            
         except Exception as e:
-            logger.debug(f"خطأ في تحديث إحصائيات المستخدم: {e}")
+            logger.debug(f"Error updating user stats: {e}")
     
     async def get_active_sessions(self, limit: int = 10):
-        """Get active sessions - الحصول على الجلسات النشطة"""
+        """Get active sessions"""
         try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute('''
-                    SELECT * FROM sessions 
-                    WHERE is_active = 1 
-                    ORDER BY health_score DESC, last_used ASC
-                    LIMIT ?
-                ''', (limit,))
-                
-                rows = await cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
-                
-                sessions = []
-                for row in rows:
-                    session_dict = dict(zip(columns, row))
-                    if session_dict.get('metadata'):
-                        try:
-                            session_dict['metadata'] = json.loads(session_dict['metadata'])
-                        except:
-                            session_dict['metadata'] = {}
-                    sessions.append(session_dict)
-                
-                return sessions
+            conn = await self._get_connection()
+            cursor = await conn.execute('''
+                SELECT * FROM sessions 
+                WHERE is_active = 1 
+                ORDER BY health_score DESC, last_used ASC
+                LIMIT ?
+            ''', (limit,))
+            
+            rows = await cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            sessions = []
+            for row in rows:
+                session_dict = dict(zip(columns, row))
+                if session_dict.get('metadata'):
+                    try:
+                        session_dict['metadata'] = json.loads(session_dict['metadata'])
+                    except:
+                        session_dict['metadata'] = {}
+                sessions.append(session_dict)
+            
+            await conn.close()
+            return sessions
         except Exception as e:
-            logger.error(f"خطأ في الحصول على الجلسات النشطة: {e}")
+            logger.error(f"Error getting active sessions: {e}")
             return []
     
     async def add_or_update_user(self, user_id: int, username: str = None, 
                                 first_name: str = None, last_name: str = None):
-        """Add or update user - إضافة أو تحديث مستخدم"""
+        """Add or update user"""
         try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute('''
-                    SELECT user_id FROM bot_users WHERE user_id = ?
-                ''', (user_id,))
-                
-                existing = await cursor.fetchone()
-                
-                if existing:
-                    await conn.execute('''
-                        UPDATE bot_users 
-                        SET username = ?, 
-                            first_name = ?, 
-                            last_name = ?,
-                            last_active = CURRENT_TIMESTAMP
-                        WHERE user_id = ?
-                    ''', (
-                        username or '',
-                        first_name or '',
-                        last_name or '',
-                        user_id
-                    ))
-                else:
-                    await conn.execute('''
-                        INSERT INTO bot_users (user_id, username, first_name, last_name, added_date)
-                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    ''', (
-                        user_id,
-                        username or '',
-                        first_name or '',
-                        last_name or ''
-                    ))
-                
-                await conn.commit()
+            conn = await self._get_connection()
+            cursor = await conn.execute('''
+                SELECT user_id FROM bot_users WHERE user_id = ?
+            ''', (user_id,))
+            
+            existing = await cursor.fetchone()
+            
+            if existing:
+                await conn.execute('''
+                    UPDATE bot_users 
+                    SET username = ?, 
+                        first_name = ?, 
+                        last_name = ?,
+                        last_active = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                ''', (
+                    username or '',
+                    first_name or '',
+                    last_name or '',
+                    user_id
+                ))
+            else:
+                await conn.execute('''
+                    INSERT INTO bot_users (user_id, username, first_name, last_name, added_date)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    user_id,
+                    username or '',
+                    first_name or '',
+                    last_name or ''
+                ))
+            
+            await conn.commit()
+            await conn.close()
         except Exception as e:
-            logger.error(f"خطأ في إضافة/تحديث المستخدم: {e}")
+            logger.error(f"Error adding/updating user: {e}")
     
     async def get_user_stats(self, user_id: int):
-        """Get user statistics - الحصول على إحصائيات المستخدم"""
+        """Get user statistics"""
         try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute('''
-                    SELECT *, 
-                           (SELECT COUNT(*) FROM links WHERE added_by_user = ?) as total_links,
-                           (SELECT COUNT(*) FROM sessions WHERE added_by_user = ?) as total_sessions,
-                           julianday(CURRENT_TIMESTAMP) - julianday(added_date) as account_age_days
-                    FROM bot_users 
-                    WHERE user_id = ?
-                ''', (user_id, user_id, user_id))
-                
-                row = await cursor.fetchone()
-                if row:
-                    columns = [desc[0] for desc in cursor.description]
-                    return dict(zip(columns, row))
-                return None
+            conn = await self._get_connection()
+            cursor = await conn.execute('''
+                SELECT *, 
+                       (SELECT COUNT(*) FROM links WHERE added_by_user = ?) as total_links,
+                       (SELECT COUNT(*) FROM sessions WHERE added_by_user = ?) as total_sessions,
+                       julianday(CURRENT_TIMESTAMP) - julianday(added_date) as account_age_days
+                FROM bot_users 
+                WHERE user_id = ?
+            ''', (user_id, user_id, user_id))
+            
+            row = await cursor.fetchone()
+            await conn.close()
+            
+            if row:
+                columns = [desc[0] for desc in cursor.description]
+                return dict(zip(columns, row))
+            return None
         except Exception as e:
-            logger.error(f"خطأ في الحصول على إحصائيات المستخدم: {e}")
+            logger.error(f"Error getting user stats: {e}")
             return None
     
     async def close(self):
-        """Close database connection - إغلاق اتصال قاعدة البيانات"""
+        """Close database connection"""
         if self._pool:
             await self._pool.close()
             self._initialized = False
 
 # ======================
-# Advanced Collection Manager - مدير الجمع المتقدم
+# Advanced Collection Manager
 # ======================
 
 class AdvancedCollectionManager:
-    """Advanced collection management with no time limits for Telegram - إدارة جمع متقدمة بدون قيود زمنية لتيليجرام"""
+    """Advanced collection management"""
     
     def __init__(self):
         self.active = False
@@ -1467,7 +1463,7 @@ class AdvancedCollectionManager:
             'avg_session_duration': 0.0
         }
         
-        # بدون قيود زمنية لتيليجرام
+        # No time limits for Telegram
         self.whatsapp_cutoff = datetime.now() - timedelta(days=Config.WHATSAPP_DAYS_BACK)
         
         self.quality_filters = {
@@ -1483,9 +1479,7 @@ class AdvancedCollectionManager:
             ]
         }
         
-        self.task_manager = TaskManager()
-        self.rate_limiter = AdvancedRateLimiter()
-        self.collection_log = IntelligentLog(max_entries=500)
+        self.collection_log = deque(maxlen=500)
         
         self.system_state = {
             'memory_pressure': 'low',
@@ -1498,7 +1492,7 @@ class AdvancedCollectionManager:
         self.validation_tasks = set()
     
     async def start_collection(self, mode: str = 'balanced'):
-        """Start the advanced collection process with improved Telegram collection - بدء عملية الجمع المتقدمة مع جمع تيليجرام محسن"""
+        """Start the advanced collection process"""
         self.active = True
         self.paused = False
         self.stop_requested = False
@@ -1507,14 +1501,12 @@ class AdvancedCollectionManager:
         self.stats['current_session'] = self.stats['start_time'].strftime('%Y%m%d_%H%M%S')
         self.system_state['collection_mode'] = mode
         
-        logger.info(f"🚀 بدء عملية الجمع الذكية المتقدمة بدون قيود زمنية لتيليجرام - mode: {mode}, start_time: {self.stats['start_time'].isoformat()}, telegram_no_time_limit: {Config.TELEGRAM_NO_TIME_LIMIT}")
+        logger.info(f"🚀 Starting advanced collection - mode: {mode}, telegram_no_time_limit: {Config.TELEGRAM_NO_TIME_LIMIT}")
         
         try:
-            # بدء أنظمة المراقبة
-            self.task_manager.start_monitoring()
+            # Start monitoring systems
             asyncio.create_task(self._system_monitoring())
             asyncio.create_task(self._periodic_maintenance())
-            asyncio.create_task(self._adaptive_optimization())
             asyncio.create_task(self._process_join_requests())
             
             while self.active and not self.stop_requested:
@@ -1530,35 +1522,35 @@ class AdvancedCollectionManager:
                     await asyncio.sleep(delay)
         
         except Exception as e:
-            logger.error(f"❌ خطأ في عملية الجمع المتقدمة: {e}", exc_info=True)
+            logger.error(f"❌ Error in collection process: {e}")
             self.stats['errors'] += 1
-            self.collection_log.add('error', 'fatal', {'error': str(e)})
         
         finally:
             await self._graceful_shutdown()
     
     async def _enhanced_collection_cycle(self):
-        """Execute enhanced collection cycle with unlimited Telegram collection - تنفيذ دورة جمع محسنة مع جمع تيليجرام غير محدود"""
+        """Execute enhanced collection cycle"""
         cycle_start = datetime.now()
         cycle_id = f"cycle_{self.stats['cycles_completed']}_{secrets.token_hex(4)}"
         
-        logger.info(f"بدء دورة الجمع المحسنة {cycle_id}")
-        self.collection_log.add('cycle', 'start', {'cycle_id': cycle_id})
+        logger.info(f"Starting enhanced collection cycle {cycle_id}")
+        self.collection_log.append({'type': 'cycle_start', 'cycle_id': cycle_id, 'time': datetime.now().isoformat()})
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
             sessions = await db.get_active_sessions(limit=Config.MAX_CONCURRENT_SESSIONS * 2)
             
             if not sessions:
-                logger.warning("لا توجد جلسات نشطة متاحة")
-                self.collection_log.add('cycle', 'no_sessions')
+                logger.warning("No active sessions available")
+                self.collection_log.append({'type': 'no_sessions', 'time': datetime.now().isoformat()})
                 return
             
-            healthy_sessions = [s for s in sessions if s.get('health_status', 'poor') in ['excellent', 'good', 'fair']]
+            # Select healthy sessions
+            healthy_sessions = [s for s in sessions if s.get('health_score', 0) >= 50]
             
             if not healthy_sessions:
-                logger.warning("لا توجد جلسات صحية متاحة")
-                self.collection_log.add('cycle', 'no_healthy_sessions')
+                logger.warning("No healthy sessions available")
+                self.collection_log.append({'type': 'no_healthy_sessions', 'time': datetime.now().isoformat()})
                 return
             
             max_sessions = self._calculate_optimal_session_count()
@@ -1570,12 +1562,12 @@ class AdvancedCollectionManager:
                     break
                 
                 task = self._process_session_unlimited(session, i, cycle_id)
-                tasks.append(task)
+                tasks.append(asyncio.create_task(task))
             
             if not tasks:
                 return
             
-            results = await self.task_manager.execute_tasks(tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             
             successful = sum(1 for r in results if not isinstance(r, Exception))
             failed = len(results) - successful
@@ -1591,28 +1583,27 @@ class AdvancedCollectionManager:
                 self.performance['avg_session_duration'] * (self.stats['cycles_completed'] - 1) + cycle_duration
             ) / self.stats['cycles_completed']
             
-            self.collection_log.add('cycle', 'complete', {
+            self.collection_log.append({
+                'type': 'cycle_complete', 
                 'cycle_id': cycle_id,
                 'duration': cycle_duration,
                 'sessions_processed': successful,
-                'sessions_failed': failed,
-                'stats_snapshot': self.stats.copy()
+                'sessions_failed': failed
             })
             
-            logger.info(f"اكتملت دورة {cycle_id}: {successful} ناجحة، {failed} فاشلة - duration: {cycle_duration}, performance_score: {self.stats['performance_score']}")
+            logger.info(f"Cycle {cycle_id} completed: {successful} successful, {failed} failed")
             
         except Exception as e:
-            logger.error(f"خطأ في دورة الجمع المحسنة: {e}", exc_info=True)
+            logger.error(f"Error in collection cycle: {e}")
             self.stats['errors'] += 1
-            self.collection_log.add('cycle', 'error', {'error': str(e)})
     
     async def _process_session_unlimited(self, session: Dict, index: int, cycle_id: str):
-        """Process session with unlimited Telegram collection - معالجة جلسة مع جمع تيليجرام غير محدود"""
+        """Process session with unlimited Telegram collection"""
         session_id = session.get('id')
         session_hash = session.get('session_hash')
         added_by_user = session.get('added_by_user', 0)
         
-        logger.info(f"معالجة الجلسة {session_id} في دورة {cycle_id} (جمع غير محدود)")
+        logger.info(f"Processing session {session_id} in cycle {cycle_id}")
         
         if index > 0:
             delay = self._calculate_session_delay(index)
@@ -1624,8 +1615,8 @@ class AdvancedCollectionManager:
             actual_session = decrypted_session or session.get('session_string', '')
             
             if not actual_session or actual_session == '********':
-                logger.error(f"جلسة {session_id} غير متاحة")
-                return {'session_id': session_id, 'status': 'error', 'reason': 'جلسة غير متاحة'}
+                logger.error(f"Session {session_id} not available")
+                return {'session_id': session_id, 'status': 'error', 'reason': 'Session not available'}
             
             client = TelegramClient(
                 StringSession(actual_session),
@@ -1643,20 +1634,21 @@ class AdvancedCollectionManager:
             
             if not await client.is_user_authorized():
                 await client.disconnect()
-                logger.error(f"الجلسة {session_id} غير مصرح بها")
-                return {'session_id': session_id, 'status': 'error', 'reason': 'غير مصرح'}
+                logger.error(f"Session {session_id} not authorized")
+                return {'session_id': session_id, 'status': 'error', 'reason': 'Not authorized'}
             
-            # جمع الروابط بدون قيود زمنية
+            # Collect links without time limits
             collected_links = await self._collect_all_telegram_links(client, session_id, added_by_user, cycle_id)
             
-            # تحديث استخدام الجلسة
+            # Update session usage
             db = await EnhancedDatabaseManager.get_instance()
-            async with db._get_connection() as conn:
-                await conn.execute(
-                    "UPDATE sessions SET last_used = CURRENT_TIMESTAMP, total_uses = total_uses + 1 WHERE id = ?",
-                    (session_id,)
-                )
-                await conn.commit()
+            conn = await db._get_connection()
+            await conn.execute(
+                "UPDATE sessions SET last_used = CURRENT_TIMESTAMP, total_uses = total_uses + 1, total_links = total_links + ? WHERE id = ?",
+                (len(collected_links), session_id)
+            )
+            await conn.commit()
+            await conn.close()
             
             await client.disconnect()
             
@@ -1672,87 +1664,52 @@ class AdvancedCollectionManager:
             }
             
         except FloodWaitError as e:
-            logger.warning(f"انتظار flood للجلسة {session_id}: {e.seconds} ثانية")
-            
+            logger.warning(f"Flood wait for session {session_id}: {e.seconds} seconds")
             self.stats['flood_waits'] += 1
-            self.collection_log.add('session', 'flood_wait', {
-                'session_id': session_id,
-                'wait_seconds': e.seconds
-            })
-            
             await asyncio.sleep(e.seconds + Config.REQUEST_DELAYS['flood_wait'])
-            raise
+            return {'session_id': session_id, 'status': 'flood_wait', 'wait_seconds': e.seconds}
             
         except Exception as e:
-            logger.error(f"خطأ في معالجة الجلسة {session_id}: {e}", exc_info=True)
+            logger.error(f"Error processing session {session_id}: {e}")
             self.stats['errors'] += 1
-            
-            await self._update_session_health(session_id, False)
-            
-            self.collection_log.add('session', 'error', {
-                'session_id': session_id,
-                'error': str(e)
-            })
-            
-            raise
+            return {'session_id': session_id, 'status': 'error', 'reason': str(e)}
     
     async def _collect_all_telegram_links(self, client: TelegramClient, session_id: int, 
                                          added_by_user: int, cycle_id: str) -> List[Dict]:
-        """Collect all Telegram links without time limits - جمع جميع روابط تيليجرام بدون قيود زمنية"""
+        """Collect all Telegram links without time limits"""
         collected = []
         
         strategies = [
             self._strategy_all_dialogs,
-            self._strategy_search_all_messages,
-            self._strategy_group_messages,
-            self._strategy_channel_messages
+            self._strategy_search_all_messages
         ]
         
-        selected_strategies = self._select_strategies()
-        
-        for strategy in selected_strategies:
+        for strategy in strategies:
             if not self.active or self.stop_requested or self.paused:
                 break
             
             try:
                 strategy_name = strategy.__name__
-                logger.debug(f"تنفيذ استراتيجية {strategy_name} للجلسة {session_id}")
-                
                 strategy_links = await strategy(client, session_id, added_by_user)
                 collected.extend(strategy_links)
-                
-                self.collection_log.add('strategy', 'success', {
-                    'session_id': session_id,
-                    'strategy': strategy_name,
-                    'links_collected': len(strategy_links)
-                })
                 
                 await asyncio.sleep(self._calculate_strategy_delay())
                 
             except Exception as e:
-                logger.error(f"خطأ في استراتيجية الجمع: {e}")
-                self.collection_log.add('strategy', 'error', {
-                    'session_id': session_id,
-                    'strategy': strategy.__name__,
-                    'error': str(e)
-                })
+                logger.error(f"Error in collection strategy: {e}")
                 continue
         
         return collected
     
     async def _strategy_all_dialogs(self, client: TelegramClient, session_id: int, 
                                    added_by_user: int) -> List[Dict]:
-        """Collect from all dialogs (no time limit) - الجمع من جميع الدردشات (بدون حد زمني)"""
+        """Collect from all dialogs"""
         collected = []
         
         try:
             dialogs = []
             async for dialog in client.iter_dialogs(limit=Config.MAX_DIALOGS_PER_SESSION):
                 dialogs.append(dialog)
-            
-            # ترتيب عشوائي لتجنب الأنماط
-            import random
-            random.shuffle(dialogs)
             
             for dialog in dialogs:
                 if not self.active or self.stop_requested or self.paused:
@@ -1761,32 +1718,56 @@ class AdvancedCollectionManager:
                 try:
                     entity = dialog.entity
                     
-                    # جمع جميع أنواع الروابط من الدردشة
-                    dialog_links = await self._collect_from_dialog(client, entity, session_id, added_by_user)
-                    collected.extend(dialog_links)
+                    # Collect links from chat description
+                    if hasattr(entity, 'about') and entity.about:
+                        links = self._extract_all_links(entity.about)
+                        for link in links:
+                            link_info = await self._process_link_enhanced(
+                                client, link, session_id, added_by_user
+                            )
+                            if link_info:
+                                collected.append(link_info)
+                    
+                    # Collect links from recent messages
+                    try:
+                        async for message in client.iter_messages(entity, limit=5):
+                            if not message.text:
+                                continue
+                            
+                            links = self._extract_all_links(message.text)
+                            for link in links:
+                                link_info = await self._process_link_enhanced(
+                                    client, link, session_id, added_by_user,
+                                    message.date if hasattr(message, 'date') else None
+                                )
+                                if link_info:
+                                    collected.append(link_info)
+                            
+                            if len(collected) >= 3:
+                                break
+                    except:
+                        pass
                     
                     await asyncio.sleep(Config.REQUEST_DELAYS['normal'])
                     
                 except Exception as e:
-                    logger.debug(f"خطأ في معالجة الدردشة: {e}")
+                    logger.debug(f"Error processing dialog: {e}")
                     continue
         
         except Exception as e:
-            logger.error(f"خطأ في استراتيجية جميع الدردشات: {e}")
+            logger.error(f"Error in all dialogs strategy: {e}")
         
         return collected
     
     async def _strategy_search_all_messages(self, client: TelegramClient, session_id: int, 
                                            added_by_user: int) -> List[Dict]:
-        """Search for all links in messages (no time limit) - البحث عن جميع الروابط في الرسائل (بدون حد زمني)"""
+        """Search for all links in messages"""
         collected = []
         
         search_terms = [
             "مجموعة", "قناة", "انضمام", "رابط", "دعوة",
             "group", "channel", "join", "link", "invite",
-            "t.me", "telegram.me", "chat.whatsapp.com",
-            "discord.gg", "signal.group",
-            "https://t.me/", "https://telegram.me/"
+            "t.me", "telegram.me", "chat.whatsapp.com"
         ]
         
         for term in search_terms[:Config.MAX_SEARCH_TERMS]:
@@ -1794,14 +1775,9 @@ class AdvancedCollectionManager:
                 break
             
             try:
-                links_found = 0
-                
-                # البحث في جميع الدردشات
-                async for dialog in client.iter_dialogs(limit=20):
+                # Search in all dialogs
+                async for dialog in client.iter_dialogs(limit=10):
                     if not self.active or self.stop_requested or self.paused:
-                        break
-                    
-                    if links_found >= Config.MAX_LINKS_PER_CYCLE // 2:
                         break
                     
                     try:
@@ -1817,16 +1793,13 @@ class AdvancedCollectionManager:
                                 extracted_links = self._extract_all_links(message.text)
                                 
                                 for raw_url in extracted_links:
-                                    if len(collected) >= Config.MAX_LINKS_PER_CYCLE:
-                                        return collected
-                                    
                                     normalized_url = EnhancedLinkProcessor.normalize_url(raw_url)
                                     cache_key = f"url_{hashlib.md5(normalized_url.encode()).hexdigest()}"
                                     
                                     if await self.cache_manager.exists(cache_key, 'processed_urls'):
                                         continue
                                     
-                                    # معالجة الرابط
+                                    # Process link
                                     link_info = await self._process_link_enhanced(
                                         client, normalized_url, session_id, added_by_user, 
                                         message.date if hasattr(message, 'date') else None
@@ -1835,215 +1808,25 @@ class AdvancedCollectionManager:
                                     if link_info:
                                         collected.append(link_info)
                                         await self.cache_manager.set(cache_key, True, 'processed_urls', 86400)
-                                        links_found += 1
-                                        
-                                        if links_found >= 5:
-                                            break
                         
                         await asyncio.sleep(Config.REQUEST_DELAYS['between_tasks'])
                     
                     except Exception as e:
-                        logger.debug(f"خطأ في البحث في الدردشة: {e}")
+                        logger.debug(f"Error searching in dialog: {e}")
                         continue
                 
                 await asyncio.sleep(Config.REQUEST_DELAYS['search'])
             
             except Exception as e:
-                logger.error(f"خطأ في البحث عن مصطلح '{term}': {e}")
+                logger.error(f"Error searching for term '{term}': {e}")
                 continue
-        
-        return collected
-    
-    async def _strategy_group_messages(self, client: TelegramClient, session_id: int, 
-                                      added_by_user: int) -> List[Dict]:
-        """Collect links specifically from groups - جمع الروابط من المجموعات بشكل خاص"""
-        collected = []
-        
-        try:
-            async for dialog in client.iter_dialogs(limit=30):
-                if not self.active or self.stop_requested or self.paused:
-                    break
-                
-                try:
-                    entity = dialog.entity
-                    
-                    # التحقق إذا كانت مجموعة
-                    if isinstance(entity, (types.Channel, types.Chat)):
-                        if isinstance(entity, types.Channel) and entity.broadcast:
-                            continue  # تخطي القنوات
-                        
-                        # جمع رسائل المجموعة
-                        group_links = await self._collect_from_group_messages(
-                            client, entity, session_id, added_by_user
-                        )
-                        collected.extend(group_links)
-                        
-                        await asyncio.sleep(Config.REQUEST_DELAYS['normal'] * 2)
-                
-                except Exception as e:
-                    logger.debug(f"خطأ في معالجة المجموعة: {e}")
-                    continue
-        
-        except Exception as e:
-            logger.error(f"خطأ في استراتيجية مجموعات الرسائل: {e}")
-        
-        return collected
-    
-    async def _strategy_channel_messages(self, client: TelegramClient, session_id: int, 
-                                        added_by_user: int) -> List[Dict]:
-        """Collect links specifically from channels - جمع الروابط من القنوات بشكل خاص"""
-        collected = []
-        
-        try:
-            async for dialog in client.iter_dialogs(limit=20):
-                if not self.active or self.stop_requested or self.paused:
-                    break
-                
-                try:
-                    entity = dialog.entity
-                    
-                    # التحقق إذا كانت قناة
-                    if isinstance(entity, types.Channel) and entity.broadcast:
-                        channel_links = await self._collect_from_channel_messages(
-                            client, entity, session_id, added_by_user
-                        )
-                        collected.extend(channel_links)
-                        
-                        await asyncio.sleep(Config.REQUEST_DELAYS['normal'] * 2)
-                
-                except Exception as e:
-                    logger.debug(f"خطأ في معالجة القناة: {e}")
-                    continue
-        
-        except Exception as e:
-            logger.error(f"خطأ في استراتيجية قنوات الرسائل: {e}")
-        
-        return collected
-    
-    async def _collect_from_dialog(self, client: TelegramClient, entity, 
-                                  session_id: int, added_by_user: int) -> List[Dict]:
-        """Collect links from a specific dialog - جمع الروابط من دردشة محددة"""
-        collected = []
-        
-        try:
-            # جمع معلومات الكيان
-            entity_info = await self._get_entity_info(client, entity)
-            
-            # جمع روابط من الوصف
-            if hasattr(entity, 'about') and entity.about:
-                links = self._extract_all_links(entity.about)
-                for link in links:
-                    link_info = await self._process_link_enhanced(
-                        client, link, session_id, added_by_user
-                    )
-                    if link_info:
-                        collected.append(link_info)
-            
-            # جمع الروابط من الرسائل الحديثة
-            try:
-                async for message in client.iter_messages(entity, limit=10):
-                    if not message.text:
-                        continue
-                    
-                    links = self._extract_all_links(message.text)
-                    for link in links:
-                        link_info = await self._process_link_enhanced(
-                            client, link, session_id, added_by_user,
-                            message.date if hasattr(message, 'date') else None
-                        )
-                        if link_info:
-                            collected.append(link_info)
-                    
-                    if len(collected) >= 5:
-                        break
-            except:
-                pass
-        
-        except Exception as e:
-            logger.debug(f"خطأ في جمع الروابط من الدردشة: {e}")
-        
-        return collected
-    
-    async def _collect_from_group_messages(self, client: TelegramClient, entity, 
-                                          session_id: int, added_by_user: int) -> List[Dict]:
-        """Collect links from group messages - جمع الروابط من رسائل المجموعة"""
-        collected = []
-        
-        try:
-            # البحث عن روابط في الرسائل
-            search_terms = ['رابط', 'دعوة', 'انضمام', 'مجموعة', 'link', 'invite', 'join', 'group']
-            
-            for term in search_terms[:3]:
-                try:
-                    async for message in client.iter_messages(
-                        entity,
-                        search=term,
-                        limit=5
-                    ):
-                        if not message.text:
-                            continue
-                        
-                        links = self._extract_all_links(message.text)
-                        for link in links:
-                            link_info = await self._process_link_enhanced(
-                                client, link, session_id, added_by_user,
-                                message.date if hasattr(message, 'date') else None
-                            )
-                            if link_info:
-                                collected.append(link_info)
-                        
-                        if len(collected) >= 3:
-                            break
-                
-                except Exception as e:
-                    logger.debug(f"خطأ في البحث في المجموعة: {e}")
-                    continue
-        
-        except Exception as e:
-            logger.debug(f"خطأ في جمع روابط المجموعة: {e}")
-        
-        return collected
-    
-    async def _collect_from_channel_messages(self, client: TelegramClient, entity, 
-                                            session_id: int, added_by_user: int) -> List[Dict]:
-        """Collect links from channel messages - جمع الروابط من رسائل القناة"""
-        collected = []
-        
-        try:
-            # القنوات غالباً تحتوي على روابط في الوصف والرسائل المثبتة
-            if hasattr(entity, 'about') and entity.about:
-                links = self._extract_all_links(entity.about)
-                for link in links:
-                    link_info = await self._process_link_enhanced(
-                        client, link, session_id, added_by_user
-                    )
-                    if link_info:
-                        collected.append(link_info)
-            
-            # التحقق من الرسائل المثبتة
-            try:
-                pinned = await client.get_messages(entity, ids=0)  # الرسالة المثبتة
-                if pinned and hasattr(pinned, 'text') and pinned.text:
-                    links = self._extract_all_links(pinned.text)
-                    for link in links:
-                        link_info = await self._process_link_enhanced(
-                            client, link, session_id, added_by_user,
-                            pinned.date if hasattr(pinned, 'date') else None
-                        )
-                        if link_info:
-                            collected.append(link_info)
-            except:
-                pass
-        
-        except Exception as e:
-            logger.debug(f"خطأ في جمع روابط القناة: {e}")
         
         return collected
     
     async def _process_link_enhanced(self, client: TelegramClient, url: str, 
                                     session_id: int, added_by_user: int,
                                     message_date=None) -> Optional[Dict]:
-        """Process link with enhanced Telegram validation - معالجة الرابط مع تحقق تيليجرام محسن"""
+        """Process link with enhanced validation"""
         try:
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
@@ -2052,12 +1835,12 @@ class AdvancedCollectionManager:
             
             platform = url_info['platform']
             
-            # تطبيق قيود زمنية فقط لواتساب
+            # Apply time limits only for WhatsApp
             if platform == 'whatsapp' and message_date:
                 if message_date < self.whatsapp_cutoff:
                     return None
             
-            # جودة الرابط
+            # Link quality check
             quality_check = self._check_link_quality_enhanced(url_info)
             if not quality_check['passed']:
                 return None
@@ -2068,7 +1851,7 @@ class AdvancedCollectionManager:
             if cached_info:
                 return self._create_link_info_from_cache(url, url_info, cached_info, session_id, added_by_user)
             
-            # التحقق المتقدم لروابط تيليجرام
+            # Advanced validation for Telegram links
             if platform == 'telegram' and Config.ENABLE_ADVANCED_VALIDATION:
                 validated = await EnhancedLinkProcessor.validate_telegram_link_advanced(
                     client, url, check_join_request=False
@@ -2079,7 +1862,7 @@ class AdvancedCollectionManager:
             if validated.get('is_valid', False) and validated.get('is_active', True):
                 link_info = self._create_link_info(url, url_info, validated, session_id, added_by_user, message_date)
                 
-                # تخزين في الكاش
+                # Store in cache
                 await self.cache_manager.set(cache_key, {
                     'link_type': validated.get('type', 'unknown'),
                     'title': validated.get('title', ''),
@@ -2089,26 +1872,35 @@ class AdvancedCollectionManager:
                     'requires_join': validated.get('requires_join', False),
                     'is_channel': validated.get('is_channel', False),
                     'is_group': validated.get('is_group', False)
-                }, 'validated_links', 172800)  # 48 ساعة
+                }, 'validated_links', 172800)
                 
-                # تحديث الإحصائيات
+                # Update statistics
                 self._update_collection_stats_enhanced(url_info, validated)
                 
-                # معالجة خاصة لروابط الانضمام
+                # Special handling for join request links
                 if validated.get('requires_join', False) or url_info['details'].get('is_join_request', False):
                     await self._handle_join_request_link(url, url_info, validated, added_by_user)
+                
+                # Save to database
+                db = await EnhancedDatabaseManager.get_instance()
+                success, message, details = await db.add_link_enhanced(link_info)
+                
+                if success:
+                    logger.debug(f"Link saved: {url}")
+                else:
+                    logger.debug(f"Link not saved: {message}")
                 
                 return link_info
             
             return None
             
         except Exception as e:
-            logger.error(f"خطأ في معالجة الرابط المحسن {url}: {e}")
+            logger.error(f"Error processing link {url}: {e}")
             return None
     
     def _create_link_info(self, url: str, url_info: Dict, validated: Dict, 
                          session_id: int, added_by_user: int, message_date=None) -> Dict:
-        """Create link information dictionary - إنشاء قاموس معلومات الرابط"""
+        """Create link information dictionary"""
         details = url_info['details']
         
         return {
@@ -2130,7 +1922,6 @@ class AdvancedCollectionManager:
             'metadata': {
                 'collected_at': datetime.now().isoformat(),
                 'message_date': message_date.isoformat() if message_date else None,
-                'quality_score': self._calculate_quality_score(url_info, validated),
                 'verification_method': validated.get('method', 'enhanced'),
                 'is_channel': validated.get('is_channel', False),
                 'is_group': validated.get('is_group', True),
@@ -2143,7 +1934,7 @@ class AdvancedCollectionManager:
     
     def _create_link_info_from_cache(self, url: str, url_info: Dict, cached_info: Dict,
                                     session_id: int, added_by_user: int) -> Dict:
-        """Create link info from cache - إنشاء معلومات الرابط من الكاش"""
+        """Create link info from cache"""
         return {
             'url': url,
             'url_hash': url_info['url_hash'],
@@ -2162,7 +1953,6 @@ class AdvancedCollectionManager:
             'validation_score': cached_info.get('validation_score', 50),
             'metadata': {
                 'collected_at': datetime.now().isoformat(),
-                'quality_score': 80,
                 'verification_method': 'cached',
                 'is_channel': cached_info.get('is_channel', False),
                 'is_group': cached_info.get('is_group', True),
@@ -2174,11 +1964,11 @@ class AdvancedCollectionManager:
         }
     
     async def _handle_join_request_link(self, url: str, url_info: Dict, validated: Dict, added_by_user: int):
-        """Handle join request link specifically - معالجة رابط طلب الانضمام بشكل خاص"""
+        """Handle join request link"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
             
-            # إضافة لقائمة الانتظار للتحقق لاحقاً
+            # Add to pending list for later verification
             await db.add_pending_join_link(url, 'telegram', {
                 'validation_info': validated,
                 'added_by_user': added_by_user,
@@ -2187,13 +1977,13 @@ class AdvancedCollectionManager:
             
             self.stats['join_links_found'] += 1
             
-            logger.info(f"تمت إضافة رابط انضمام للتحقق: {url}")
+            logger.info(f"Join link added for verification: {url}")
             
         except Exception as e:
-            logger.error(f"خطأ في معالجة رابط الانضمام: {e}")
+            logger.error(f"Error handling join link: {e}")
     
     async def _process_join_requests(self):
-        """Process pending join requests - معالجة طلبات الانضمام المعلقة"""
+        """Process pending join requests"""
         while self.active and not self.stop_requested:
             try:
                 if self.paused:
@@ -2201,13 +1991,13 @@ class AdvancedCollectionManager:
                     continue
                 
                 db = await EnhancedDatabaseManager.get_instance()
-                pending_links = await db.get_pending_join_links(limit=10)
+                pending_links = await db.get_pending_join_links(limit=5)
                 
                 if not pending_links:
                     await asyncio.sleep(Config.JOIN_REQUEST_CHECK_DELAY)
                     continue
                 
-                logger.info(f"جاري معالجة {len(pending_links)} رابط انضمام معلق")
+                logger.info(f"Processing {len(pending_links)} pending join links")
                 
                 for pending_link in pending_links:
                     if not self.active or self.stop_requested or self.paused:
@@ -2219,23 +2009,22 @@ class AdvancedCollectionManager:
                 await asyncio.sleep(Config.JOIN_REQUEST_CHECK_DELAY)
                 
             except Exception as e:
-                logger.error(f"خطأ في معالجة طلبات الانضمام: {e}")
+                logger.error(f"Error processing join requests: {e}")
                 await asyncio.sleep(30)
     
     async def _validate_single_join_request(self, pending_link: Dict):
-        """Validate a single join request - التحقق من طلب انضمام واحد"""
+        """Validate a single join request"""
         try:
             url = pending_link['url']
             pending_id = pending_link['id']
-            metadata = pending_link.get('metadata', {})
             
-            # الحصول على جلسة للتحقق
+            # Get session for validation
             db = await EnhancedDatabaseManager.get_instance()
             sessions = await db.get_active_sessions(limit=1)
             
             if not sessions:
                 await db.update_pending_link_status(pending_id, 'failed', {
-                    'error': 'لا توجد جلسات متاحة للتحقق'
+                    'error': 'No sessions available for verification'
                 })
                 return
             
@@ -2246,7 +2035,7 @@ class AdvancedCollectionManager:
             
             if not actual_session or actual_session == '********':
                 await db.update_pending_link_status(pending_id, 'failed', {
-                    'error': 'الجلسة غير متاحة'
+                    'error': 'Session not available'
                 })
                 return
             
@@ -2262,21 +2051,21 @@ class AdvancedCollectionManager:
             if not await client.is_user_authorized():
                 await client.disconnect()
                 await db.update_pending_link_status(pending_id, 'failed', {
-                    'error': 'الجلسة غير مصرح بها'
+                    'error': 'Session not authorized'
                 })
                 return
             
-            # التحقق من رابط الانضمام
+            # Validate join link
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
             if not url_info['is_valid']:
                 await client.disconnect()
                 await db.update_pending_link_status(pending_id, 'invalid', {
-                    'error': 'رابط غير صالح'
+                    'error': 'Invalid URL'
                 })
                 return
             
-            # التحقق المتقدم
+            # Advanced validation
             validated = await EnhancedLinkProcessor.validate_telegram_link_advanced(
                 client, url, check_join_request=True
             )
@@ -2284,7 +2073,7 @@ class AdvancedCollectionManager:
             await client.disconnect()
             
             if validated.get('is_valid', False) and validated.get('is_active', True):
-                # إضافة الرابط للقاعدة الرئيسية
+                # Add link to main database
                 link_info = {
                     'url': url,
                     'url_hash': url_info['url_hash'],
@@ -2294,7 +2083,7 @@ class AdvancedCollectionManager:
                     'title': validated.get('title', ''),
                     'members': validated.get('members', 0),
                     'session_id': session['id'],
-                    'added_by_user': metadata.get('added_by_user', 0),
+                    'added_by_user': pending_link.get('metadata', {}).get('added_by_user', 0),
                     'confidence': 'high',
                     'is_active': True,
                     'requires_join': validated.get('requires_join', True),
@@ -2323,31 +2112,31 @@ class AdvancedCollectionManager:
                     
                     self.stats['join_links_validated'] += 1
                     
-                    logger.info(f"تم التحقق من رابط الانضمام: {url}")
+                    logger.info(f"Join link verified: {url}")
                 else:
                     await db.update_pending_link_status(pending_id, 'failed', {
-                        'error': f'فشل الإضافة: {message}'
+                        'error': f'Failed to add: {message}'
                     })
             else:
                 await db.update_pending_link_status(pending_id, 'invalid', {
-                    'error': validated.get('reason', 'رابط غير صالح'),
+                    'error': validated.get('reason', 'Invalid link'),
                     'validation_info': validated
                 })
             
         except Exception as e:
-            logger.error(f"خطأ في التحقق من رابط الانضمام {pending_link.get('url')}: {e}")
+            logger.error(f"Error validating join link {pending_link.get('url')}: {e}")
             await db.update_pending_link_status(pending_id, 'failed', {
-                'error': f'خطأ في التحقق: {str(e)[:100]}'
+                'error': f'Validation error: {str(e)[:100]}'
             })
     
     def _check_link_quality_enhanced(self, url_info: Dict) -> Dict:
-        """Check link quality with enhanced criteria - التحقق من جودة الرابط بمعايير محسنة"""
+        """Check link quality with enhanced criteria"""
         score = 100
         reasons = []
         
         url = url_info['normalized_url']
         
-        # فحص الطول
+        # Check length
         if len(url) < self.quality_filters['min_url_length']:
             score -= 20
             reasons.append('url_too_short')
@@ -2356,7 +2145,7 @@ class AdvancedCollectionManager:
             score -= 15
             reasons.append('url_too_long')
         
-        # فحص الأنماط المسموحة
+        # Check allowed patterns
         pattern_matched = False
         for pattern in self.quality_filters['allowed_patterns']:
             if re.match(pattern, url):
@@ -2367,59 +2156,22 @@ class AdvancedCollectionManager:
             score -= 30
             reasons.append('pattern_not_allowed')
         
-        # فحص المنصة
+        # Check platform
         if url_info['platform'] == 'unknown':
             score -= 40
             reasons.append('unknown_platform')
         
-        # فحص خاص لروابط تيليجرام
-        if url_info['platform'] == 'telegram':
-            details = url_info['details']
-            
-            # زيادة النقاط لروابط الانضمام
-            if details.get('is_join_request'):
-                score += 20
-            
-            # زيادة النقاط للمجموعات العامة
-            if details.get('is_public'):
-                score += 10
-        
         return {
-            'passed': score >= 40,  # تخفيض الحد الأدنى
+            'passed': score >= 40,
             'score': score,
             'reasons': reasons
         }
     
-    def _calculate_quality_score(self, url_info: Dict, validated: Dict) -> int:
-        """Calculate quality score for link - حساب درجة الجودة للرابط"""
-        base_score = 70
-        
-        # إضافة نقاط للمعلومات الإضافية
-        if validated.get('title'):
-            base_score += 10
-        
-        if validated.get('members', 0) > 100:
-            base_score += 10
-        
-        if validated.get('is_verified', False):
-            base_score += 20
-        
-        if not validated.get('requires_join', True):
-            base_score += 10
-        
-        # روابط الانضمام تحصل على نقاط إضافية
-        if url_info['details'].get('is_join_request', False):
-            base_score += 15
-        
-        return min(100, base_score)
-    
     def _update_collection_stats_enhanced(self, url_info: Dict, validation: Dict):
-        """Update collection statistics with enhanced Telegram classification - تحديث إحصائيات الجمع مع تصنيف تيليجرام محسن"""
+        """Update collection statistics"""
         platform = url_info['platform']
         
         if platform == 'telegram':
-            link_type = validation.get('type', 'unknown')
-            
             if validation.get('is_channel', False):
                 self.stats['telegram_channels'] += 1
             elif validation.get('is_supergroup', False):
@@ -2444,7 +2196,7 @@ class AdvancedCollectionManager:
         self.stats['total_collected'] += 1
     
     def _extract_all_links(self, text: str) -> List[str]:
-        """Extract all links from text - استخراج جميع الروابط من النص"""
+        """Extract all links from text"""
         if not text:
             return []
         
@@ -2456,7 +2208,7 @@ class AdvancedCollectionManager:
             r'(discord\.gg/[^\s<>"\']+)',
             r'(signal\.group/[^\s<>"\']+)',
             r'(joinchat/[^\s<>"\']+)',
-            r'(\+[A-Za-z0-9_-]+)'  # روابط +joinchat
+            r'(\+[A-Za-z0-9_-]+)'
         ]
         
         all_links = []
@@ -2464,7 +2216,7 @@ class AdvancedCollectionManager:
             links = re.findall(pattern, text, re.IGNORECASE)
             all_links.extend(links)
         
-        # تصفية وتحسين الروابط
+        # Filter and improve links
         filtered_links = []
         for link in all_links:
             link = link.strip()
@@ -2474,51 +2226,34 @@ class AdvancedCollectionManager:
         
         return list(set(filtered_links))
     
-    async def _get_entity_info(self, client: TelegramClient, entity) -> Dict:
-        """Get entity information - الحصول على معلومات الكيان"""
-        try:
-            if hasattr(entity, 'title'):
-                return {
-                    'title': entity.title,
-                    'type': 'channel' if hasattr(entity, 'broadcast') and entity.broadcast else 'group'
-                }
-            elif hasattr(entity, 'username'):
-                return {
-                    'username': entity.username,
-                    'type': 'user'
-                }
-        except:
-            pass
-        
-        return {'type': 'unknown'}
-    
     async def _update_session_health(self, session_id: int, success: bool):
-        """Update session health score - تحديث درجة صحة الجلسة"""
+        """Update session health score"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
-            async with db._get_connection() as conn:
-                if success:
-                    await conn.execute('''
-                        UPDATE sessions 
-                        SET health_score = MIN(100, health_score + 5),
-                            last_success = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ''', (session_id,))
-                else:
-                    await conn.execute('''
-                        UPDATE sessions 
-                        SET health_score = MAX(0, health_score - 10)
-                        WHERE id = ?
-                    ''', (session_id,))
-                
-                await conn.commit()
-                
+            if success:
+                await conn.execute('''
+                    UPDATE sessions 
+                    SET health_score = MIN(100, health_score + 5),
+                        last_success = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (session_id,))
+            else:
+                await conn.execute('''
+                    UPDATE sessions 
+                    SET health_score = MAX(0, health_score - 10)
+                    WHERE id = ?
+                ''', (session_id,))
+            
+            await conn.commit()
+            await conn.close()
+            
         except Exception as e:
-            logger.debug(f"خطأ في تحديث صحة الجلسة: {e}")
+            logger.debug(f"Error updating session health: {e}")
     
     def _calculate_optimal_session_count(self) -> int:
-        """Calculate optimal number of concurrent sessions - حساب العدد الأمثل للجلسات المتزامنة"""
+        """Calculate optimal number of concurrent sessions"""
         base_count = Config.MAX_CONCURRENT_SESSIONS
         
         if self.system_state['memory_pressure'] == 'high':
@@ -2528,29 +2263,22 @@ class AdvancedCollectionManager:
         elif self.system_state['network_status'] == 'poor':
             return max(1, base_count // 2)
         
-        return min(base_count, 20)
+        return min(base_count, 10)
     
     def _calculate_adaptive_delay(self) -> float:
-        """Calculate adaptive delay between cycles - حساب تأخير متكيف بين الدورات"""
+        """Calculate adaptive delay between cycles"""
         base_delay = Config.REQUEST_DELAYS['min_cycle_delay']
         max_delay = Config.REQUEST_DELAYS['max_cycle_delay']
         
         error_penalty = min(self.stats['errors'] * 1.5, 20)
         flood_penalty = min(self.stats['flood_waits'] * 3, 30)
-        performance_bonus = max(0, (self.stats['performance_score'] - 80) / 2)
         
-        system_modifier = 0
-        if self.system_state['memory_pressure'] == 'high':
-            system_modifier += 15
-        if self.system_state['network_status'] == 'poor':
-            system_modifier += 10
-        
-        calculated_delay = base_delay + error_penalty + flood_penalty + system_modifier - performance_bonus
+        calculated_delay = base_delay + error_penalty + flood_penalty
         
         return max(base_delay, min(calculated_delay, max_delay))
     
     def _calculate_session_delay(self, index: int) -> float:
-        """Calculate delay between sessions - حساب التأخير بين الجلسات"""
+        """Calculate delay between sessions"""
         base_delay = Config.REQUEST_DELAYS['between_sessions']
         incremental_delay = index * 0.3
         
@@ -2560,27 +2288,11 @@ class AdvancedCollectionManager:
         return base_delay + incremental_delay
     
     def _calculate_strategy_delay(self) -> float:
-        """Calculate delay between strategies - حساب التأخير بين الاستراتيجيات"""
+        """Calculate delay between strategies"""
         return Config.REQUEST_DELAYS['between_tasks']
     
-    def _select_strategies(self) -> List:
-        """Select collection strategies - اختيار استراتيجيات الجمع"""
-        all_strategies = [
-            self._strategy_all_dialogs,
-            self._strategy_search_all_messages,
-            self._strategy_group_messages,
-            self._strategy_channel_messages
-        ]
-        
-        if self.system_state['memory_pressure'] == 'low' and self.system_state['network_status'] == 'good':
-            return all_strategies[:3]
-        elif self.system_state['memory_pressure'] == 'high':
-            return [self._strategy_all_dialogs]
-        else:
-            return all_strategies[:2]
-    
     async def _update_system_state(self):
-        """Update system state - تحديث حالة النظام"""
+        """Update system state"""
         memory_usage = self.memory_manager.get_memory_percent()
         
         if memory_usage > 85:
@@ -2603,26 +2315,21 @@ class AdvancedCollectionManager:
         self.system_state['last_health_check'] = datetime.now()
     
     async def _optimize_between_cycles(self):
-        """Optimize system between cycles - تحسين النظام بين الدورات"""
+        """Optimize system between cycles"""
         memory_result = self.memory_manager.check_and_optimize()
         
         if memory_result['optimized']:
-            logger.info(f"تم تحسين الذاكرة بين الدورات - saved_mb: {memory_result.get('saved_mb', 0)}, duration_ms: {memory_result.get('duration_ms', 0)}")
+            logger.info(f"Memory optimized between cycles - saved_mb: {memory_result.get('saved_mb', 0)}")
         
         await self.cache_manager.cleanup_expired()
         
-        cache_stats = self.cache_manager.get_stats()
-        self.performance['cache_hit_rate'] = float(cache_stats['hit_ratio'].rstrip('%')) / 100
         self.performance['memory_usage_mb'] = self.memory_manager.get_memory_usage()
         
         self._calculate_performance_score()
     
     def _calculate_performance_score(self):
-        """Calculate performance score - حساب درجة الأداء"""
+        """Calculate performance score"""
         scores = []
-        
-        cache_score = self.performance['cache_hit_rate'] * 100
-        scores.append(cache_score)
         
         success_score = self.performance['success_rate'] * 100
         scores.append(success_score)
@@ -2635,14 +2342,12 @@ class AdvancedCollectionManager:
             self.stats['performance_score'] = sum(scores) / len(scores)
     
     async def _system_monitoring(self):
-        """Monitor system health - مراقبة صحة النظام"""
+        """Monitor system health"""
         while self.active and not self.stop_requested:
             try:
                 system_metrics = {
                     'memory_usage_mb': self.memory_manager.get_memory_usage(),
                     'memory_percent': self.memory_manager.get_memory_percent(),
-                    'cache_stats': self.cache_manager.get_stats(),
-                    'task_manager_stats': self.task_manager.get_stats(),
                     'collection_stats': self.stats.copy(),
                     'performance_metrics': self.performance.copy(),
                     'timestamp': datetime.now().isoformat()
@@ -2654,63 +2359,48 @@ class AdvancedCollectionManager:
                 await asyncio.sleep(60)
                 
             except Exception as e:
-                logger.error(f"خطأ في مراقبة النظام: {e}")
+                logger.error(f"Error in system monitoring: {e}")
                 await asyncio.sleep(30)
     
     async def _store_system_metrics(self, metrics: Dict):
-        """Store system metrics - تخزين مقاييس النظام"""
+        """Store system metrics"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
-            async with db._get_connection() as conn:
-                for key, value in metrics.items():
-                    if key != 'timestamp':
-                        await conn.execute('''
-                            INSERT INTO system_stats (metric_name, metric_value, metadata)
-                            VALUES (?, ?, ?)
-                        ''', (key, str(value), json.dumps({'timestamp': metrics['timestamp']})))
-                
-                await conn.commit()
-                
+            for key, value in metrics.items():
+                if key != 'timestamp':
+                    await conn.execute('''
+                        INSERT INTO system_stats (metric_name, metric_value, metadata)
+                        VALUES (?, ?, ?)
+                    ''', (key, str(value), json.dumps({'timestamp': metrics['timestamp']})))
+            
+            await conn.commit()
+            await conn.close()
+            
         except Exception as e:
-            logger.debug(f"خطأ في تخزين مقاييس النظام: {e}")
+            logger.debug(f"Error storing system metrics: {e}")
     
     async def _check_critical_issues(self, metrics: Dict):
-        """Check for critical issues - التحقق من المشكلات الحرجة"""
+        """Check for critical issues"""
         warnings = []
         
         if metrics['memory_percent'] > 90:
-            warnings.append(f"استخدام ذاكرة حرج: {metrics['memory_percent']:.1f}%")
+            warnings.append(f"Critical memory usage: {metrics['memory_percent']:.1f}%")
         
         if self.stats['errors'] > 50:
-            warnings.append(f"عدد أخطاء مرتفع: {self.stats['errors']}")
+            warnings.append(f"High error count: {self.stats['errors']}")
         
         if self.performance['success_rate'] < 0.3:
-            warnings.append(f"معدل نجاح منخفض: {self.performance['success_rate']:.1%}")
+            warnings.append(f"Low success rate: {self.performance['success_rate']:.1%}")
         
         if warnings:
-            logger.warning(f"مشكلات نظام حرجة: {', '.join(warnings)}")
-            
-            try:
-                db = await EnhancedDatabaseManager.get_instance()
-                
-                async with db._get_connection() as conn:
-                    await conn.execute('''
-                        INSERT INTO error_log (error_type, error_message, metadata)
-                        VALUES (?, ?, ?)
-                    ''', ('system_warning', '; '.join(warnings), json.dumps(metrics)))
-                    
-                    await conn.commit()
-                    
-            except Exception as e:
-                logger.debug(f"خطأ في تسجيل تحذير النظام: {e}")
+            logger.warning(f"Critical system issues: {', '.join(warnings)}")
     
     async def _periodic_maintenance(self):
-        """Perform periodic maintenance - تنفيذ الصيانة الدورية"""
+        """Perform periodic maintenance"""
         while self.active and not self.stop_requested:
             try:
-                await EnhancedSessionManager.cleanup_inactive_sessions()
-                
                 if Config.BACKUP_ENABLED:
                     await BackupManager.rotate_backups()
                 
@@ -2720,146 +2410,99 @@ class AdvancedCollectionManager:
                 await asyncio.sleep(300)
                 
             except Exception as e:
-                logger.error(f"خطأ في الصيانة الدورية: {e}")
+                logger.error(f"Error in periodic maintenance: {e}")
                 await asyncio.sleep(60)
     
     async def _optimize_database(self):
-        """Optimize database - تحسين قاعدة البيانات"""
+        """Optimize database"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
-            async with db._get_connection() as conn:
-                await conn.execute("ANALYZE")
-                await conn.execute("REINDEX")
-                await conn.execute("VACUUM")
-                await conn.commit()
-                
-                logger.debug("تم تحسين قاعدة البيانات")
-                
+            await conn.execute("ANALYZE")
+            await conn.execute("VACUUM")
+            await conn.commit()
+            await conn.close()
+            
+            logger.debug("Database optimized")
+            
         except Exception as e:
-            logger.debug(f"خطأ في تحسين قاعدة البيانات: {e}")
+            logger.debug(f"Error optimizing database: {e}")
     
     async def _cleanup_old_logs(self):
-        """Cleanup old logs - تنظيف السجلات القديمة"""
+        """Cleanup old logs"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
-            async with db._get_connection() as conn:
-                await conn.execute('''
-                    DELETE FROM error_log 
-                    WHERE occurred_at < datetime('now', '-7 days')
-                ''')
-                
-                await conn.execute('''
-                    DELETE FROM system_stats 
-                    WHERE recorded_at < datetime('now', '-30 days')
-                ''')
-                
-                await conn.commit()
-                
-                logger.debug("تم تنظيف السجلات القديمة")
-                
+            await conn.execute('''
+                DELETE FROM error_log 
+                WHERE occurred_at < datetime('now', '-7 days')
+            ''')
+            
+            await conn.execute('''
+                DELETE FROM system_stats 
+                WHERE recorded_at < datetime('now', '-30 days')
+            ''')
+            
+            await conn.commit()
+            await conn.close()
+            
+            logger.debug("Old logs cleaned up")
+            
         except Exception as e:
-            logger.debug(f"خطأ في تنظيف السجلات: {e}")
-    
-    async def _adaptive_optimization(self):
-        """Perform adaptive optimization - تنفيذ التحسين المتكيف"""
-        while self.active and not self.stop_requested:
-            try:
-                if self.stats['performance_score'] < 60:
-                    logger.warning(f"درجة أداء منخفضة: {self.stats['performance_score']:.1f}")
-                    await self._execute_performance_optimizations()
-                
-                if self.stats['quality_score'] < 50:
-                    logger.warning(f"جودة بيانات منخفضة: {self.stats['quality_score']:.1f}")
-                    self._adjust_quality_filters()
-                
-                await asyncio.sleep(600)
-                
-            except Exception as e:
-                logger.error(f"خطأ في التحسين المتكيف: {e}")
-                await asyncio.sleep(60)
-    
-    async def _execute_performance_optimizations(self):
-        """Execute performance optimizations - تنفيذ تحسينات الأداء"""
-        optimizations = []
-        
-        if self.system_state['memory_pressure'] == 'high':
-            self.cache_manager.optimize()
-            optimizations.append("تحسين الكاش")
-        
-        if self.performance['concurrent_tasks'] > 3:
-            self.task_manager.adjust_concurrency(-1)
-            optimizations.append("تقليل المهام المتزامنة")
-        
-        memory_saved = self.memory_manager.optimize_memory()
-        if memory_saved > 10:
-            optimizations.append(f"تحسين الذاكرة ({memory_saved:.1f} MB)")
-        
-        if optimizations:
-            logger.info(f"تم تنفيذ تحسينات الأداء: {', '.join(optimizations)}")
-    
-    def _adjust_quality_filters(self):
-        """Adjust quality filters - ضبط عوامل تصفية الجودة"""
-        if self.stats['quality_score'] < 40:
-            self.quality_filters['min_url_length'] = 12
-            logger.info("تم زيادة صرامة فلاتر الجودة")
-        elif self.stats['quality_score'] > 80:
-            self.quality_filters['min_url_length'] = 8
-            logger.info("تم تخفيف فلاتر الجودة")
+            logger.debug(f"Error cleaning logs: {e}")
     
     async def _graceful_shutdown(self):
-        """Perform graceful shutdown - تنفيذ إغلاق سلس"""
-        logger.info("بدء الإغلاق السلس لنظام الجمع...")
+        """Perform graceful shutdown"""
+        logger.info("Starting graceful shutdown of collection system...")
         
         self.active = False
         self.paused = False
         self.stats['end_time'] = datetime.now()
         
-        self.task_manager.stop_monitoring()
         self.cache_manager.clear()
-        EnhancedSessionManager.clear_cache()
         self.memory_manager.optimize_memory()
         
         await self._save_final_stats()
         
-        logger.info(f"✅ اكتمل الإغلاق السلس. الإحصائيات: {self.stats}")
+        logger.info(f"✅ Graceful shutdown completed. Stats: {self.stats}")
     
     async def _save_final_stats(self):
-        """Save final statistics - حفظ الإحصائيات النهائية"""
+        """Save final statistics"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
             stats_data = {
                 'stats': self.stats,
                 'performance': self.performance,
-                'system_state': self.system_state,
-                'collection_log_summary': self.collection_log.get_summary()
+                'system_state': self.system_state
             }
             
-            async with db._get_connection() as conn:
-                await conn.execute('''
-                    INSERT INTO collection_sessions 
-                    (session_uid, start_time, end_time, status, stats, duration_seconds, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    self.stats['current_session'],
-                    self.stats['start_time'].isoformat() if self.stats['start_time'] else None,
-                    self.stats['end_time'].isoformat() if self.stats['end_time'] else None,
-                    'completed',
-                    json.dumps(self.stats),
-                    int((self.stats['end_time'] - self.stats['start_time']).total_seconds()) 
-                    if self.stats['start_time'] and self.stats['end_time'] else 0,
-                    json.dumps(stats_data)
-                ))
-                
-                await conn.commit()
-                
+            await conn.execute('''
+                INSERT INTO collection_sessions 
+                (session_uid, start_time, end_time, status, stats, duration_seconds, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                self.stats['current_session'],
+                self.stats['start_time'].isoformat() if self.stats['start_time'] else None,
+                self.stats['end_time'].isoformat() if self.stats['end_time'] else None,
+                'completed',
+                json.dumps(self.stats),
+                int((self.stats['end_time'] - self.stats['start_time']).total_seconds()) 
+                if self.stats['start_time'] and self.stats['end_time'] else 0,
+                json.dumps(stats_data)
+            ))
+            
+            await conn.commit()
+            await conn.close()
+            
         except Exception as e:
-            logger.error(f"خطأ في حفظ الإحصائيات النهائية: {e}")
+            logger.error(f"Error saving final stats: {e}")
     
     def get_status(self) -> Dict:
-        """Get collection status - الحصول على حالة الجمع"""
+        """Get collection status"""
         return {
             'active': self.active,
             'paused': self.paused,
@@ -2867,37 +2510,28 @@ class AdvancedCollectionManager:
             'stats': self.stats.copy(),
             'performance': self.performance.copy(),
             'system_state': self.system_state.copy(),
-            'cache_stats': self.cache_manager.get_stats(),
             'memory': self.memory_manager.get_metrics(),
-            'task_manager': self.task_manager.get_stats(),
-            'collection_log': self.collection_log.get_summary(),
             'timestamp': datetime.now().isoformat()
         }
     
     async def pause(self):
-        """Pause collection - إيقاف الجمع مؤقتاً"""
+        """Pause collection"""
         self.paused = True
-        self.task_manager.pause()
-        
-        logger.info(f"⏸️ تم إوقف الجمع مؤقتاً مع الحفاظ على الحالة")
+        logger.info("⏸️ Collection paused")
     
     async def resume(self):
-        """Resume collection - استئناف الجمع"""
+        """Resume collection"""
         self.paused = False
-        self.task_manager.resume()
-        
-        logger.info("▶️ تم استئناف الجمع")
+        logger.info("▶️ Collection resumed")
     
     async def stop(self):
-        """Stop collection - إوقف الجمع"""
+        """Stop collection"""
         self.stop_requested = True
-        
-        logger.info("⏹️ تم طلب إيقاف الجمع بسلاسة")
-        
+        logger.info("⏹️ Collection stop requested")
         await asyncio.sleep(2)
     
     async def get_detailed_report(self) -> Dict:
-        """Get detailed report - الحصول على تقرير مفصل"""
+        """Get detailed report"""
         db = await EnhancedDatabaseManager.get_instance()
         db_stats = await db.get_stats_summary_enhanced(detailed=True)
         
@@ -2905,144 +2539,80 @@ class AdvancedCollectionManager:
             'collection_status': self.get_status(),
             'database_stats': db_stats,
             'system_health': {
-                'memory': self.memory_manager.get_metrics(),
-                'cache': self.cache_manager.get_stats(),
-                'tasks': self.task_manager.get_stats(),
-                'sessions': EnhancedSessionManager.get_all_metrics()
+                'memory': self.memory_manager.get_metrics()
             },
-            'recent_activity': self.collection_log.get_recent_entries(50),
             'recommendations': self._generate_recommendations()
         }
     
     def _generate_recommendations(self) -> List[str]:
-        """Generate recommendations - توليد توصيات"""
+        """Generate recommendations"""
         recommendations = []
         
         memory_percent = self.memory_manager.get_memory_percent()
         if memory_percent > 80:
-            recommendations.append("⚠️ استخدام ذاكرة مرتفع. فكر في زيادة حجم الكاش أو تقليل المهام المتزامنة.")
+            recommendations.append("⚠️ High memory usage. Consider increasing cache size or reducing concurrent tasks.")
         
         if self.stats['performance_score'] < 70:
-            recommendations.append("⚡ درجة أداء منخفضة. فكر في زيادة تأخيرات الدورة أو تحسين الاستراتيجيات.")
-        
-        if self.stats['quality_score'] < 60:
-            recommendations.append("🎯 جودة البيانات منخفضة. فكر في تشديد فلاتر الجودة أو تحسين التحقق.")
-        
-        session_metrics = EnhancedSessionManager.get_all_metrics()
-        if session_metrics['unhealthy_sessions'] > 3:
-            recommendations.append("🔧 عدد الجلسات غير الصحية مرتفع. فكر في إعادة التحقق من الجلسات أو استبدالها.")
+            recommendations.append("⚡ Low performance score. Consider increasing cycle delays or improving strategies.")
         
         return recommendations
 
 # ======================
-# Advanced Telegram Bot - بوت تيليجرام المتقدم
+# Advanced Telegram Bot
 # ======================
 
 class AdvancedTelegramBot:
-    """Advanced Telegram bot with unlimited collection features - بوت تيليجرام متقدم بمميزات جمع غير محدودة"""
+    """Advanced Telegram bot with collection features"""
     
     def __init__(self):
         self.collection_manager = AdvancedCollectionManager()
-        self.security_manager = AdvancedSecurityManager()
         
+        # Initialize application
         self.app = ApplicationBuilder().token(Config.BOT_TOKEN).build()
         
-        self._setup_advanced_handlers()
+        # Setup handlers
+        self._setup_handlers()
         
         self.user_states = defaultdict(dict)
-        self.conversation_states = {}
+        self.user_sessions = defaultdict(list)
         
-        self.help_system = HelpSystem()
-        self.notification_system = NotificationSystem()
+        logger.info("AdvancedTelegramBot initialized")
     
-    def _setup_advanced_handlers(self):
-        """Setup advanced handlers - إعداد معالجات متقدمة"""
-        self.app.add_handler(CommandHandler("start", self.advanced_start_command))
-        self.app.add_handler(CommandHandler("help", self.advanced_help_command))
-        self.app.add_handler(CommandHandler("status", self.advanced_status_command))
-        self.app.add_handler(CommandHandler("stats", self.advanced_stats_command))
-        self.app.add_handler(CommandHandler("sessions", self.advanced_sessions_command))
-        self.app.add_handler(CommandHandler("export", self.advanced_export_command))
-        self.app.add_handler(CommandHandler("backup", self.advanced_backup_command))
-        self.app.add_handler(CommandHandler("cleanup", self.advanced_cleanup_command))
-        self.app.add_handler(CommandHandler("security", self.security_command))
-        self.app.add_handler(CommandHandler("report", self.report_command))
-        self.app.add_handler(CommandHandler("settings", self.settings_command))
+    def _setup_handlers(self):
+        """Setup all bot handlers"""
+        # Command handlers
+        self.app.add_handler(CommandHandler("start", self.start_command))
+        self.app.add_handler(CommandHandler("help", self.help_command))
+        self.app.add_handler(CommandHandler("status", self.status_command))
+        self.app.add_handler(CommandHandler("stats", self.stats_command))
         self.app.add_handler(CommandHandler("collect", self.collect_command))
+        self.app.add_handler(CommandHandler("export", self.export_command))
+        self.app.add_handler(CommandHandler("sessions", self.sessions_command))
+        self.app.add_handler(CommandHandler("addsession", self.add_session_command))
+        self.app.add_handler(CommandHandler("backup", self.backup_command))
         
-        self.app.add_handler(CallbackQueryHandler(self.handle_advanced_callback))
+        # Callback query handler
+        self.app.add_handler(CallbackQueryHandler(self.callback_handler))
         
+        # Message handler
         self.app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, 
-            self.handle_advanced_message
+            self.message_handler
         ))
         
+        # Error handler
         self.app.add_error_handler(self.error_handler)
     
-    async def collect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /collect command - معالجة أمر /collect"""
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command"""
         user = update.effective_user
         
-        access, message, _ = await self.security_manager.check_access(user.id, 'collect')
-        if not access:
-            await update.message.reply_text(f"❌ {message}")
+        # Check access
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized to use this bot.")
             return
         
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")],
-            [InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
-            [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")],
-            [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")],
-            [InlineKeyboardButton("📋 تقرير الجمع", callback_data="collect_report")],
-            [InlineKeyboardButton("⚙️ إعدادات الجمع", callback_data="collect_settings")]
-        ])
-        
-        await update.message.reply_text(
-            "🚀 **نظام الجمع المتقدم**\n\n"
-            "**مميزات الجمع:**\n"
-            "• 📢 تيليجرام: جمع غير محدود بدون قيود زمنية\n"
-            "• 📱 واتساب: جمع من آخر 30 يوماً فقط\n"
-            "• 🔍 كشف ذكي: تفريق بين المجموعات والقنوات\n"
-            "• ⏱️ تحقق من طلبات الانضمام: 30 ثانية لكل رابط\n\n"
-            f"**الحدود المحسنة:**\n"
-            f"• 🔥 أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة\n"
-            f"• 📥 أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير\n"
-            f"• 👥 أقصى {Config.MAX_SESSIONS_PER_USER} جلسة لكل مستخدم\n\n"
-            "**أنواع الروابط المدعومة:**\n"
-            "• المجموعات العامة والخاصة\n"
-            "• القنوات\n"
-            "• طلبات الانضمام (+)\n"
-            "• مجموعات واتساب\n"
-            "• دعوات ديسكورد وسيجنال\n",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-    
-    async def advanced_start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command - معالجة أمر /start"""
-        user = update.effective_user
-        
-        access, message, details = await self.security_manager.check_access(
-            user.id,
-            'start',
-            {
-                'username': user.username,
-                'first_name': user.first_name,
-                'chat_id': update.effective_chat.id
-            }
-        )
-        
-        if not access:
-            await update.message.reply_text(f"❌ {message}")
-            
-            if self.security_manager.is_admin(user.id):
-                await self.notification_system.send_security_alert(
-                    f"محاولة وصول مرفوضة: {user.id} (@{user.username})",
-                    details
-                )
-            
-            return
-        
+        # Add/update user in database
         db = await EnhancedDatabaseManager.get_instance()
         await db.add_or_update_user(
             user.id,
@@ -3051,368 +2621,1055 @@ class AdvancedTelegramBot:
             user.last_name
         )
         
-        self.user_states[user.id] = {
-            'last_command': 'start',
-            'access_level': details.get('access_level'),
-            'timestamp': datetime.now()
-        }
-        
-        welcome_text = self.help_system.get_welcome_message(user, details)
-        
-        keyboard = self._create_main_keyboard(user.id)
-        
-        await update.message.reply_text(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
-        
-        user_stats = await db.get_user_stats(user.id)
-        if user_stats and user_stats.get('account_age_days', 365) < 1:
-            await self._send_welcome_tutorial(update.message, user)
-    
-    async def advanced_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /status command - معالجة أمر /status"""
-        user = update.effective_user
-        
-        access, message, _ = await self.security_manager.check_access(user.id, 'status')
-        if not access:
-            await update.message.reply_text(f"❌ {message}")
-            return
-        
-        self.user_states[user.id]['last_command'] = 'status'
-        
-        status = self.collection_manager.get_status()
-        
-        memory_metrics = MemoryManager.get_instance().get_metrics()
-        cache_stats = CacheManager.get_instance().get_stats()
-        
-        status_text = f"""
-📊 **حالة النظام المتقدمة - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**
+        # Create welcome message
+        welcome_text = f"""
+🤖 **Welcome {user.first_name}!**
 
-**🔧 حالة الجمع:**
-"""
-        
-        if status['active']:
-            if status['paused']:
-                status_text += "⏸️ **موقف مؤقتاً**\n"
-            elif status['stop_requested']:
-                status_text += "🛑 **جاري الإيقاف...**\n"
-            else:
-                status_text += "🔄 **نشط**\n"
-                
-                if status['stats']['start_time']:
-                    duration = datetime.now() - status['stats']['start_time']
-                    status_text += f"   ⏱️ المدة: {self._format_duration(duration)}\n"
-                    status_text += f"   🔄 الدورات: {status['stats']['cycles_completed']}\n"
-        else:
-            status_text += "🛑 **متوقف**\n"
-        
-        status_text += f"""
-**📈 إحصائيات الجمع (تيليجرام غير محدود):**
-• 📦 المجموع: {status['stats']['total_collected']:,}
-• 📢 مجموعات عامة: {status['stats']['telegram_public']:,}
-• 🔒 مجموعات خاصة: {status['stats']['telegram_private']:,}
-• ➕ طلبات انضمام: {status['stats']['telegram_join']:,}
-• 📢 قنوات: {status['stats']['telegram_channels']:,}
-• 👥 مجموعات عادية: {status['stats']['telegram_groups']:,}
-• ⭐ مجموعات خارقة: {status['stats']['telegram_supergroups']:,}
-• 📱 واتساب: {status['stats']['whatsapp_groups']:,}
-• 🔄 مكررات: {status['stats']['duplicates']:,}
-• ⏱️ روابط انضمام وجدت: {status['stats']['join_links_found']:,}
-• ✅ روابط انضمام تم التحقق: {status['stats']['join_links_validated']:,}
+🚀 **Advanced Link Collection Bot**
 
-**⚡ أداء النظام:**
-• 🎯 درجة الأداء: {status['stats']['performance_score']:.1f}/100
-• 💾 نسبة الكاش: {status['performance']['cache_hit_rate']:.1%}
-• 🧠 الذاكرة: {status['memory']['current_mb']:.1f} MB
-• 📶 حالة الشبكة: {status['system_state']['network_status']}
-• ⚖️ ضغط الذاكرة: {status['system_state']['memory_pressure']}
+**Features:**
+• Unlimited Telegram link collection
+• WhatsApp group collection (last 30 days)
+• Advanced link validation
+• Smart filtering and deduplication
+• Export in multiple formats
+• Session management
+• Automatic backups
 
-**🔥 الحدود المحسنة:**
-• أقصى جلسات متزامنة: {Config.MAX_CONCURRENT_SESSIONS}
-• أقصى تصدير روابط: {Config.MAX_EXPORT_LINKS:,}
-• أقصى جلسات لكل مستخدم: {Config.MAX_SESSIONS_PER_USER}
+**Commands:**
+/start - Start the bot
+/help - Show help menu
+/status - Show bot status
+/stats - Show statistics
+/collect - Start collection
+/export - Export links
+/sessions - Manage sessions
+/addsession - Add new session
+/backup - Create backup
 
-**👤 حالتك:**
-"""
-        
-        db = await EnhancedDatabaseManager.get_instance()
-        user_stats = await db.get_user_stats(user.id)
-        
-        if user_stats:
-            status_text += f"""• 🆔 المعرف: {user.id}
-• 👤 الاسم: {user_stats.get('first_name', '')} {user_stats.get('last_name', '')}
-• 📅 العضو منذ: {user_stats.get('account_age_days', 0)} يوم
-• 📊 طلباتك: {user_stats.get('request_count', 0):,}
-• 🔗 روابطك: {user_stats.get('total_links', 0):,}
-• 💼 جلساتك: {user_stats.get('total_sessions', 0)} / {Config.MAX_SESSIONS_PER_USER}
-"""
-        
-        recommendations = status.get('recommendations', [])
-        if recommendations:
-            status_text += "\n**💡 التوصيات:**\n"
-            for rec in recommendations[:3]:
-                status_text += f"• {rec}\n"
+**Ready to start?** Use /collect to begin collecting links!
+        """
         
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 تحديث مفصل", callback_data="refresh_detailed")],
-            [InlineKeyboardButton("📊 إحصائيات كاملة", callback_data="full_stats")],
-            [InlineKeyboardButton("⚡ تحسين الأداء", callback_data="optimize_performance")],
-            [InlineKeyboardButton("📋 تقرير النظام", callback_data="system_report")]
+            [InlineKeyboardButton("🚀 Start Collection", callback_data="start_collect")],
+            [InlineKeyboardButton("📊 View Stats", callback_data="view_stats")],
+            [InlineKeyboardButton("➕ Add Session", callback_data="add_session")],
+            [InlineKeyboardButton("❓ Help", callback_data="show_help")]
+        ])
+        
+        await update.message.reply_text(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help command"""
+        help_text = """
+📚 **Help Guide**
+
+**Basic Commands:**
+• /start - Start the bot
+• /help - Show this help message
+• /status - Show bot status
+• /stats - Show statistics
+
+**Collection Commands:**
+• /collect - Start/stop collection
+• /export - Export collected links
+• /sessions - Manage your sessions
+• /addsession - Add a new session
+
+**Administration Commands:**
+• /backup - Create database backup
+• /cleanup - Clean old data
+
+**How to add a session:**
+1. Get your Telegram session string
+2. Use /addsession command
+3. Send your session string
+4. The bot will validate and add it
+
+**Collection Process:**
+1. Add at least one session
+2. Use /collect to start
+3. Bot will collect links automatically
+4. Use /export to get your links
+
+**Need more help?** Contact the administrator.
+        """
+        
+        await update.message.reply_text(help_text, parse_mode="Markdown")
+    
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /status command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Get collection status
+        collection_status = self.collection_manager.get_status()
+        
+        # Get database stats
+        db = await EnhancedDatabaseManager.get_instance()
+        db_stats = await db.get_stats_summary_enhanced()
+        
+        status_text = f"""
+📊 **Bot Status - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**
+
+**Collection Status:**
+"""
+        
+        if collection_status['active']:
+            if collection_status['paused']:
+                status_text += "⏸️ **Paused**\n"
+            elif collection_status['stop_requested']:
+                status_text += "🛑 **Stopping...**\n"
+            else:
+                status_text += "🔄 **Active**\n"
+                if collection_status['stats']['start_time']:
+                    duration = datetime.now() - collection_status['stats']['start_time']
+                    status_text += f"   Duration: {self._format_duration(duration)}\n"
+                    status_text += f"   Cycles: {collection_status['stats']['cycles_completed']}\n"
+        else:
+            status_text += "🛑 **Stopped**\n"
+        
+        status_text += f"""
+**Collection Statistics:**
+• Total Links: {collection_status['stats']['total_collected']:,}
+• Telegram Groups: {collection_status['stats']['telegram_groups']:,}
+• Telegram Channels: {collection_status['stats']['telegram_channels']:,}
+• Join Requests: {collection_status['stats']['telegram_join']:,}
+• WhatsApp Groups: {collection_status['stats']['whatsapp_groups']:,}
+• Errors: {collection_status['stats']['errors']:,}
+
+**Database Statistics:**
+• Total Links: {db_stats.get('total_links', 0):,}
+• Active Sessions: {db_stats.get('active_sessions', 0)}
+• Total Users: {db_stats.get('total_users', 0)}
+
+**System Performance:**
+• Memory Usage: {collection_status['memory']['current_mb']:.1f} MB
+• Performance Score: {collection_status['stats']['performance_score']:.1f}/100
+• Success Rate: {collection_status['performance']['success_rate']:.1%}
+        """
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_status")],
+            [InlineKeyboardButton("🚀 Start Collect", callback_data="start_collect")],
+            [InlineKeyboardButton("⏸️ Pause Collect", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ Stop Collect", callback_data="stop_collect")]
         ])
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
     
-    async def handle_advanced_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle advanced callback - معالجة الاستدعاء المتقدم"""
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Get detailed statistics
+        db = await EnhancedDatabaseManager.get_instance()
+        db_stats = await db.get_stats_summary_enhanced(detailed=True)
+        
+        stats_text = f"""
+📈 **Detailed Statistics - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**
+
+**Overall Statistics:**
+• Total Links: {db_stats.get('total_links', 0):,}
+• Active Links: {db_stats.get('active_links', 0):,}
+• Verified Links: {db_stats.get('verified_links', 0):,}
+• Requires Join: {db_stats.get('requires_join', 0):,}
+• Active Sessions: {db_stats.get('active_sessions', 0)}
+
+**Links by Platform:**
+"""
+        
+        for platform, count in db_stats.get('links_by_platform', {}).items():
+            stats_text += f"• {platform.title()}: {count:,}\n"
+        
+        stats_text += "\n**Telegram Classification:**\n"
+        telegram_details = db_stats.get('telegram_details', [])
+        if telegram_details:
+            for detail in telegram_details[:5]:  # Show top 5
+                type_name = detail['type'] or 'unknown'
+                if detail['is_channel']:
+                    type_name = "Channel"
+                elif detail['is_supergroup']:
+                    type_name = "Supergroup"
+                elif detail['is_group']:
+                    type_name = "Group"
+                
+                stats_text += f"• {type_name}: {detail['count']:,}\n"
+        
+        # Daily activity
+        daily_activity = db_stats.get('daily_activity', {})
+        if daily_activity:
+            stats_text += "\n**Last 7 Days Activity:**\n"
+            for date_str, count in list(daily_activity.items())[:5]:  # Last 5 days
+                stats_text += f"• {date_str}: {count:,}\n"
+        
+        # User statistics
+        user_stats = await db.get_user_stats(user.id)
+        if user_stats:
+            stats_text += f"""
+**Your Statistics:**
+• User ID: {user.id}
+• Account Age: {user_stats.get('account_age_days', 0):.0f} days
+• Total Requests: {user_stats.get('request_count', 0):,}
+• Links Added: {user_stats.get('total_links', 0):,}
+• Sessions Added: {user_stats.get('total_sessions', 0)}
+            """
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📤 Export Links", callback_data="export_links")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_stats")],
+            [InlineKeyboardButton("📊 Full Report", callback_data="full_report")]
+        ])
+        
+        await update.message.reply_text(stats_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def collect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /collect command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Check if user has sessions
+        db = await EnhancedDatabaseManager.get_instance()
+        user_sessions = await self._get_user_sessions(user.id)
+        
+        if not user_sessions:
+            await update.message.reply_text(
+                "❌ You don't have any active sessions.\n"
+                "Please add a session first using /addsession command."
+            )
+            return
+        
+        collection_status = self.collection_manager.get_status()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Start Collection", callback_data="start_collect")],
+            [InlineKeyboardButton("⏸️ Pause Collection", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ Stop Collection", callback_data="stop_collect")],
+            [InlineKeyboardButton("📊 Collection Status", callback_data="collect_status")],
+            [InlineKeyboardButton("📋 Collection Report", callback_data="collect_report")]
+        ])
+        
+        collect_text = f"""
+🚀 **Collection Management**
+
+**Current Status:**
+"""
+        
+        if collection_status['active']:
+            if collection_status['paused']:
+                collect_text += "⏸️ **Paused**\n"
+            else:
+                collect_text += "🔄 **Active**\n"
+                collect_text += f"• Links Collected: {collection_status['stats']['total_collected']:,}\n"
+                collect_text += f"• Cycles Completed: {collection_status['stats']['cycles_completed']:,}\n"
+        else:
+            collect_text += "🛑 **Stopped**\n"
+        
+        collect_text += f"""
+**Your Sessions:**
+• Active Sessions: {len(user_sessions)}
+• Max Sessions Allowed: {Config.MAX_SESSIONS_PER_USER}
+
+**Collection Features:**
+• Unlimited Telegram collection
+• WhatsApp (last 30 days only)
+• Advanced link validation
+• Automatic deduplication
+• Join request verification
+
+**Ready to start?** Click 'Start Collection' below!
+        """
+        
+        await update.message.reply_text(collect_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /export command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Get user's links count
+        db = await EnhancedDatabaseManager.get_instance()
+        user_stats = await db.get_user_stats(user.id)
+        link_count = user_stats.get('total_links', 0) if user_stats else 0
+        
+        if link_count == 0:
+            await update.message.reply_text(
+                "❌ You don't have any links to export.\n"
+                "Start collection first using /collect command."
+            )
+            return
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📄 Export as Text", callback_data="export_text")],
+            [InlineKeyboardButton("📊 Export as CSV", callback_data="export_csv")],
+            [InlineKeyboardButton("🎯 Export Telegram Only", callback_data="export_telegram")],
+            [InlineKeyboardButton("📱 Export WhatsApp Only", callback_data="export_whatsapp")],
+            [InlineKeyboardButton("⚙️ Custom Export", callback_data="export_custom")]
+        ])
+        
+        export_text = f"""
+📤 **Export Links**
+
+**Your Statistics:**
+• Total Links: {link_count:,}
+• Max Export Limit: {Config.MAX_EXPORT_LINKS:,}
+
+**Export Options:**
+1. **Text File** - Simple text file with links
+2. **CSV File** - CSV with link details
+3. **Telegram Only** - Only Telegram links
+4. **WhatsApp Only** - Only WhatsApp links
+5. **Custom Export** - Filter by type, date, etc.
+
+**Note:** Large exports may take some time to prepare.
+        """
+        
+        await update.message.reply_text(export_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /sessions command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Get user's sessions
+        user_sessions = await self._get_user_sessions(user.id)
+        
+        sessions_text = f"""
+💼 **Your Sessions**
+
+**Session Limit:** {Config.MAX_SESSIONS_PER_USER}
+**Current Sessions:** {len(user_sessions)}
+        """
+        
+        if not user_sessions:
+            sessions_text += "\n❌ You don't have any sessions.\nUse /addsession to add your first session."
+        else:
+            sessions_text += "\n\n**Your Active Sessions:**\n"
+            for i, session in enumerate(user_sessions[:10], 1):  # Show first 10
+                phone = session.get('phone_number', 'N/A')
+                username = session.get('username', 'N/A')
+                health = session.get('health_score', 0)
+                
+                # Health indicator
+                if health >= 80:
+                    health_indicator = "🟢"
+                elif health >= 50:
+                    health_indicator = "🟡"
+                else:
+                    health_indicator = "🔴"
+                
+                sessions_text += f"{i}. {health_indicator} {phone} (@{username})\n"
+                sessions_text += f"   Uses: {session.get('total_uses', 0)}, Links: {session.get('total_links', 0)}\n"
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Add Session", callback_data="add_session")],
+            [InlineKeyboardButton("🗑️ Remove Session", callback_data="remove_session")],
+            [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_sessions")]
+        ])
+        
+        await update.message.reply_text(sessions_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def add_session_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /addsession command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Check session limit
+        user_sessions = await self._get_user_sessions(user.id)
+        if len(user_sessions) >= Config.MAX_SESSIONS_PER_USER:
+            await update.message.reply_text(
+                f"❌ You have reached the maximum session limit ({Config.MAX_SESSIONS_PER_USER}).\n"
+                "Please remove some sessions before adding new ones."
+            )
+            return
+        
+        # Set user state to wait for session string
+        self.user_states[user.id] = {
+            'state': 'awaiting_session',
+            'timestamp': datetime.now()
+        }
+        
+        instructions = """
+📱 **How to Add a Session**
+
+**Step 1 - Get Your Session String:**
+1. Go to @genTGSessionBot on Telegram
+2. Send /start to the bot
+3. Follow the instructions to generate session
+4. Copy the session string
+
+**Step 2 - Send Session String:**
+1. Paste your session string here
+2. The bot will validate it
+3. If valid, it will be added to your account
+
+**Important Notes:**
+• Your session string is encrypted and secure
+• Each session can collect links independently
+• You can add up to 5 sessions
+• Invalid sessions will be rejected
+
+**Ready?** Paste your session string now:
+        """
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_add_session")]
+        ])
+        
+        await update.message.reply_text(instructions, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /backup command"""
+        user = update.effective_user
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Check if user is admin
+        if not self._is_admin(user.id):
+            await update.message.reply_text("❌ This command is for administrators only.")
+            return
+        
+        await update.message.reply_text("🔄 Creating backup...")
+        
+        try:
+            backup_info = await BackupManager.create_backup()
+            
+            if backup_info:
+                backup_text = f"""
+✅ **Backup Created Successfully**
+
+**Backup Details:**
+• Backup ID: {backup_info['backup_id']}
+• Time: {backup_info['timestamp']}
+• Size: {backup_info['size_mb']:.2f} MB
+• Location: {backup_info['backup_path']}
+
+**Backup Rotation:**
+• Maximum Backups: {Config.MAX_BACKUPS}
+• Old backups are automatically deleted
+                """
+                
+                await update.message.reply_text(backup_text, parse_mode="Markdown")
+            else:
+                await update.message.reply_text("❌ Failed to create backup.")
+        
+        except Exception as e:
+            logger.error(f"Error creating backup: {e}")
+            await update.message.reply_text(f"❌ Error creating backup: {str(e)[:100]}")
+    
+    async def callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle callback queries"""
         query = update.callback_query
         await query.answer()
         
         user = query.from_user
         data = query.data
         
-        access, message, details = await self.security_manager.check_access(
-            user.id, 
-            f"callback_{data}",
-            {'callback_data': data}
-        )
-        
-        if not access:
-            await query.message.edit_text(f"❌ {message}")
+        if not self._check_access(user.id):
+            await query.message.edit_text("❌ You are not authorized.")
             return
         
         try:
-            self.user_states[user.id]['last_callback'] = data
-            
             if data == "start_collect":
-                await self._handle_advanced_start_collection(query)
+                await self._handle_start_collection(query)
             elif data == "pause_collect":
-                await self._handle_advanced_pause_collection(query)
+                await self._handle_pause_collection(query)
             elif data == "stop_collect":
                 await self._handle_stop_collection(query)
             elif data == "collect_status":
                 await self._handle_collect_status(query)
             elif data == "collect_report":
                 await self._handle_collect_report(query)
-            elif data == "collect_settings":
-                await self._handle_collect_settings(query)
+            elif data == "export_text":
+                await self._handle_export_text(query)
+            elif data == "export_csv":
+                await self._handle_export_csv(query)
+            elif data == "export_telegram":
+                await self._handle_export_telegram(query)
+            elif data == "export_whatsapp":
+                await self._handle_export_whatsapp(query)
             elif data == "add_session":
-                await self._handle_advanced_add_session(query)
+                await self.add_session_command(update, context)
+            elif data == "refresh_status":
+                await self.status_command(update, context)
+            elif data == "refresh_stats":
+                await self.stats_command(update, context)
+            elif data == "cancel_add_session":
+                await self._handle_cancel_add_session(query)
+            elif data == "view_stats":
+                await self.stats_command(update, context)
+            elif data == "show_help":
+                await self.help_command(update, context)
             else:
-                await query.message.edit_text("❌ أمر غير معروف")
+                await query.message.edit_text("❌ Unknown command.")
         
         except Exception as e:
-            logger.error(f"خطأ في معالج الاستدعاء المتقدم: {e}", exc_info=True)
-            await query.message.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            logger.error(f"Error in callback handler: {e}")
+            await query.message.edit_text(f"❌ Error: {str(e)[:100]}")
     
-    async def _handle_advanced_start_collection(self, query):
-        """Handle start collection - معالجة بدء الجمع"""
+    async def _handle_start_collection(self, query):
+        """Handle start collection callback"""
+        # Check if already running
         if self.collection_manager.active:
-            await query.message.edit_text("⏳ الجمع يعمل بالفعل")
+            await query.message.edit_text("⏳ Collection is already running.")
             return
         
+        # Check if user has sessions
+        user_sessions = await self._get_user_sessions(query.from_user.id)
+        if not user_sessions:
+            await query.message.edit_text(
+                "❌ You don't have any active sessions.\n"
+                "Please add a session first using /addsession command."
+            )
+            return
+        
+        await query.message.edit_text("🚀 Starting collection...")
+        
+        # Start collection in background
+        asyncio.create_task(self.collection_manager.start_collection())
+        
+        await asyncio.sleep(2)
+        
+        # Show status
+        collection_status = self.collection_manager.get_status()
+        status_text = f"""
+✅ **Collection Started**
+
+**Status:** {'Active' if collection_status['active'] else 'Stopped'}
+**Mode:** {collection_status['system_state']['collection_mode']}
+**Start Time:** {collection_status['stats']['start_time'].strftime('%Y-%m-%d %H:%M:%S') if collection_status['stats']['start_time'] else 'N/A'}
+
+Collection will run in the background.
+Use /status to check progress.
+        """
+        
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚖️ متوازن (مستحسن)", callback_data="start_mode_balanced")],
-            [InlineKeyboardButton("⚡ سريع", callback_data="start_mode_fast")],
-            [InlineKeyboardButton("🔒 آمن", callback_data="start_mode_safe")],
-            [InlineKeyboardButton("🎯 مخصص", callback_data="start_mode_custom")],
-            [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_start")]
+            [InlineKeyboardButton("📊 Check Status", callback_data="collect_status")],
+            [InlineKeyboardButton("⏸️ Pause", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ Stop", callback_data="stop_collect")]
         ])
         
-        await query.message.edit_text(
-            "🚀 **بدء الجمع الذكي المتقدم**\n\n"
-            "**مميزات النظام:**\n"
-            "• 📢 تيليجرام: جمع غير محدود\n"
-            "• 📱 واتساب: آخر 30 يوماً فقط\n"
-            "• ⏱️ تحقق من طلبات الانضمام: 30 ثانية\n"
-            "• 🔍 تفريق ذكي بين المجموعات والقنوات\n\n"
-            f"**الحدود المحسنة:**\n"
-            f"• 🔥 أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة\n"
-            f"• 📥 أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير\n\n"
-            "اختر وضع الجمع:\n\n"
-            "• ⚖️ **متوازن** - جمع متوازن مع حماية الذاكرة\n"
-            "• ⚡ **سريع** - جمع سريع مع استخدام موارد أعلى\n"
-            "• 🔒 **آمن** - جمع آمن مع تأخيرات أطول\n"
-            "• 🎯 **مخصص** - ضبط الإعدادات يدوياً\n\n"
-            "**التوصية:** ⚖️ متوازن للمستخدمين الجدد",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+        await query.message.edit_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def _handle_pause_collection(self, query):
+        """Handle pause collection callback"""
+        if not self.collection_manager.active:
+            await query.message.edit_text("⚠️ Collection is not running.")
+            return
+        
+        await self.collection_manager.pause()
+        await query.message.edit_text("⏸️ Collection paused.")
     
     async def _handle_stop_collection(self, query):
-        """Handle stop collection - معالجة إيقاف الجمع"""
+        """Handle stop collection callback"""
         if not self.collection_manager.active:
-            await query.message.edit_text("⚠️ الجمع غير نشط")
+            await query.message.edit_text("⚠️ Collection is not running.")
             return
         
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ تأكيد الإيقاف", callback_data="confirm_stop")],
-            [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_stop")]
+            [InlineKeyboardButton("✅ Confirm Stop", callback_data="confirm_stop")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_stop")]
         ])
         
         await query.message.edit_text(
-            "⏹️ **تأكيد إيقاف الجمع**\n\n"
-            "هل أنت متأكد من إيقاف الجمع؟\n\n"
-            "**ملاحظة:**\n"
-            "• سيتم حفظ جميع الروابط المجمعة\n"
-            "• سيتوقف الجمع فوراً\n"
-            "• يمكنك إعادة التشغيل في أي وقت\n\n"
-            "الإحصائيات الحالية:\n"
-            f"• الروابط المجمعة: {self.collection_manager.stats['total_collected']:,}\n"
-            f"• الدورات المكتملة: {self.collection_manager.stats['cycles_completed']:,}",
+            "⏹️ **Confirm Stop Collection**\n\n"
+            "Are you sure you want to stop collection?\n\n"
+            "**Note:**\n"
+            "• All collected links will be saved\n"
+            "• Collection will stop immediately\n"
+            "• You can restart anytime\n\n"
+            "Current stats:\n"
+            f"• Links collected: {self.collection_manager.stats['total_collected']:,}\n"
+            f"• Cycles completed: {self.collection_manager.stats['cycles_completed']:,}",
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
     
     async def _handle_collect_status(self, query):
-        """Handle collect status - معالجة حالة الجمع"""
-        status = self.collection_manager.get_status()
+        """Handle collect status callback"""
+        collection_status = self.collection_manager.get_status()
         
-        text = f"""
-📊 **حالة الجمع التفصيلية**
+        status_text = f"""
+📊 **Collection Status**
 
-**الحالة:** {"🔄 نشط" if status['active'] else "🛑 متوقف"}
-**الإيقاف المؤقت:** {"⏸️ نعم" if status['paused'] else "▶️ لا"}
-**طلب الإيقاف:** {"✅ نعم" if status['stop_requested'] else "❌ لا"}
+**Status:** {'Active' if collection_status['active'] else 'Stopped'}
+**Paused:** {'Yes' if collection_status['paused'] else 'No'}
+**Stop Requested:** {'Yes' if collection_status['stop_requested'] else 'No'}
 
-**الإحصائيات:**
-• الروابط المجمعة: {status['stats']['total_collected']:,}
-• دورات الجمع: {status['stats']['cycles_completed']:,}
-• الأخطاء: {status['stats']['errors']:,}
-• انتظارات Flood: {status['stats']['flood_waits']:,}
+**Statistics:**
+• Links Collected: {collection_status['stats']['total_collected']:,}
+• Collection Cycles: {collection_status['stats']['cycles_completed']:,}
+• Errors: {collection_status['stats']['errors']:,}
+• Flood Waits: {collection_status['stats']['flood_waits']:,}
 
-**تيليجرام:**
-• المجموعات العامة: {status['stats']['telegram_public']:,}
-• المجموعات الخاصة: {status['stats']['telegram_private']:,}
-• طلبات الانضمام: {status['stats']['telegram_join']:,}
-• القنوات: {status['stats']['telegram_channels']:,}
-• المجموعات العادية: {status['stats']['telegram_groups']:,}
-• المجموعات الخارقة: {status['stats']['telegram_supergroups']:,}
+**Telegram Breakdown:**
+• Public Groups: {collection_status['stats']['telegram_public']:,}
+• Private Groups: {collection_status['stats']['telegram_private']:,}
+• Join Requests: {collection_status['stats']['telegram_join']:,}
+• Channels: {collection_status['stats']['telegram_channels']:,}
+• Regular Groups: {collection_status['stats']['telegram_groups']:,}
+• Supergroups: {collection_status['stats']['telegram_supergroups']:,}
 
-**أداء النظام:**
-• درجة الأداء: {status['stats']['performance_score']:.1f}/100
-• نسبة نجاح المهام: {status['performance']['success_rate']:.1%}
-• استخدام الذاكرة: {status['memory']['current_mb']:.1f} MB
-"""
+**System Performance:**
+• Performance Score: {collection_status['stats']['performance_score']:.1f}/100
+• Success Rate: {collection_status['performance']['success_rate']:.1%}
+• Memory Usage: {collection_status['memory']['current_mb']:.1f} MB
+        """
         
-        await query.message.edit_text(text, parse_mode="Markdown")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Refresh", callback_data="collect_status")],
+            [InlineKeyboardButton("⏸️ Pause", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ Stop", callback_data="stop_collect")]
+        ])
+        
+        await query.message.edit_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
     
     async def _handle_collect_report(self, query):
-        """Handle collect report - معالجة تقرير الجمع"""
+        """Handle collect report callback"""
         try:
             report = await self.collection_manager.get_detailed_report()
             
-            text = f"""
-📋 **تقرير الجمع المتقدم**
+            report_text = f"""
+📋 **Collection Report**
 
-**ملخص الجمع:**
-• الحالة: {"🔄 نشط" if report['collection_status']['active'] else "🛑 متوقف"}
-• المدة: {self._format_collection_duration(report['collection_status'])}
-• الروابط المجمعة: {report['collection_status']['stats']['total_collected']:,}
-• نسبة النجاح: {report['collection_status']['performance']['success_rate']:.1%}
+**Collection Summary:**
+• Status: {'Active' if report['collection_status']['active'] else 'Stopped'}
+• Links Collected: {report['collection_status']['stats']['total_collected']:,}
+• Success Rate: {report['collection_status']['performance']['success_rate']:.1%}
 
-**تفصيل تيليجرام:**
-• المجموعات: {report['collection_status']['stats']['telegram_groups']:,}
-• القنوات: {report['collection_status']['stats']['telegram_channels']:,}
-• المجموعات الخارقة: {report['collection_status']['stats']['telegram_supergroups']:,}
-• طلبات الانضمام: {report['collection_status']['stats']['telegram_join']:,}
+**Telegram Details:**
+• Groups: {report['collection_status']['stats']['telegram_groups']:,}
+• Channels: {report['collection_status']['stats']['telegram_channels']:,}
+• Supergroups: {report['collection_status']['stats']['telegram_supergroups']:,}
+• Join Requests: {report['collection_status']['stats']['telegram_join']:,}
 
-**صحة النظام:**
-• الذاكرة: {report['system_health']['memory']['current_mb']:.1f} MB
-• نسبة الكاش: {report['system_health']['cache']['hit_ratio']}
-• الجلسات النشطة: {report['system_health']['sessions']['healthy_sessions']}
+**System Health:**
+• Memory: {report['system_health']['memory']['current_mb']:.1f} MB
+• Active Sessions: {report['database_stats'].get('active_sessions', 0)}
 
-**الحدود المحسنة:**
-• أقصى جلسات: {Config.MAX_CONCURRENT_SESSIONS}
-• أقصى تصدير: {Config.MAX_EXPORT_LINKS:,} رابط
+**Enhanced Limits:**
+• Max Sessions: {Config.MAX_CONCURRENT_SESSIONS}
+• Max Export: {Config.MAX_EXPORT_LINKS:,} links
 
-**التوصيات:**
+**Recommendations:**
 """
             
-            for rec in report['recommendations'][:3]:
-                text += f"• {rec}\n"
+            recommendations = report['recommendations']
+            if recommendations:
+                for rec in recommendations[:3]:
+                    report_text += f"• {rec}\n"
+            else:
+                report_text += "• No recommendations at this time\n"
             
-            await query.message.edit_text(text, parse_mode="Markdown")
+            await query.message.edit_text(report_text, parse_mode="Markdown")
             
         except Exception as e:
-            logger.error(f"خطأ في توليد تقرير الجمع: {e}")
-            await query.message.edit_text("❌ حدث خطأ في توليد التقرير")
+            logger.error(f"Error generating collection report: {e}")
+            await query.message.edit_text("❌ Error generating report.")
     
-    def _format_collection_duration(self, status: Dict) -> str:
-        """Format collection duration - تنسيق مدة الجمع"""
-        if not status['stats'].get('start_time'):
-            return "غير معروف"
+    async def _handle_export_text(self, query):
+        """Handle export as text callback"""
+        await query.message.edit_text("📄 Preparing text export...")
         
-        start_time = status['stats']['start_time']
-        if isinstance(start_time, str):
-            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-        
-        end_time = status['stats'].get('end_time')
-        if end_time and isinstance(end_time, str):
-            end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-        
-        if not end_time:
-            end_time = datetime.now()
-        
-        duration = end_time - start_time
-        return self._format_duration(duration)
+        try:
+            user = query.from_user
+            db = await EnhancedDatabaseManager.get_instance()
+            
+            # Get user's links
+            filters = {'added_by_user': user.id}
+            links, metadata = await db.export_links_enhanced(filters, limit=Config.MAX_EXPORT_LINKS)
+            
+            if not links:
+                await query.message.edit_text("❌ No links found to export.")
+                return
+            
+            # Create text file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"links_export_{timestamp}.txt"
+            filepath = f"exports/{filename}"
+            
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"Link Export - {timestamp}\n")
+                f.write(f"Total Links: {len(links)}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for i, link in enumerate(links, 1):
+                    f.write(f"{i}. {link}\n")
+            
+            # Send file
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"✅ Exported {len(links)} links as text file."
+                )
+            
+            # Cleanup
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"Error exporting text: {e}")
+            await query.message.edit_text(f"❌ Error exporting: {str(e)[:100]}")
     
-    async def _handle_collect_settings(self, query):
-        """Handle collect settings - معالجة إعدادات الجمع"""
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚙️ تغيير وضع الجمع", callback_data="change_collect_mode")],
-            [InlineKeyboardButton("⏱️ ضبط التأخيرات", callback_data="adjust_delays")],
-            [InlineKeyboardButton("📊 ضبط الحدود", callback_data="adjust_limits")],
-            [InlineKeyboardButton("🔍 ضبط الفلاتر", callback_data="adjust_filters")],
-            [InlineKeyboardButton("🔄 إعادة التعيين", callback_data="reset_settings")],
-            [InlineKeyboardButton("⬅️ رجوع", callback_data="collect_menu")]
-        ])
+    async def _handle_export_csv(self, query):
+        """Handle export as CSV callback"""
+        await query.message.edit_text("📊 Preparing CSV export...")
         
-        text = f"""
-⚙️ **إعدادات الجمع المتقدم**
-
-**الإعدادات الحالية:**
-• وضع الجمع: {self.collection_manager.system_state['collection_mode']}
-• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS} 🔥
-• الروابط لكل دورة: {Config.MAX_LINKS_PER_CYCLE}
-• تأخير الدورة: {Config.REQUEST_DELAYS['min_cycle_delay']}-{Config.REQUEST_DELAYS['max_cycle_delay']} ثانية
-• تحقق طلبات الانضمام: {Config.JOIN_REQUEST_CHECK_DELAY} ثانية
-
-**مميزات خاصة:**
-• تيليجرام: {"✅ جمع غير محدود" if Config.TELEGRAM_NO_TIME_LIMIT else "❌ محدود"}
-• واتساب: {"✅ آخر 30 يوماً" if Config.WHATSAPP_DAYS_BACK == 30 else f"آخر {Config.WHATSAPP_DAYS_BACK} يوم"}
-• التحقق المتقدم: {"✅ مفعل" if Config.ENABLE_ADVANCED_VALIDATION else "❌ معطل"}
-
-**الحدود المحسنة:**
-• أقصى جلسات متزامنة: {Config.MAX_CONCURRENT_SESSIONS} 🔥
-• أقصى تصدير روابط: {Config.MAX_EXPORT_LINKS:,} رابط 🔥
-• أقصى جلسات لكل مستخدم: {Config.MAX_SESSIONS_PER_USER} 🔥
-"""
-        
-        await query.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        try:
+            user = query.from_user
+            db = await EnhancedDatabaseManager.get_instance()
+            
+            # Get user's links with details
+            filters = {'added_by_user': user.id}
+            links, metadata = await db.export_links_enhanced(filters, limit=Config.MAX_EXPORT_LINKS)
+            
+            if not links:
+                await query.message.edit_text("❌ No links found to export.")
+                return
+            
+            # Create CSV file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"links_export_{timestamp}.csv"
+            filepath = f"exports/{filename}"
+            
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8', newline='') as f:
+                f.write("Number,URL,Platform,Type,Collected Date\n")
+                
+                for i, link in enumerate(links, 1):
+                    # Extract platform from URL
+                    platform = 'unknown'
+                    if 't.me' in link or 'telegram.me' in link:
+                        platform = 'telegram'
+                    elif 'whatsapp.com' in link:
+                        platform = 'whatsapp'
+                    elif 'discord.gg' in link:
+                        platform = 'discord'
+                    elif 'signal.group' in link:
+                        platform = 'signal'
+                    
+                    f.write(f'{i},"{link}",{platform},link,{datetime.now().strftime("%Y-%m-%d")}\n')
+            
+            # Send file
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"✅ Exported {len(links)} links as CSV file."
+                )
+            
+            # Cleanup
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"Error exporting CSV: {e}")
+            await query.message.edit_text(f"❌ Error exporting: {str(e)[:100]}")
     
-    def _create_main_keyboard(self, user_id: int) -> InlineKeyboardMarkup:
-        """Create main keyboard - إنشاء لوحة المفاتيح الرئيسية"""
-        is_admin = self.security_manager.is_admin(user_id)
+    async def _handle_export_telegram(self, query):
+        """Handle export Telegram only callback"""
+        await query.message.edit_text("🎯 Preparing Telegram links export...")
         
-        buttons = [
-            [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect"),
-             InlineKeyboardButton("⏸️ إدارة الجمع", callback_data="manage_collect")],
-            [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
-             InlineKeyboardButton("👥 إدارة الجلسات", callback_data="manage_sessions")],
-            [InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_menu"),
-             InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
-            [InlineKeyboardButton("❓ المساعدة", callback_data="show_help"),
-             InlineKeyboardButton("⚙️ الإعدادات", callback_data="show_settings")]
-        ]
+        try:
+            user = query.from_user
+            db = await EnhancedDatabaseManager.get_instance()
+            
+            # Get user's Telegram links
+            filters = {
+                'added_by_user': user.id,
+                'platform': 'telegram'
+            }
+            links, metadata = await db.export_links_enhanced(filters, limit=Config.MAX_EXPORT_LINKS)
+            
+            if not links:
+                await query.message.edit_text("❌ No Telegram links found to export.")
+                return
+            
+            # Create text file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"telegram_links_{timestamp}.txt"
+            filepath = f"exports/{filename}"
+            
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"Telegram Links Export - {timestamp}\n")
+                f.write(f"Total Telegram Links: {len(links)}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for i, link in enumerate(links, 1):
+                    f.write(f"{i}. {link}\n")
+            
+            # Send file
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"✅ Exported {len(links)} Telegram links."
+                )
+            
+            # Cleanup
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"Error exporting Telegram links: {e}")
+            await query.message.edit_text(f"❌ Error exporting: {str(e)[:100]}")
+    
+    async def _handle_export_whatsapp(self, query):
+        """Handle export WhatsApp only callback"""
+        await query.message.edit_text("📱 Preparing WhatsApp links export...")
         
-        if is_admin:
-            buttons.append([
-                InlineKeyboardButton("🔒 الأمان", callback_data="show_security"),
-                InlineKeyboardButton("📋 التقارير", callback_data="show_reports")
-            ])
+        try:
+            user = query.from_user
+            db = await EnhancedDatabaseManager.get_instance()
+            
+            # Get user's WhatsApp links
+            filters = {
+                'added_by_user': user.id,
+                'platform': 'whatsapp'
+            }
+            links, metadata = await db.export_links_enhanced(filters, limit=Config.MAX_EXPORT_LINKS)
+            
+            if not links:
+                await query.message.edit_text("❌ No WhatsApp links found to export.")
+                return
+            
+            # Create text file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"whatsapp_links_{timestamp}.txt"
+            filepath = f"exports/{filename}"
+            
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"WhatsApp Links Export - {timestamp}\n")
+                f.write(f"Total WhatsApp Links: {len(links)}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for i, link in enumerate(links, 1):
+                    f.write(f"{i}. {link}\n")
+            
+            # Send file
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"✅ Exported {len(links)} WhatsApp links."
+                )
+            
+            # Cleanup
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"Error exporting WhatsApp links: {e}")
+            await query.message.edit_text(f"❌ Error exporting: {str(e)[:100]}")
+    
+    async def _handle_cancel_add_session(self, query):
+        """Handle cancel add session callback"""
+        user_id = query.from_user.id
+        if user_id in self.user_states:
+            del self.user_states[user_id]
         
-        return InlineKeyboardMarkup(buttons)
+        await query.message.edit_text("❌ Session addition cancelled.")
+    
+    async def message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle text messages"""
+        user = update.effective_user
+        message_text = update.message.text
+        
+        if not self._check_access(user.id):
+            await update.message.reply_text("❌ You are not authorized.")
+            return
+        
+        # Check user state
+        user_state = self.user_states.get(user.id, {})
+        
+        if user_state.get('state') == 'awaiting_session':
+            # User is sending a session string
+            await self._process_session_string(update, message_text)
+        else:
+            # Default response
+            await update.message.reply_text(
+                "ℹ️ Please use commands to interact with the bot.\n"
+                "Type /help to see available commands."
+            )
+    
+    async def _process_session_string(self, update: Update, session_string: str):
+        """Process session string from user"""
+        user = update.effective_user
+        
+        if not session_string or len(session_string) < 50:
+            await update.message.reply_text(
+                "❌ Invalid session string. Please send a valid session string."
+            )
+            return
+        
+        await update.message.reply_text("🔄 Validating session...")
+        
+        try:
+            # Validate session
+            is_valid, validation_info = await EnhancedSessionManager.validate_session(session_string)
+            
+            if not is_valid:
+                await update.message.reply_text(
+                    f"❌ Session validation failed:\n{validation_info.get('error', 'Unknown error')}"
+                )
+                return
+            
+            # Encrypt session
+            enc_manager = EncryptionManager.get_instance()
+            encrypted_session = enc_manager.encrypt_session(session_string)
+            session_hash = hashlib.md5(encrypted_session.encode()).hexdigest()
+            
+            # Add to database
+            db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
+            
+            # Check if session already exists
+            cursor = await conn.execute(
+                'SELECT id FROM sessions WHERE session_hash = ?',
+                (session_hash,)
+            )
+            existing = await cursor.fetchone()
+            
+            if existing:
+                await conn.close()
+                await update.message.reply_text("❌ This session already exists in the database.")
+                return
+            
+            # Add session
+            user_info = validation_info.get('user_info', {})
+            await conn.execute('''
+                INSERT INTO sessions 
+                (session_string, session_hash, phone_number, user_id, username, 
+                 display_name, added_by_user, is_active, added_date, last_used)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (
+                encrypted_session,
+                session_hash,
+                user_info.get('phone', ''),
+                user_info.get('id', 0),
+                user_info.get('username', ''),
+                f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip(),
+                user.id
+            ))
+            
+            await conn.commit()
+            await conn.close()
+            
+            # Update user stats
+            await db.update_user_stats(user.id, 'session_added')
+            
+            # Clear user state
+            if user.id in self.user_states:
+                del self.user_states[user.id]
+            
+            success_text = f"""
+✅ **Session Added Successfully**
+
+**Session Details:**
+• User: @{user_info.get('username', 'N/A')}
+• Phone: {user_info.get('phone', 'N/A')}
+• Name: {user_info.get('first_name', '')} {user_info.get('last_name', '')}
+• User ID: {user_info.get('id', 'N/A')}
+• Added: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+**Security:**
+• Session is encrypted
+• Only you can access your sessions
+• Session hash: {session_hash[:12]}...
+
+**Next Steps:**
+1. Use /sessions to view your sessions
+2. Use /collect to start collection
+3. Use /status to monitor progress
+
+Your session is now ready for collection!
+            """
+            
+            await update.message.reply_text(success_text, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Error processing session: {e}")
+            await update.message.reply_text(f"❌ Error adding session: {str(e)[:100]}")
+    
+    async def _get_user_sessions(self, user_id: int) -> List[Dict]:
+        """Get user's sessions"""
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
+            
+            cursor = await conn.execute('''
+                SELECT * FROM sessions 
+                WHERE added_by_user = ? AND is_active = 1
+                ORDER BY last_used DESC
+            ''', (user_id,))
+            
+            rows = await cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            sessions = []
+            for row in rows:
+                session_dict = dict(zip(columns, row))
+                if session_dict.get('metadata'):
+                    try:
+                        session_dict['metadata'] = json.loads(session_dict['metadata'])
+                    except:
+                        session_dict['metadata'] = {}
+                sessions.append(session_dict)
+            
+            await conn.close()
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"Error getting user sessions: {e}")
+            return []
+    
+    def _check_access(self, user_id: int) -> bool:
+        """Check if user has access"""
+        # Check if user is admin
+        if Config.ADMIN_USER_IDS and user_id in Config.ADMIN_USER_IDS:
+            return True
+        
+        # Check if user is in allowed list
+        if Config.ALLOWED_USER_IDS and user_id in Config.ALLOWED_USER_IDS:
+            return True
+        
+        # If no specific allowed users are set, allow everyone
+        if not Config.ALLOWED_USER_IDS:
+            return True
+        
+        return False
+    
+    def _is_admin(self, user_id: int) -> bool:
+        """Check if user is admin"""
+        return Config.ADMIN_USER_IDS and user_id in Config.ADMIN_USER_IDS
     
     def _format_duration(self, duration: timedelta) -> str:
-        """Format duration - تنسيق المدة"""
+        """Format duration to human readable string"""
         total_seconds = int(duration.total_seconds())
         days = total_seconds // 86400
         hours = (total_seconds % 86400) // 3600
@@ -3421,1108 +3678,95 @@ class AdvancedTelegramBot:
         
         parts = []
         if days > 0:
-            parts.append(f"{days} يوم")
+            parts.append(f"{days}d")
         if hours > 0:
-            parts.append(f"{hours} ساعة")
+            parts.append(f"{hours}h")
         if minutes > 0:
-            parts.append(f"{minutes} دقيقة")
+            parts.append(f"{minutes}m")
         if seconds > 0 or not parts:
-            parts.append(f"{seconds} ثانية")
+            parts.append(f"{seconds}s")
         
-        return " و ".join(parts)
-    
-    async def _send_welcome_tutorial(self, message, user):
-        """Send welcome tutorial - إرسال برنامج تعليمي ترحيبي"""
-        tutorial_messages = [
-            "👋 **مرحباً بك في البوت الذكي المتقدم!**\n\n"
-            "هذا البوت مصمم لجمع روابط المجموعات من تيليجرام وواتساب وغيرها.",
-            
-            "**🎯 ما يمكنك فعله:**\n"
-            f"1. إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة تيليجرام\n"
-            "2. بدء عملية الجمع التلقائي\n"
-            f"3. تصدير حتى {Config.MAX_EXPORT_LINKS:,} رابط\n"
-            "4. مراقبة أداء النظام\n\n"
-            "**🚀 لنبدأ:**\n"
-            "اضغط على ➕ إضافة جلسة لإضافة جلستك الأولى",
-            
-            "**💡 نصائح سريعة:**\n"
-            f"• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة\n"
-            "• النظام يحفظ الروابط المكررة تلقائياً\n"
-            f"• يمكنك تصدير حتى {Config.MAX_EXPORT_LINKS:,} رابط\n"
-            "• هناك نسخ احتياطي تلقائي للبيانات",
-            
-            "**🆘 المساعدة:**\n"
-            "استخدم زر ❓ المساعدة للحصول على دليل كامل\n"
-            "أو تواصل مع الدعم إذا واجهت مشاكل."
-        ]
-        
-        for i, tutorial_text in enumerate(tutorial_messages):
-            if i == 0:
-                await message.reply_text(tutorial_text, parse_mode="Markdown")
-            else:
-                await asyncio.sleep(2)
-                await message.reply_text(tutorial_text, parse_mode="Markdown")
+        return " ".join(parts)
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle errors - معالجة الأخطاء"""
+        """Handle errors"""
+        error = context.error
+        
+        logger.error(f"Bot error: {error}", exc_info=True)
+        
         try:
-            error = context.error
+            # Log error to database
+            db = await EnhancedDatabaseManager.get_instance()
+            conn = await db._get_connection()
             
-            logger.error(f"خطأ غير معالج في البوت: {error}", exc_info=True)
+            await conn.execute('''
+                INSERT INTO error_log (error_type, error_message, stack_trace, user_id, command)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                error.__class__.__name__,
+                str(error),
+                ''.join(traceback.format_exception(type(error), error, error.__traceback__)),
+                update.effective_user.id if update and update.effective_user else 0,
+                update.message.text if update and update.message else 'unknown'
+            ))
             
-            try:
-                db = await EnhancedDatabaseManager.get_instance()
-                
-                async with db._get_connection() as conn:
-                    await conn.execute('''
-                        INSERT INTO error_log (error_type, error_message, stack_trace, user_id, command)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        error.__class__.__name__,
-                        str(error),
-                        ''.join(traceback.format_exception(type(error), error, error.__traceback__)),
-                        update.effective_user.id if update and update.effective_user else 0,
-                        update.message.text if update and update.message else 'unknown'
-                    ))
-                    
-                    await conn.commit()
-            except Exception as db_error:
-                logger.error(f"خطأ في تسجيل الخطأ في قاعدة البيانات: {db_error}")
+            await conn.commit()
+            await conn.close()
             
-            if update and update.effective_chat:
-                error_message = (
-                    "❌ **حدث خطأ غير متوقع**\n\n"
-                    "لقد واجهنا مشكلة فنية. تم تسجيل الخطأ وسنعمل على حله قريباً.\n\n"
-                    "**يمكنك:**\n"
-                    "1. المحاولة مرة أخرى بعد قليل\n"
-                    "2. استخدام الأمر /start للعودة\n"
-                    "3. التواصل مع الدعم إذا تكرر الخطأ"
-                )
-                
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=error_message,
-                        parse_mode="Markdown"
-                    )
-                except Exception:
-                    pass
-            
-            await self.notification_system.send_error_notification(
-                f"خطأ في البوت: {error.__class__.__name__}",
-                {
-                    'error': str(error),
-                    'user_id': update.effective_user.id if update and update.effective_user else 0,
-                    'chat_id': update.effective_chat.id if update and update.effective_chat else 0,
-                    'command': update.message.text if update and update.message else 'unknown'
-                }
+        except Exception as db_error:
+            logger.error(f"Error logging to database: {db_error}")
+        
+        if update and update.effective_chat:
+            error_message = (
+                "❌ **An unexpected error occurred**\n\n"
+                "The error has been logged and will be investigated.\n\n"
+                "**You can:**\n"
+                "1. Try again in a few moments\n"
+                "2. Use /start to return to main menu\n"
+                "3. Contact support if the error persists"
             )
             
-        except Exception as e:
-            logger.error(f"خطأ في معالج الأخطاء: {e}", exc_info=True)
-
-    async def advanced_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command - معالجة أمر /help"""
-        await update.message.reply_text("مساعدة")
-    
-    async def advanced_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command - معالجة أمر /stats"""
-        await update.message.reply_text("إحصائيات")
-    
-    async def advanced_sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /sessions command - معالجة أمر /sessions"""
-        await update.message.reply_text("الجلسات")
-    
-    async def advanced_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /export command - معالجة أمر /export"""
-        await update.message.reply_text("تصدير")
-    
-    async def advanced_backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /backup command - معالجة أمر /backup"""
-        await update.message.reply_text("نسخ احتياطي")
-    
-    async def advanced_cleanup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /cleanup command - معالجة أمر /cleanup"""
-        await update.message.reply_text("تنظيف")
-    
-    async def security_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /security command - معالجة أمر /security"""
-        await update.message.reply_text("أمان")
-    
-    async def report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /report command - معالجة أمر /report"""
-        await update.message.reply_text("تقرير")
-    
-    async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /settings command - معالجة أمر /settings"""
-        await update.message.reply_text("إعدادات")
-    
-    async def handle_advanced_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle advanced message - معالجة رسالة متقدمة"""
-        await update.message.reply_text("تم استلام رسالتك")
-    
-    async def _handle_advanced_add_session(self, query):
-        """Handle add session - معالجة إضافة جلسة"""
-        await query.message.edit_text("إضافة جلسة")
-    
-    async def _handle_advanced_pause_collection(self, query):
-        """Handle pause collection - معالجة إيقاف الجمع مؤقتاً"""
-        await query.message.edit_text("إيقاف مؤقت")
-
-# ======================
-# Help System - نظام المساعدة
-# ======================
-
-class HelpSystem:
-    """Help system - نظام المساعدة"""
-    
-    def get_welcome_message(self, user, access_details: Dict) -> str:
-        """Get welcome message - الحصول على رسالة ترحيب"""
-        access_level = access_details.get('access_level', 'user')
-        
-        if access_level == 'admin':
-            role_text = "👑 **أنت مدير النظام** - لديك صلاحيات كاملة"
-        elif access_level == 'user':
-            role_text = "👤 **أنت مستخدم عادي** - صلاحيات محدودة"
-        else:
-            role_text = "🚫 **وصول مقيد** - صلاحيات محدودة جداً"
-        
-        return f"""
-🤖 **مرحباً {user.first_name}!**
-
-{role_text}
-
-**✨ المميزات المتقدمة المحسنة:**
-
-🔥 **الحدود المحسنة:**
-• أقصى {Config.MAX_CONCURRENT_SESSIONS} جلسة متزامنة
-• أقصى {Config.MAX_EXPORT_LINKS:,} رابط للتصدير
-• أقصى {Config.MAX_SESSIONS_PER_USER} جلسة لكل مستخدم
-
-🎯 **الذكاء الاصطناعي:**
-• خوارزميات جمع ذكية
-• تصفية تلقائية للروابط
-• تحليل جودة البيانات
-• تحسين أداء ذاتي
-
-⚡ **الأداء المتقدم:**
-• معالجة متوازية متقدمة
-• إدارة ذاكرة ذكية
-• كاش متعدد المستويات
-• تأخيرات ذكية
-
-🔒 **الأمان الشامل:**
-• تشفير الجلسات
-• كشف التهديدات
-• تحكم في الوصول
-• سجلات أمنية مفصلة
-
-📊 **التحليلات المتقدمة:**
-• إحصائيات في الوقت الحقيقي
-• تقارير مفصلة
-• تحليل الأداء
-• توصيات ذكية
-
-💾 **الموثوقية:**
-• نسخ احتياطية تلقائية
-• استعادة بيانات
-• مراقبة النظام
-• إخطارات فورية
-
-**🚀 ابدأ الآن باستخدام الأزرار أدناه!**
-"""
-
-# ======================
-# Notification System - نظام الإشعارات
-# ======================
-
-class NotificationSystem:
-    """Notification system - نظام الإشعارات"""
-    
-    async def send_admin_notification(self, message: str, data: Dict = None):
-        """Send admin notification - إرسال إشعار للمدير"""
-        logger.info(f"إشعار للمديرين: {message}")
-    
-    async def send_error_notification(self, error: str, details: Dict):
-        """Send error notification - إرسال إشعار خطأ"""
-        logger.error(f"إشعار خطأ: {error}")
-    
-    async def send_security_alert(self, alert: str, details: Dict):
-        """Send security alert - إرسال تنبيه أمني"""
-        logger.warning(f"تنبيه أمني: {alert}")
-
-# ======================
-# Signal Handlers - معالجات الإشارات
-# ======================
-
-def setup_signal_handlers():
-    """Setup signal handlers - إعداد معالجات الإشارات"""
-    def signal_handler(signum, frame):
-        logger.info(f"📶 تم استقبال إشارة {signum}. جاري الإغلاق السلس...")
-        
-        logger.info("📊 إحصائيات النظام النهائية:")
-        
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-# ======================
-# Advanced Security Manager - مدير الأمان المتقدم
-# ======================
-
-class AdvancedSecurityManager:
-    """Advanced security manager - مدير الأمان المتقدم"""
-    
-    def __init__(self):
-        self.rate_limiter = AdvancedRateLimiter()
-        self.suspicious_activity = defaultdict(list)
-        self.access_log = deque(maxlen=1000)
-        self.threat_detection_enabled = True
-        
-    async def check_access(self, user_id: int, command: str = None, 
-                          context: Dict = None) -> Tuple[bool, str, Dict]:
-        """Check access - التحقق من الوصول"""
-        if Config.ADMIN_USER_IDS and user_id in Config.ADMIN_USER_IDS:
-            return True, "مدير", {'access_level': 'admin'}
-        
-        if Config.ALLOWED_USER_IDS and user_id not in Config.ALLOWED_USER_IDS:
-            self._log_suspicious_activity(user_id, 'unauthorized_access', context)
-            return False, "غير مصرح لك بالوصول", {'access_level': 'denied'}
-        
-        limit_result, limit_details = await self.rate_limiter.check_limit(user_id, command or 'general')
-        
-        if not limit_result:
-            self._log_suspicious_activity(user_id, 'rate_limit_exceeded', {
-                **context,
-                'limit_details': limit_details
-            })
-            
-            wait_time = limit_details.get('wait_seconds', 30)
-            return False, f"تجاوزت الحد الأقصى للطلبات. حاول بعد {wait_time:.0f} ثانية", {
-                'access_level': 'rate_limited',
-                'wait_seconds': wait_time,
-                **limit_details
-            }
-        
-        if self.threat_detection_enabled:
-            threat_check = await self._detect_threats(user_id, command, context)
-            if not threat_check['safe']:
-                self._log_suspicious_activity(user_id, 'threat_detected', threat_check)
-                return False, "تم اكتشاف نشاط مشبوه. الوصول مرفوض.", {
-                    'access_level': 'blocked',
-                    'threat_details': threat_check
-                }
-        
-        self._log_access(user_id, 'success', command, context)
-        
-        return True, "مسموح", {
-            'access_level': 'user',
-            'rate_limit': limit_details,
-            'user_stats': self.rate_limiter.get_user_stats(user_id)
-        }
-    
-    async def _detect_threats(self, user_id: int, command: str, context: Dict) -> Dict:
-        """Detect threats - كشف التهديدات"""
-        threats = []
-        risk_score = 0
-        
-        recent_accesses = [log for log in self.access_log 
-                          if log['user_id'] == user_id and 
-                          (datetime.now() - log['timestamp']).total_seconds() < 10]
-        
-        if len(recent_accesses) > 5:
-            threats.append('rapid_repeated_access')
-            risk_score += 30
-        
-        suspicious_commands = ['eval', 'exec', 'system', 'os.', 'subprocess']
-        if command and any(suspicious in command.lower() for suspicious in suspicious_commands):
-            threats.append('suspicious_command')
-            risk_score += 50
-        
-        user_patterns = self.suspicious_activity.get(user_id, [])
-        if len(user_patterns) > 3:
-            threats.append('multiple_suspicious_activities')
-            risk_score += 40
-        
-        return {
-            'safe': risk_score < 50,
-            'risk_score': risk_score,
-            'threats': threats,
-            'threat_count': len(threats)
-        }
-    
-    def _log_access(self, user_id: int, status: str, command: str, context: Dict):
-        """Log access - تسجيل الوصول"""
-        log_entry = {
-            'timestamp': datetime.now(),
-            'user_id': user_id,
-            'status': status,
-            'command': command,
-            'context': context or {},
-            'ip': context.get('ip') if context else None
-        }
-        
-        self.access_log.append(log_entry)
-    
-    def _log_suspicious_activity(self, user_id: int, activity_type: str, details: Dict):
-        """Log suspicious activity - تسجيل النشاط المشبوه"""
-        activity = {
-            'timestamp': datetime.now(),
-            'user_id': user_id,
-            'activity_type': activity_type,
-            'details': details
-        }
-        
-        self.suspicious_activity[user_id].append(activity)
-        
-        if len(self.suspicious_activity[user_id]) > 10:
-            self.suspicious_activity[user_id] = self.suspicious_activity[user_id][-10:]
-        
-        logger.warning(f"نشاط مشبوه: {activity_type} للمستخدم {user_id}")
-    
-    def is_admin(self, user_id: int) -> bool:
-        """Check if admin - التحقق إذا كان مدير"""
-        return user_id in Config.ADMIN_USER_IDS if Config.ADMIN_USER_IDS else False
-
-# ======================
-# Advanced Rate Limiter - حد الطلبات المتقدم
-# ======================
-
-class AdvancedRateLimiter:
-    """Advanced rate limiter - حد الطلبات المتقدم"""
-    
-    def __init__(self):
-        self.user_limits = defaultdict(lambda: {
-            'requests': deque(),
-            'total': 0,
-            'penalty_score': 0,
-            'last_violation': None
-        })
-        
-        self.global_limits = {
-            'total_requests': 0,
-            'rate_violations': 0,
-            'adaptive_threshold': Config.USER_RATE_LIMIT['max_requests']
-        }
-        
-        self.locks = defaultdict(asyncio.Lock)
-        
-    async def check_limit(self, user_id: int, action: str = 'general') -> Tuple[bool, Dict]:
-        """Check limit - التحقق من الحد"""
-        async with self.locks[user_id]:
-            user_data = self.user_limits[user_id]
-            now = datetime.now()
-            
-            while user_data['requests'] and (now - user_data['requests'][0]).total_seconds() > Config.USER_RATE_LIMIT['per_seconds']:
-                user_data['requests'].popleft()
-            
-            dynamic_limit = self._calculate_dynamic_limit(user_id)
-            
-            if len(user_data['requests']) >= dynamic_limit:
-                user_data['penalty_score'] += 10
-                user_data['last_violation'] = now
-                self.global_limits['rate_violations'] += 1
-                
-                wait_time = self._calculate_wait_time(user_data['penalty_score'])
-                
-                return False, {
-                    'allowed': False,
-                    'wait_seconds': wait_time,
-                    'current_requests': len(user_data['requests']),
-                    'dynamic_limit': dynamic_limit,
-                    'penalty_score': user_data['penalty_score'],
-                    'action': action
-                }
-            
-            user_data['requests'].append(now)
-            user_data['total'] += 1
-            self.global_limits['total_requests'] += 1
-            
-            if user_data['penalty_score'] > 0:
-                hours_since_violation = (now - (user_data['last_violation'] or now)).total_seconds() / 3600
-                if hours_since_violation > 1:
-                    user_data['penalty_score'] = max(0, user_data['penalty_score'] - 5)
-            
-            return True, {
-                'allowed': True,
-                'current_requests': len(user_data['requests']),
-                'dynamic_limit': dynamic_limit,
-                'penalty_score': user_data['penalty_score'],
-                'total_requests': user_data['total']
-            }
-    
-    def _calculate_dynamic_limit(self, user_id: int) -> int:
-        """Calculate dynamic limit - حساب الحد الديناميكي"""
-        base_limit = Config.USER_RATE_LIMIT['max_requests']
-        user_data = self.user_limits[user_id]
-        
-        penalty_factor = max(0.3, 1 - (user_data['penalty_score'] / 100))
-        
-        global_factor = 1.0
-        if self.global_limits['rate_violations'] > 10:
-            global_factor = 0.8
-        elif self.global_limits['total_requests'] > 1000:
-            global_factor = 0.9
-        
-        return int(base_limit * penalty_factor * global_factor)
-    
-    def _calculate_wait_time(self, penalty_score: int) -> float:
-        """Calculate wait time - حساب وقت الانتظار"""
-        base_wait = 30
-        penalty_multiplier = 1 + (penalty_score / 50)
-        
-        return min(base_wait * penalty_multiplier, 300)
-    
-    def get_user_stats(self, user_id: int) -> Dict:
-        """Get user stats - الحصول على إحصائيات المستخدم"""
-        user_data = self.user_limits.get(user_id, {})
-        
-        if not user_data:
-            return {
-                'total_requests': 0,
-                'current_window': 0,
-                'penalty_score': 0,
-                'dynamic_limit': self._calculate_dynamic_limit(user_id),
-                'status': 'good'
-            }
-        
-        now = datetime.now()
-        recent_requests = deque(user_data.get('requests', deque()))
-        
-        window_stats = {}
-        for window in [10, 30, 60, 300, 1800]:
-            count = sum(1 for req_time in recent_requests 
-                       if (now - req_time).total_seconds() <= window)
-            window_stats[f'last_{window}s'] = count
-        
-        status = 'good'
-        penalty = user_data.get('penalty_score', 0)
-        if penalty > 50:
-            status = 'critical'
-        elif penalty > 20:
-            status = 'warning'
-        elif penalty > 0:
-            status = 'monitoring'
-        
-        return {
-            'total_requests': user_data.get('total', 0),
-            'current_window': len(recent_requests),
-            'window_stats': window_stats,
-            'penalty_score': penalty,
-            'last_violation': user_data.get('last_violation'),
-            'dynamic_limit': self._calculate_dynamic_limit(user_id),
-            'status': status,
-            'estimated_wait': self._calculate_wait_time(penalty) if penalty > 0 else 0
-        }
-
-# ======================
-# Task Manager - مدير المهام
-# ======================
-
-class TaskManager:
-    """Task manager - مدير المهام"""
-    
-    def __init__(self):
-        self.active_tasks = set()
-        self.task_metrics = defaultdict(lambda: {
-            'count': 0,
-            'success': 0,
-            'failed': 0,
-            'total_time': 0.0,
-            'avg_time': 0.0
-        })
-        
-        self.task_queue = asyncio.Queue(maxsize=200)
-        self.worker_tasks = []
-        self.max_workers = 10
-        
-        self.monitoring = False
-        self.paused = False
-        
-        self.lock = asyncio.Lock()
-        
-    def start_monitoring(self):
-        """Start monitoring - بدء المراقبة"""
-        self.monitoring = True
-        asyncio.create_task(self._monitor_tasks())
-        self._start_workers()
-    
-    def _start_workers(self):
-        """Start workers - بدء العاملين"""
-        for i in range(self.max_workers):
-            worker = asyncio.create_task(self._worker(i))
-            self.worker_tasks.append(worker)
-    
-    async def _worker(self, worker_id: int):
-        """Worker task - مهمة العامل"""
-        logger.debug(f"بدء العامل {worker_id}")
-        
-        while self.monitoring:
-            if self.paused:
-                await asyncio.sleep(0.1)
-                continue
-            
             try:
-                task_data = await asyncio.wait_for(
-                    self.task_queue.get(),
-                    timeout=1.0
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=error_message,
+                    parse_mode="Markdown"
                 )
-                
-                func, args, kwargs, task_id = task_data
-                
-                start_time = datetime.now()
-                
-                try:
-                    result = await func(*args, **kwargs)
-                    execution_time = (datetime.now() - start_time).total_seconds()
-                    
-                    async with self.lock:
-                        self.task_metrics[func.__name__]['count'] += 1
-                        self.task_metrics[func.__name__]['success'] += 1
-                        self.task_metrics[func.__name__]['total_time'] += execution_time
-                        self.task_metrics[func.__name__]['avg_time'] = (
-                            self.task_metrics[func.__name__]['total_time'] / 
-                            self.task_metrics[func.__name__]['count']
-                        )
-                    
-                    logger.debug(f"اكتملت المهمة {task_id} في {execution_time:.2f} ثانية")
-                    
-                except Exception as e:
-                    execution_time = (datetime.now() - start_time).total_seconds()
-                    
-                    async with self.lock:
-                        self.task_metrics[func.__name__]['count'] += 1
-                        self.task_metrics[func.__name__]['failed'] += 1
-                    
-                    logger.error(f"فشلت المهمة {task_id}: {e}")
-                    
-                finally:
-                    self.task_queue.task_done()
-                    
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                logger.error(f"خطأ في العامل {worker_id}: {e}")
-                await asyncio.sleep(0.5)
+            except Exception:
+                pass
     
-    async def _monitor_tasks(self):
-        """Monitor tasks - مراقبة المهام"""
-        while self.monitoring:
-            try:
-                queue_size = self.task_queue.qsize()
-                active_count = len(self.active_tasks)
-                
-                if queue_size > 100:
-                    logger.warning(f"حجم قائمة انتظار المهام مرتفع: {queue_size}")
-                
-                if active_count > 50:
-                    logger.warning(f"عدد المهام النشطة مرتفع: {active_count}")
-                
-                await self._update_metrics()
-                
-                await asyncio.sleep(5)
-                
-            except Exception as e:
-                logger.error(f"خطأ في مراقبة المهام: {e}")
-                await asyncio.sleep(10)
+    async def run(self):
+        """Run the bot"""
+        logger.info("Starting bot...")
+        await self.app.initialize()
+        await self.app.start()
+        await self.app.updater.start_polling()
+        
+        logger.info("Bot is running!")
+        
+        # Keep bot running
+        await asyncio.Event().wait()
     
-    async def _update_metrics(self):
-        """Update metrics - تحديث المقاييس"""
-        pass
-    
-    async def execute_tasks(self, tasks: List) -> List:
-        """Execute tasks - تنفيذ المهام"""
-        if not tasks:
-            return []
-        
-        start_time = datetime.now()
-        results = []
-        
-        try:
-            semaphore = asyncio.Semaphore(20)
-            
-            async def execute_with_limit(task):
-                async with semaphore:
-                    return await task
-            
-            task_coroutines = [execute_with_limit(task) for task in tasks]
-            results = await asyncio.gather(*task_coroutines, return_exceptions=True)
-            
-            execution_time = (datetime.now() - start_time).total_seconds()
-            logger.debug(f"اكتمل تنفيذ {len(tasks)} مهمة في {execution_time:.2f} ثانية")
-            
-        except Exception as e:
-            logger.error(f"خطأ في تنفيذ المهام: {e}")
-        
-        return results
-    
-    async def add_task(self, func, *args, **kwargs):
-        """Add task - إضافة مهمة"""
-        task_id = f"task_{secrets.token_hex(8)}"
-        
-        try:
-            await self.task_queue.put((func, args, kwargs, task_id))
-            self.active_tasks.add(task_id)
-            
-            return task_id
-            
-        except asyncio.QueueFull:
-            logger.warning("قائمة انتظار المهام ممتلئة")
-            raise
-    
-    def adjust_concurrency(self, adjustment: int):
-        """Adjust concurrency - ضبط التزامن"""
-        new_max = max(1, min(40, self.max_workers + adjustment))
-        
-        if new_max != self.max_workers:
-            logger.info(f"ضبط التزامن: {self.max_workers} -> {new_max}")
-            self.max_workers = new_max
-            
-            for task in self.worker_tasks:
-                task.cancel()
-            
-            self.worker_tasks = []
-            self._start_workers()
-    
-    def pause(self):
-        """Pause - إوقف مؤقت"""
-        self.paused = True
-    
-    def resume(self):
-        """Resume - استئناف"""
-        self.paused = False
-    
-    def stop_monitoring(self):
-        """Stop monitoring - إيقاف المراقبة"""
-        self.monitoring = False
-        
-        for task in self.worker_tasks:
-            task.cancel()
-        
-        self.worker_tasks = []
-    
-    def get_stats(self) -> Dict:
-        """Get stats - الحصول على إحصائيات"""
-        total_tasks = 0
-        total_success = 0
-        total_failed = 0
-        total_time = 0.0
-        
-        for metrics in self.task_metrics.values():
-            total_tasks += metrics['count']
-            total_success += metrics['success']
-            total_failed += metrics['failed']
-            total_time += metrics['total_time']
-        
-        success_rate = total_success / max(1, total_tasks)
-        avg_time = total_time / max(1, total_tasks)
-        
-        return {
-            'total_tasks': total_tasks,
-            'total_success': total_success,
-            'total_failed': total_failed,
-            'success_rate': success_rate,
-            'total_execution_time': total_time,
-            'avg_execution_time': avg_time,
-            'queue_size': self.task_queue.qsize(),
-            'active_tasks': len(self.active_tasks),
-            'max_workers': self.max_workers,
-            'paused': self.paused,
-            'monitoring': self.monitoring,
-            'task_types': dict(self.task_metrics)
-        }
+    async def stop(self):
+        """Stop the bot"""
+        logger.info("Stopping bot...")
+        await self.app.stop()
 
 # ======================
-# Intelligent Log - سجل ذكي
-# ======================
-
-class IntelligentLog:
-    """Intelligent log - سجل ذكي"""
-    
-    def __init__(self, max_entries: int = 1000):
-        self.entries = deque(maxlen=max_entries)
-        self.categories = defaultdict(int)
-        self.severity_counts = defaultdict(int)
-        self.timeline = []
-        
-    def add(self, category: str, event: str, data: Dict = None):
-        """Add log entry - إضافة إدخال سجل"""
-        entry = {
-            'id': len(self.entries) + 1,
-            'timestamp': datetime.now().isoformat(),
-            'category': category,
-            'event': event,
-            'data': data or {},
-            'severity': self._determine_severity(category, event)
-        }
-        
-        self.entries.append(entry)
-        self.categories[category] += 1
-        self.severity_counts[entry['severity']] += 1
-        self.timeline.append(entry['timestamp'])
-        
-        self._analyze_entry(entry)
-    
-    def _determine_severity(self, category: str, event: str) -> str:
-        """Determine severity - تحديد الخطورة"""
-        if category in ['error', 'critical']:
-            return 'critical'
-        elif category in ['warning', 'rate_limit']:
-            return 'warning'
-        elif category in ['cycle', 'session']:
-            return 'info'
-        else:
-            return 'debug'
-    
-    def _analyze_entry(self, entry: Dict):
-        """Analyze entry - تحليل الإدخال"""
-        pass
-    
-    def get_recent_entries(self, count: int = 100) -> List[Dict]:
-        """Get recent entries - الحصول على الإدخالات الحديثة"""
-        return list(self.entries)[-count:]
-    
-    def get_entries_by_category(self, category: str) -> List[Dict]:
-        """Get entries by category - الحصول على الإدخالات حسب الفئة"""
-        return [entry for entry in self.entries if entry['category'] == category]
-    
-    def get_entries_by_severity(self, severity: str) -> List[Dict]:
-        """Get entries by severity - الحصول على الإدخالات حسب الخطورة"""
-        return [entry for entry in self.entries if entry['severity'] == severity]
-    
-    def get_summary(self) -> Dict:
-        """Get summary - الحصول على ملخص"""
-        total_entries = len(self.entries)
-        
-        if total_entries == 0:
-            return {
-                'total_entries': 0,
-                'categories': {},
-                'severity': {},
-                'timeline': []
-            }
-        
-        if len(self.timeline) >= 2:
-            first_time = datetime.fromisoformat(self.timeline[0])
-            last_time = datetime.fromisoformat(self.timeline[-1])
-            time_span = (last_time - first_time).total_seconds()
-            
-            if time_span > 0:
-                entries_per_second = total_entries / time_span
-            else:
-                entries_per_second = 0
-        else:
-            entries_per_second = 0
-        
-        return {
-            'total_entries': total_entries,
-            'categories': dict(self.categories),
-            'severity': dict(self.severity_counts),
-            'entries_per_second': entries_per_second,
-            'recent_activity': self.get_recent_entries(10),
-            'critical_entries': self.get_entries_by_severity('critical'),
-            'warning_entries': self.get_entries_by_severity('warning'),
-            'timeline': self.timeline[-100:]
-        }
-    
-    def clear(self):
-        """Clear - مسح"""
-        self.entries.clear()
-        self.categories.clear()
-        self.severity_counts.clear()
-        self.timeline.clear()
-    
-    def find_patterns(self) -> List[Dict]:
-        """Find patterns - العثور على أنماط"""
-        patterns = []
-        
-        error_entries = self.get_entries_by_severity('critical')
-        error_messages = defaultdict(int)
-        
-        for entry in error_entries:
-            if 'data' in entry and 'error' in entry['data']:
-                error_msg = entry['data']['error'][:100]
-                error_messages[error_msg] += 1
-        
-        for error_msg, count in error_messages.items():
-            if count >= 3:
-                patterns.append({
-                    'type': 'repeating_error',
-                    'message': error_msg,
-                    'count': count,
-                    'severity': 'high'
-                })
-        
-        if len(self.timeline) >= 10:
-            recent_timestamps = [datetime.fromisoformat(ts) for ts in self.timeline[-10:]]
-            time_diffs = []
-            
-            for i in range(1, len(recent_timestamps)):
-                diff = (recent_timestamps[i] - recent_timestamps[i-1]).total_seconds()
-                time_diffs.append(diff)
-            
-            avg_diff = sum(time_diffs) / len(time_diffs) if time_diffs else 0
-            
-            if avg_diff < 1.0:
-                patterns.append({
-                    'type': 'high_frequency',
-                    'avg_interval': avg_diff,
-                    'severity': 'medium'
-                })
-        
-        return patterns
-
-# ======================
-# Enhanced Session Manager - مدير الجلسات المحسن
+# Enhanced Session Manager
 # ======================
 
 class EnhancedSessionManager:
-    """Enhanced session manager - مدير الجلسات المحسن"""
+    """Enhanced session manager"""
     
-    _session_cache = None
+    _session_cache = {}
     _session_health = {}
-    _session_metrics = defaultdict(lambda: {
-        'uses': 0,
-        'total_time': 0,
-        'errors': 0,
-        'last_error': None,
-        'created_at': None
-    })
-    _lock = asyncio.Lock()
-    
-    @staticmethod
-    def _get_cache_manager():
-        """Get cache manager - الحصول على مدير الكاش"""
-        if EnhancedSessionManager._session_cache is None:
-            EnhancedSessionManager._session_cache = CacheManager.get_instance()
-        return EnhancedSessionManager._session_cache
-    
-    @staticmethod
-    async def create_client(session_string: str, session_id: int, user_id: int = 0) -> Optional[TelegramClient]:
-        """Create client - إنشاء عميل"""
-        cache_key = f"client_{session_id}"
-        
-        async with EnhancedSessionManager._lock:
-            health = EnhancedSessionManager._session_health.get(cache_key)
-            if health and health.get('status') == 'unhealthy':
-                logger.warning(f"تخطي الجلسة {session_id} غير الصحية")
-                return None
-            
-            cache_manager = EnhancedSessionManager._get_cache_manager()
-            cached = await cache_manager.get(cache_key, 'sessions')
-            
-            if cached and isinstance(cached, dict) and 'client_data' in cached:
-                try:
-                    client = TelegramClient(
-                        StringSession(cached['client_data']['session_string']),
-                        Config.API_ID,
-                        Config.API_HASH,
-                        **cached['client_data']['client_args']
-                    )
-                    
-                    await client.connect()
-                    
-                    if await client.is_user_authorized():
-                        EnhancedSessionManager._update_metrics(cache_key, 'use')
-                        EnhancedSessionManager._update_health(cache_key, 'healthy')
-                        
-                        return client
-                    else:
-                        await client.disconnect()
-                except Exception as e:
-                    logger.debug(f"خطأ في استعادة العميل المخبأ: {e}")
-            
-            try:
-                enc_manager = EncryptionManager.get_instance()
-                decrypted_session = enc_manager.decrypt_session(session_string)
-                actual_session = decrypted_session or session_string
-                
-                client_args = {
-                    'device_model': "Advanced Link Collector Pro",
-                    'system_version': "Linux 6.5",
-                    'app_version': "4.16.30",
-                    'lang_code': "en",
-                    'timeout': 30,
-                    'connection_retries': 3,
-                    'auto_reconnect': True,
-                    'request_retries': 3,
-                    'connection': {
-                        'retries': 5,
-                        'delay': 1,
-                        'timeout': 30
-                    }
-                }
-                
-                client = TelegramClient(
-                    StringSession(actual_session),
-                    Config.API_ID,
-                    Config.API_HASH,
-                    **client_args
-                )
-                
-                await client.connect()
-                
-                if not await client.is_user_authorized():
-                    logger.error(f"الجلسة {session_id} غير مصرح بها")
-                    await client.disconnect()
-                    
-                    EnhancedSessionManager._update_health(cache_key, 'unhealthy', 'غير مصرح')
-                    return None
-                
-                me = await client.get_me()
-                
-                client_data = {
-                    'session_string': actual_session,
-                    'client_args': client_args,
-                    'user_info': {
-                        'id': me.id,
-                        'username': me.username,
-                        'phone': me.phone,
-                        'created_at': datetime.now().isoformat()
-                    }
-                }
-                
-                await cache_manager.set(
-                    cache_key, 
-                    {'client_data': client_data},
-                    'sessions',
-                    ttl_seconds=3600
-                )
-                
-                EnhancedSessionManager._update_metrics(cache_key, 'create', user_id)
-                EnhancedSessionManager._session_metrics[cache_key]['created_at'] = datetime.now()
-                EnhancedSessionManager._update_health(cache_key, 'healthy')
-                
-                return client
-                
-            except AuthKeyError as e:
-                logger.error(f"خطأ مفتاح مصادقة للجلسة {session_id}: {e}")
-                EnhancedSessionManager._update_health(cache_key, 'unhealthy', 'خطأ مصادقة')
-                return None
-            except Exception as e:
-                logger.error(f"خطأ في إنشاء عميل للجلسة {session_id}: {e}", exc_info=True)
-                EnhancedSessionManager._update_metrics(cache_key, 'error')
-                EnhancedSessionManager._update_health(cache_key, 'unhealthy', str(e)[:100])
-                return None
-    
-    @staticmethod
-    def _update_metrics(cache_key: str, action: str, user_id: int = 0):
-        """Update metrics - تحديث المقاييس"""
-        metrics = EnhancedSessionManager._session_metrics[cache_key]
-        
-        if action == 'use':
-            metrics['uses'] += 1
-            metrics['last_used'] = datetime.now()
-        elif action == 'create':
-            metrics['created_at'] = datetime.now()
-        elif action == 'error':
-            metrics['errors'] += 1
-            metrics['last_error'] = datetime.now()
-    
-    @staticmethod
-    def _update_health(cache_key: str, status: str, reason: str = None):
-        """Update health - تحديث الصحة"""
-        EnhancedSessionManager._session_health[cache_key] = {
-            'status': status,
-            'last_check': datetime.now(),
-            'reason': reason
-        }
-    
-    @staticmethod
-    async def close_client(session_id: int, reason: str = 'normal'):
-        """Close client - إغلاق العميل"""
-        cache_key = f"client_{session_id}"
-        
-        async with EnhancedSessionManager._lock:
-            cache_manager = EnhancedSessionManager._get_cache_manager()
-            cached = await cache_manager.get(cache_key, 'sessions')
-            
-            if cached and isinstance(cached, dict) and 'client_data' in cached:
-                try:
-                    client_data = cached['client_data']
-                    session_string = client_data['session_string']
-                    
-                    client = TelegramClient(
-                        StringSession(session_string),
-                        Config.API_ID,
-                        Config.API_HASH
-                    )
-                    
-                    await client.connect()
-                    await client.disconnect()
-                    
-                    EnhancedSessionManager._session_metrics[cache_key]['total_time'] += (
-                        datetime.now() - EnhancedSessionManager._session_metrics[cache_key].get('last_used', datetime.now())
-                    ).total_seconds()
-                    
-                except Exception as e:
-                    logger.debug(f"خطأ في إغلاق العميل: {e}")
-            
-            await cache_manager.delete(cache_key, 'sessions')
-            
-            EnhancedSessionManager._update_health(cache_key, 'closed', reason)
-    
-    @staticmethod
-    async def cleanup_inactive_sessions(timeout_seconds: int = Config.SESSION_TIMEOUT):
-        """Cleanup inactive sessions - تنظيف الجلسات غير النشطة"""
-        async with EnhancedSessionManager._lock:
-            now = datetime.now()
-            sessions_to_remove = []
-            
-            for cache_key, metrics in list(EnhancedSessionManager._session_metrics.items()):
-                last_used = metrics.get('last_used')
-                
-                if last_used and (now - last_used).total_seconds() > timeout_seconds:
-                    health = EnhancedSessionManager._session_health.get(cache_key, {})
-                    if health.get('status') != 'healthy':
-                        sessions_to_remove.append(cache_key)
-            
-            for cache_key in sessions_to_remove:
-                try:
-                    await EnhancedSessionManager.close_client(
-                        int(cache_key.split('_')[1]), 
-                        'inactive_timeout'
-                    )
-                except:
-                    pass
-            
-            if sessions_to_remove:
-                logger.info(f"تم تنظيف {len(sessions_to_remove)} جلسة غير نشطة")
-    
-    @staticmethod
-    async def get_session_health(session_id: int) -> Dict:
-        """Get session health - الحصول على صحة الجلسة"""
-        cache_key = f"client_{session_id}"
-        
-        return {
-            'health': EnhancedSessionManager._session_health.get(cache_key, {}),
-            'metrics': EnhancedSessionManager._session_metrics.get(cache_key, {}),
-            'cached': await EnhancedSessionManager._get_cache_manager().exists(cache_key, 'sessions')
-        }
-    
-    @staticmethod
-    def get_all_metrics() -> Dict:
-        """Get all metrics - الحصول على جميع المقاييس"""
-        total_sessions = len(EnhancedSessionManager._session_metrics)
-        healthy_sessions = sum(
-            1 for health in EnhancedSessionManager._session_health.values() 
-            if health.get('status') == 'healthy'
-        )
-        
-        return {
-            'total_sessions': total_sessions,
-            'healthy_sessions': healthy_sessions,
-            'unhealthy_sessions': total_sessions - healthy_sessions,
-            'total_uses': sum(m['uses'] for m in EnhancedSessionManager._session_metrics.values()),
-            'total_errors': sum(m['errors'] for m in EnhancedSessionManager._session_metrics.values()),
-            'session_details': dict(EnhancedSessionManager._session_metrics)
-        }
     
     @staticmethod
     async def validate_session(session_string: str) -> Tuple[bool, Dict]:
-        """Validate session - التحقق من الجلسة"""
+        """Validate session"""
         try:
+            # Try to decrypt if encrypted
             enc_manager = EncryptionManager.get_instance()
             decrypted = enc_manager.decrypt_session(session_string)
             actual_session = decrypted or session_string
@@ -4538,7 +3782,7 @@ class EnhancedSessionManager:
             
             if not await client.is_user_authorized():
                 await client.disconnect()
-                return False, {'error': 'غير مصرح', 'details': 'الجلسة غير مفعلة'}
+                return False, {'error': 'Not authorized', 'details': 'Session not activated'}
             
             me = await client.get_me()
             
@@ -4547,9 +3791,7 @@ class EnhancedSessionManager:
                 'username': me.username or '',
                 'phone': me.phone or '',
                 'first_name': me.first_name or '',
-                'last_name': me.last_name or '',
-                'is_bot': me.bot if hasattr(me, 'bot') else False,
-                'is_premium': me.premium if hasattr(me, 'premium') else False
+                'last_name': me.last_name or ''
             }
             
             await client.disconnect()
@@ -4561,31 +3803,24 @@ class EnhancedSessionManager:
             }
             
         except SessionPasswordNeededError:
-            return False, {'error': 'محمية بكلمة مرور', 'details': 'الجلسة تتطلب كلمة مرور ثانوية'}
+            return False, {'error': 'Password protected', 'details': 'Session requires secondary password'}
         except AuthKeyError:
-            return False, {'error': 'مفتاح مصادقة غير صالح', 'details': 'الجلسة منتهية أو غير صالحة'}
+            return False, {'error': 'Invalid auth key', 'details': 'Session expired or invalid'}
         except Exception as e:
-            return False, {'error': 'خطأ في التحقق', 'details': str(e)[:200]}
-    
-    @staticmethod
-    def clear_cache():
-        """Clear cache - مسح الكاش"""
-        EnhancedSessionManager._get_cache_manager().clear()
-        EnhancedSessionManager._session_health.clear()
-        EnhancedSessionManager._session_metrics.clear()
+            return False, {'error': 'Validation error', 'details': str(e)[:200]}
 
 # ======================
-# Cache Manager - مدير الكاش
+# Cache Manager
 # ======================
 
 class CacheManager:
-    """Cache manager - مدير الكاش"""
+    """Cache manager"""
     
     _instance = None
     
     @classmethod
     def get_instance(cls):
-        """Get instance - الحصول على المثيل"""
+        """Get instance"""
         if cls._instance is None:
             cls._instance = CacheManager()
         return cls._instance
@@ -4608,7 +3843,7 @@ class CacheManager:
         self.lock = asyncio.Lock()
     
     async def get(self, key: str, category: str = 'general') -> Optional[Any]:
-        """Get from cache - الحصول من الكاش"""
+        """Get from cache"""
         async with self.lock:
             self.stats['total_operations'] += 1
             cache_key = f"{category}_{key}"
@@ -4625,9 +3860,19 @@ class CacheManager:
                         content = await f.read()
                         data = json.loads(content)
                         
-                        await self._add_to_fast_cache(cache_key, data)
+                        # Check expiration
+                        expires_at = data.get('expires_at')
+                        if expires_at:
+                            expires_dt = datetime.fromisoformat(expires_at)
+                            if datetime.now() > expires_dt:
+                                os.remove(file_path)
+                                self.stats['misses'] += 1
+                                return None
+                        
+                        # Add to fast cache
+                        self._add_to_fast_cache(cache_key, data.get('value'))
                         self.stats['slow_hits'] += 1
-                        return data
+                        return data.get('value')
                 except:
                     pass
             
@@ -4635,11 +3880,11 @@ class CacheManager:
             return None
     
     async def set(self, key: str, value: Any, category: str = 'general', ttl_seconds: int = 3600):
-        """Set in cache - تعيين في الكاش"""
+        """Set in cache"""
         async with self.lock:
             cache_key = f"{category}_{key}"
             
-            await self._add_to_fast_cache(cache_key, value)
+            self._add_to_fast_cache(cache_key, value)
             
             file_path = os.path.join(self.slow_cache_dir, f"{hashlib.md5(cache_key.encode()).hexdigest()}.cache")
             cache_data = {
@@ -4653,10 +3898,10 @@ class CacheManager:
                 async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
                     await f.write(json.dumps(cache_data, ensure_ascii=False))
             except Exception as e:
-                logger.debug(f"خطأ في تخزين الكاش البطيء: {e}")
+                logger.debug(f"Error storing slow cache: {e}")
     
-    async def _add_to_fast_cache(self, key: str, value: Any):
-        """Add to fast cache - إضافة للكاش السريع"""
+    def _add_to_fast_cache(self, key: str, value: Any):
+        """Add to fast cache"""
         if key in self.fast_cache:
             self.fast_cache.move_to_end(key)
             self.fast_cache[key] = value
@@ -4669,12 +3914,12 @@ class CacheManager:
                 self.stats['evictions'] += 1
     
     async def exists(self, key: str, category: str = 'general') -> bool:
-        """Check if exists - التحقق من الوجود"""
+        """Check if exists"""
         cache_key = f"{category}_{key}"
         return cache_key in self.fast_cache
     
     async def delete(self, key: str, category: str = 'general'):
-        """Delete from cache - حذف من الكاش"""
+        """Delete from cache"""
         async with self.lock:
             cache_key = f"{category}_{key}"
             
@@ -4689,7 +3934,7 @@ class CacheManager:
                     pass
     
     async def cleanup_expired(self):
-        """Cleanup expired - تنظيف المنتهي"""
+        """Cleanup expired cache"""
         async with self.lock:
             expired_count = 0
             
@@ -4701,10 +3946,12 @@ class CacheManager:
                             content = await f.read()
                             data = json.loads(content)
                             
-                            expires_at = datetime.fromisoformat(data['expires_at'])
-                            if datetime.now() > expires_at:
-                                os.remove(file_path)
-                                expired_count += 1
+                            expires_at = data.get('expires_at')
+                            if expires_at:
+                                expires_dt = datetime.fromisoformat(expires_at)
+                                if datetime.now() > expires_dt:
+                                    os.remove(file_path)
+                                    expired_count += 1
                     except:
                         try:
                             os.remove(file_path)
@@ -4712,10 +3959,10 @@ class CacheManager:
                             pass
             
             if expired_count > 0:
-                logger.info(f"تم تنظيف {expired_count} عنصر منتهي من الكاش")
+                logger.info(f"Cleaned up {expired_count} expired cache items")
     
     def optimize(self):
-        """Optimize - تحسين"""
+        """Optimize cache"""
         current_size = len(self.fast_cache)
         if current_size > self.fast_cache_size:
             target_size = int(self.fast_cache_size * 0.8)
@@ -4725,7 +3972,7 @@ class CacheManager:
                 self.stats['evictions'] += 1
     
     def get_stats(self) -> Dict:
-        """Get stats - الحصول على إحصائيات"""
+        """Get cache statistics"""
         total_hits = self.stats['fast_hits'] + self.stats['slow_hits']
         total_accesses = total_hits + self.stats['misses']
         hit_ratio = total_hits / total_accesses if total_accesses > 0 else 0
@@ -4740,7 +3987,7 @@ class CacheManager:
         }
     
     def clear(self):
-        """Clear - مسح"""
+        """Clear cache"""
         self.fast_cache.clear()
         self.stats = {
             'fast_hits': 0,
@@ -4751,17 +3998,17 @@ class CacheManager:
         }
 
 # ======================
-# Memory Manager - مدير الذاكرة
+# Memory Manager
 # ======================
 
 class MemoryManager:
-    """Memory manager - مدير الذاكرة"""
+    """Memory manager"""
     
     _instance = None
     
     @classmethod
     def get_instance(cls):
-        """Get instance - الحصول على المثيل"""
+        """Get instance"""
         if cls._instance is None:
             cls._instance = MemoryManager()
         return cls._instance
@@ -4775,16 +4022,16 @@ class MemoryManager:
         }
         
     def get_memory_usage(self) -> float:
-        """Get memory usage - الحصول على استخدام الذاكرة"""
+        """Get memory usage in MB"""
         try:
             process = psutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024
         except Exception as e:
-            logger.debug(f"خطأ في قراءة الذاكرة: {e}")
+            logger.debug(f"Error reading memory: {e}")
             return 0
     
     def get_memory_percent(self) -> float:
-        """Get memory percent - الحصول على نسبة الذاكرة"""
+        """Get memory percentage"""
         try:
             process = psutil.Process(os.getpid())
             return process.memory_percent()
@@ -4792,7 +4039,7 @@ class MemoryManager:
             return 0
     
     def get_system_memory(self) -> Dict:
-        """Get system memory - الحصول على ذاكرة النظام"""
+        """Get system memory info"""
         try:
             mem = psutil.virtual_memory()
             return {
@@ -4802,24 +4049,17 @@ class MemoryManager:
                 'process_percent': self.get_memory_percent()
             }
         except Exception as e:
-            logger.debug(f"خطأ في قراءة ذاكرة النظام: {e}")
+            logger.debug(f"Error reading system memory: {e}")
             return {}
     
     def optimize_memory(self) -> Dict:
-        """Optimize memory - تحسين الذاكرة"""
+        """Optimize memory usage"""
         before = self.get_memory_usage()
-        before_time = datetime.now()
         
+        # Run garbage collection
         gc.collect()
         
-        try:
-            process = psutil.Process(os.getpid())
-            open_files = len(process.open_files())
-            if open_files > 100:
-                logger.warning(f"عدد كبير من الملفات المفتوحة: {open_files}")
-        except:
-            pass
-        
+        # Clear caches
         CacheManager.get_instance().optimize()
         
         after = self.get_memory_usage()
@@ -4829,17 +4069,16 @@ class MemoryManager:
         self.metrics['total_saved_mb'] += saved if saved > 0 else 0
         self.metrics['last_optimization'] = datetime.now()
         
-        logger.info(f"تحسين الذاكرة: {saved:.2f} MB")
+        logger.info(f"Memory optimized: {saved:.2f} MB saved")
         
         return {
             'saved_mb': saved,
             'before_mb': before,
-            'after_mb': after,
-            'duration_ms': (datetime.now() - before_time).total_seconds() * 1000
+            'after_mb': after
         }
     
     def check_and_optimize(self, threshold_percent: float = 80.0) -> Dict:
-        """Check and optimize - التحقق والتحسين"""
+        """Check memory and optimize if needed"""
         current_mb = self.get_memory_usage()
         current_percent = self.get_memory_percent()
         
@@ -4852,7 +4091,7 @@ class MemoryManager:
         }
         
         if current_mb > Config.MAX_MEMORY_MB or current_percent > threshold_percent:
-            logger.warning(f"استخدام عالي للذاكرة: {current_mb:.2f} MB, {current_percent:.1f}%")
+            logger.warning(f"High memory usage: {current_mb:.2f} MB, {current_percent:.1f}%")
             
             self.metrics['high_memory_warnings'] += 1
             optimization_result = self.optimize_memory()
@@ -4862,7 +4101,7 @@ class MemoryManager:
         return result
     
     def get_metrics(self) -> Dict:
-        """Get metrics - الحصول على المقاييس"""
+        """Get memory metrics"""
         return {
             **self.metrics,
             'current_mb': self.get_memory_usage(),
@@ -4871,17 +4110,17 @@ class MemoryManager:
         }
 
 # ======================
-# Encryption Manager - مدير التشفير
+# Encryption Manager
 # ======================
 
 class EncryptionManager:
-    """Encryption manager - مدير التشفير"""
+    """Encryption manager"""
     
     _instance = None
     
     @classmethod
     def get_instance(cls):
-        """Get instance - الحصول على المثيل"""
+        """Get instance"""
         if cls._instance is None:
             cls._instance = EncryptionManager()
         return cls._instance
@@ -4900,25 +4139,25 @@ class EncryptionManager:
         self.cipher = Fernet(derived_key)
     
     def encrypt(self, data: str) -> str:
-        """Encrypt - تشفير"""
+        """Encrypt data"""
         try:
             encrypted = self.cipher.encrypt(data.encode())
             return encrypted.decode()
         except Exception as e:
-            logger.error(f"خطأ في التشفير: {e}")
+            logger.error(f"Encryption error: {e}")
             return data
     
     def decrypt(self, encrypted_data: str) -> str:
-        """Decrypt - فك التشفير"""
+        """Decrypt data"""
         try:
             decrypted = self.cipher.decrypt(encrypted_data.encode())
             return decrypted.decode()
         except Exception as e:
-            logger.error(f"خطأ في فك التشفير: {e}")
+            logger.error(f"Decryption error: {e}")
             return encrypted_data
     
     def encrypt_session(self, session_string: str) -> str:
-        """Encrypt session - تشفير الجلسة"""
+        """Encrypt session string"""
         metadata = {
             'encrypted_at': datetime.now().isoformat(),
             'version': '2.0'
@@ -4932,25 +4171,25 @@ class EncryptionManager:
         return self.encrypt(json.dumps(data))
     
     def decrypt_session(self, encrypted_data: str) -> Optional[str]:
-        """Decrypt session - فك تشفير الجلسة"""
+        """Decrypt session string"""
         try:
             decrypted = self.decrypt(encrypted_data)
             data = json.loads(decrypted)
             return data['session']
         except Exception as e:
-            logger.error(f"خطأ في فك تشفير الجلسة: {e}")
+            logger.error(f"Session decryption error: {e}")
             return None
 
 # ======================
-# Backup Manager - مدير النسخ الاحتياطي
+# Backup Manager
 # ======================
 
 class BackupManager:
-    """Backup manager - مدير النسخ الاحتياطي"""
+    """Backup manager"""
     
     @staticmethod
     async def create_backup() -> Optional[Dict]:
-        """Create backup - إنشاء نسخة احتياطية"""
+        """Create database backup"""
         if not Config.BACKUP_ENABLED:
             return None
         
@@ -4963,11 +4202,12 @@ class BackupManager:
             os.makedirs(backup_dir, exist_ok=True)
             
             if not os.path.exists(Config.DB_PATH):
-                logger.error("ملف قاعدة البيانات غير موجود")
+                logger.error("Database file not found")
                 return None
             
             db_size = os.path.getsize(Config.DB_PATH)
             
+            # Copy database file
             shutil.copy2(Config.DB_PATH, backup_path)
             
             metadata = {
@@ -4982,21 +4222,22 @@ class BackupManager:
                 'version': '2.0'
             }
             
+            # Save metadata
             metadata_path = backup_path + '.meta'
             async with aiofiles.open(metadata_path, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(metadata, indent=2))
             
-            logger.info(f"تم إنشاء نسخة احتياطية: {backup_path}")
+            logger.info(f"Backup created: {backup_path}")
             
             return metadata
             
         except Exception as e:
-            logger.error(f"خطأ في إنشاء نسخة احتياطية: {e}", exc_info=True)
+            logger.error(f"Error creating backup: {e}")
             return None
     
     @staticmethod
     def _calculate_checksum(file_path: str) -> str:
-        """Calculate checksum - حساب مجموع التحقق"""
+        """Calculate file checksum"""
         hasher = hashlib.sha256()
         with open(file_path, 'rb') as f:
             while chunk := f.read(8192):
@@ -5005,7 +4246,7 @@ class BackupManager:
     
     @staticmethod
     async def rotate_backups():
-        """Rotate backups - تدوير النسخ"""
+        """Rotate old backups"""
         try:
             if not os.path.exists("backups"):
                 return
@@ -5034,14 +4275,10 @@ class BackupManager:
             
             backups.sort(key=lambda x: x['created'])
             
-            now = datetime.now()
             to_keep = []
             to_delete = []
             
             for backup in backups:
-                backup_date = datetime.fromtimestamp(backup['created'])
-                age_days = (now - backup_date).days
-                
                 if len(to_keep) < Config.MAX_BACKUPS:
                     to_keep.append(backup)
                     continue
@@ -5058,96 +4295,31 @@ class BackupManager:
                         os.remove(meta_path)
                     
                     deleted_count += 1
-                    logger.info(f"تم حذف النسخة القديمة: {backup['path']}")
+                    logger.info(f"Deleted old backup: {backup['path']}")
                     
                 except Exception as e:
-                    logger.error(f"خطأ في حذف النسخة القديمة: {e}")
+                    logger.error(f"Error deleting backup: {e}")
             
             if deleted_count > 0:
-                logger.info(f"تم تدوير {deleted_count} نسخة احتياطية قديمة")
+                logger.info(f"Rotated {deleted_count} old backups")
             
             return deleted_count
                     
         except Exception as e:
-            logger.error(f"خطأ في تدوير النسخ الاحتياطية: {e}", exc_info=True)
+            logger.error(f"Error rotating backups: {e}")
             return 0
 
 # ======================
-# Structured Logger - مسجل هيكلي
+# FastAPI Health Check
 # ======================
 
-class StructuredLogger:
-    """Structured logger - مسجل هيكلي"""
-    
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        self.request_id = 0
-        
-    def generate_request_id(self) -> str:
-        """Generate request ID - توليد معرف طلب"""
-        self.request_id += 1
-        return f"REQ-{self.request_id:06d}-{secrets.token_hex(4)}"
-    
-    def info(self, message: str, extra: Dict = None):
-        """Info log - تسجيل معلومات"""
-        context = {
-            'request_id': self.generate_request_id(),
-            'timestamp': datetime.now().isoformat(),
-            'memory_mb': MemoryManager.get_instance().get_memory_usage()
-        }
-        if extra:
-            context.update(extra)
-        
-        self.logger.info(f"{message} | {json.dumps(context, ensure_ascii=False)}")
-    
-    def error(self, message: str, exc_info: bool = True, extra: Dict = None):
-        """Error log - تسجيل خطأ"""
-        context = {
-            'request_id': self.generate_request_id(),
-            'timestamp': datetime.now().isoformat(),
-            'error_type': 'exception'
-        }
-        if extra:
-            context.update(extra)
-        
-        self.logger.error(f"{message} | {json.dumps(context, ensure_ascii=False)}", 
-                         exc_info=exc_info)
-    
-    def warning(self, message: str, extra: Dict = None):
-        """Warning log - تسجيل تحذير"""
-        context = {
-            'request_id': self.generate_request_id(),
-            'timestamp': datetime.now().isoformat()
-        }
-        if extra:
-            context.update(extra)
-        
-        self.logger.warning(f"{message} | {json.dumps(context, ensure_ascii=False)}")
-    
-    def debug(self, message: str, extra: Dict = None):
-        """Debug log - تسجيل تصحيح"""
-        context = {
-            'request_id': self.generate_request_id(),
-            'timestamp': datetime.now().isoformat(),
-            'memory_mb': MemoryManager.get_instance().get_memory_usage(),
-            'cache_hits': CacheManager.get_instance().get_stats()['fast_hits']
-        }
-        if extra:
-            context.update(extra)
-        
-        self.logger.debug(f"{message} | {json.dumps(context, ensure_ascii=False)}")
-
-# ======================
-# FastAPI Health Check - فحص صحة FastAPI
-# ======================
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import uvicorn
 import threading
 
 class HealthCheckServer:
-    """Health check server for Render - خادم فحص الصحة لـ Render"""
+    """Health check server for Render"""
     
     def __init__(self, port: int = 8080):
         self.port = port
@@ -5156,7 +4328,7 @@ class HealthCheckServer:
         self.server_thread = None
         
     def _setup_routes(self):
-        """Setup routes - إعداد المسارات"""
+        """Setup API routes"""
         
         @self.app.get("/")
         async def root():
@@ -5165,20 +4337,13 @@ class HealthCheckServer:
         @self.app.get("/health")
         async def health():
             try:
-                # التحقق من توفر البوت
-                bot_ok = False
-                try:
-                    import asyncio
-                    from telegram.ext import Application
-                    # محاولة الحصول على حالة البوت
-                    bot_ok = True
-                except:
-                    bot_ok = False
+                # Check bot availability
+                bot_ok = True
                 
-                # التحقق من قاعدة البيانات
+                # Check database
                 db_ok = os.path.exists(Config.DB_PATH)
                 
-                # التحقق من الذاكرة
+                # Check memory
                 memory_ok = MemoryManager.get_instance().get_memory_percent() < 90
                 
                 status = {
@@ -5217,8 +4382,7 @@ class HealthCheckServer:
                     "cache": CacheManager.get_instance().get_stats(),
                     "system": {
                         "python_version": sys.version,
-                        "platform": sys.platform,
-                        "uptime_seconds": (datetime.now() - datetime.fromtimestamp(psutil.boot_time())).total_seconds()
+                        "platform": sys.platform
                     }
                 }
                 return JSONResponse(status_code=200, content=metrics_data)
@@ -5229,7 +4393,7 @@ class HealthCheckServer:
                 )
     
     def start(self):
-        """Start server - بدء الخادم"""
+        """Start health check server"""
         def run_server():
             uvicorn.run(
                 self.app,
@@ -5241,95 +4405,95 @@ class HealthCheckServer:
         
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
-        logger.info(f"بدأ خادم فحص الصحة على المنفذ {self.port}")
+        logger.info(f"Health check server started on port {self.port}")
     
     def stop(self):
-        """Stop server - إيقاف الخادم"""
+        """Stop health check server"""
         if self.server_thread:
-            logger.info("إيقاف خادم فحص الصحة")
+            logger.info("Health check server stopped")
 
 # ======================
-# Main Entry Point - نقطة الدخول الرئيسية
+# Signal Handlers
+# ======================
+
+def setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown"""
+    def signal_handler(signum, frame):
+        logger.info(f"📶 Received signal {signum}. Starting graceful shutdown...")
+        logger.info("📊 Final system statistics:")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+# ======================
+# Main Entry Point
 # ======================
 
 async def main():
-    """Main function - الوظيفة الرئيسية"""
+    """Main function"""
     setup_signal_handlers()
     
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    else:
+    # Setup event loop
+    if sys.platform != 'win32':
         try:
             import uvloop
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-            logger.info("✅ استخدام uvloop لتحسين الأداء")
+            logger.info("✅ Using uvloop for performance")
         except ImportError:
-            logger.info("⚠️ uvloop غير مثبت. استخدام حلقة الأحداث الافتراضية")
+            logger.info("⚠️ uvloop not installed. Using default event loop")
     
-    try:
-        import resource
-        resource.setrlimit(resource.RLIMIT_NOFILE, (16384, 16384))
-        logger.info("✅ تم تعيين حدود الملفات المفتوحة المحسنة")
-    except:
-        logger.warning("⚠️ لم يتمكن من تعيين حدود الملفات المفتوحة")
-    
+    # Check required environment variables
     required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
     missing = [var for var in required_env_vars if not os.getenv(var)]
     
     if missing:
-        logger.error(f"❌ متغيرات بيئية مفقودة: {missing}")
-        print(f"❌ خطأ: المتغيرات البيئية التالية مفقودة: {', '.join(missing)}")
-        print("يرجى تعيينها قبل التشغيل:")
+        logger.error(f"❌ Missing environment variables: {missing}")
+        print(f"❌ Error: The following environment variables are missing: {', '.join(missing)}")
+        print("Please set them before running:")
         for var in missing:
-            print(f"export {var}=قيمتك_هنا")
+            print(f"export {var}=your_value_here")
         sys.exit(1)
     
+    # Warn about temporary encryption key
     if Config.ENCRYPTION_KEY == Fernet.generate_key().decode():
-        logger.warning("⚠️ استخدام مفتاح تشفير مؤقت. يوصى بتعيين ENCRYPTION_KEY دائم")
+        logger.warning("⚠️ Using temporary encryption key. Set ENCRYPTION_KEY for permanent security")
     
+    # Create necessary directories
     os.makedirs("backups", exist_ok=True)
     os.makedirs("cache_data", exist_ok=True)
     os.makedirs("exports", exist_ok=True)
     
-    # بدء خادم فحص الصحة
+    # Start health check server
     health_server = HealthCheckServer(port=8080)
     health_server.start()
     
-    # بدء البوت
+    # Start the bot
     bot = AdvancedTelegramBot()
     
-    logger.info("🤖 بدء تشغيل بوت جمع الروابط الذكي المتقدم...")
-    logger.info(f"🔥 الإعدادات المحسنة - max_sessions: {Config.MAX_CONCURRENT_SESSIONS}, max_export_links: {Config.MAX_EXPORT_LINKS}, max_sessions_per_user: {Config.MAX_SESSIONS_PER_USER}")
+    logger.info("🤖 Starting Advanced Link Collection Bot...")
+    logger.info(f"🔥 Enhanced Settings - max_sessions: {Config.MAX_CONCURRENT_SESSIONS}, max_export: {Config.MAX_EXPORT_LINKS}")
     
     try:
+        # Initialize managers
         cache_manager = CacheManager.get_instance()
         memory_manager = MemoryManager.get_instance()
         
-        # تشغيل الصيانة الدورية
+        # Run periodic maintenance
         asyncio.create_task(periodic_maintenance())
         
-        # بدء البوت
-        await bot.app.initialize()
-        await bot.app.start()
-        
-        logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
-        
-        # الحفاظ على البوت يعمل
-        await bot.app.updater.start_polling()
-        
-        # انتظار حتى انتهاء البوت
-        await asyncio.Event().wait()
+        # Run the bot
+        await bot.run()
         
     except Exception as e:
-        logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
+        logger.error(f"❌ Error in bot: {e}", exc_info=True)
         raise
         
     finally:
-        logger.info("🧹 جاري التنظيف النهائي...")
+        logger.info("🧹 Performing final cleanup...")
         
         try:
-            if hasattr(bot, 'app'):
-                await bot.app.stop()
+            await bot.stop()
             
             db = await EnhancedDatabaseManager.get_instance()
             await db.close()
@@ -5338,37 +4502,44 @@ async def main():
             
             health_server.stop()
             
-            logger.info("✅ اكتمل الإغلاق السلس")
+            logger.info("✅ Graceful shutdown completed")
             
         except Exception as e:
-            logger.error(f"❌ خطأ في التنظيف النهائي: {e}")
+            logger.error(f"❌ Error in final cleanup: {e}")
 
 async def periodic_maintenance():
-    """Periodic maintenance - الصيانة الدورية"""
+    """Periodic maintenance tasks"""
     while True:
         try:
+            # Cleanup expired cache
             cache_manager = CacheManager.get_instance()
             await cache_manager.cleanup_expired()
             
+            # Optimize memory
             memory_manager = MemoryManager.get_instance()
             memory_manager.check_and_optimize()
             
+            # Rotate backups
             if Config.BACKUP_ENABLED:
                 await BackupManager.rotate_backups()
             
-            logger.debug("✅ الصيانة الدورية مكتملة")
+            logger.debug("✅ Periodic maintenance completed")
             
-            await asyncio.sleep(300)
+            await asyncio.sleep(300)  # Run every 5 minutes
             
         except Exception as e:
-            logger.error(f"خطأ في الصيانة الدورية: {e}")
+            logger.error(f"Error in periodic maintenance: {e}")
             await asyncio.sleep(60)
+
+# ======================
+# Run the Application
+# ======================
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("👋 توقف البوت بواسطة المستخدم")
+        logger.info("👋 Bot stopped by user")
     except Exception as e:
-        logger.error(f"❌ خطأ قاتل: {e}", exc_info=True)
+        logger.error(f"❌ Fatal error: {e}", exc_info=True)
         sys.exit(1)
