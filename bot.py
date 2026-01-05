@@ -6126,7 +6126,7 @@ async def main():
         await bot.app.updater.start_polling()
         
         # انتظار حتى انتهاء البوت
-        await bot.app.updater.idle()
+        updater.idle()  # ✅ بدون await
         
     except Exception as e:
         logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
