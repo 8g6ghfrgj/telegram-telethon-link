@@ -12,7 +12,11 @@ def ensure_packages():
         'aiofiles==23.2.1',
         'cryptography==42.0.5',
         'psutil==5.9.8',
-        'aiohttp==3.11.3'
+        'aiohttp==3.11.3',
+        'fastapi==0.104.1',
+        'uvicorn==0.24.0',
+        'httpx==0.25.2',
+        'pytz==2023.3'
     ]
     
     for package in required:
@@ -81,6 +85,7 @@ class Config:
     API_HASH = os.getenv("API_HASH", "")
     
     # Security - الأمان
+    @staticmethod
     def safe_parse_ids(env_var, default="0"):
         try:
             value = os.getenv(env_var, default)
@@ -176,9 +181,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-# باقي الكود تابع كما هو...
-# أضف هنا بقية الكود الذي لديك بعد هذا السطر
 
 # ======================
 # Enhanced Link Processor - معالج الروابط المحسن
@@ -456,6 +458,153 @@ class EnhancedLinkProcessor:
                 result['is_valid'] = True
         
         return result
+    
+    @staticmethod
+    def _extract_whatsapp_info(url: str, parsed) -> Dict:
+        """Extract WhatsApp specific information - استخراج معلومات واتساب خاصة"""
+        return {
+            'is_valid': True,
+            'invite_code': parsed.path.strip('/'),
+            'is_group': True
+        }
+    
+    @staticmethod
+    def _extract_discord_info(url: str, parsed) -> Dict:
+        """Extract Discord specific information - استخراج معلومات ديسكورد خاصة"""
+        return {
+            'is_valid': True,
+            'invite_code': parsed.path.strip('/'),
+            'is_invite': True
+        }
+    
+    @staticmethod
+    def _extract_signal_info(url: str, parsed) -> Dict:
+        """Extract Signal specific information - استخراج معلومات سيجنال خاصة"""
+        return {
+            'is_valid': True,
+            'group_code': parsed.path.strip('/'),
+            'is_group': True
+        }
+    
+    @staticmethod
+    async def validate_telegram_link_advanced(client: TelegramClient, url: str, check_join_request: bool = False) -> Dict:
+        """Advanced validation for Telegram links - تحقق متقدم لروابط تيليجرام"""
+        try:
+            url_info = EnhancedLinkProcessor.extract_url_info(url)
+            details = url_info.get('details', {})
+            
+            result = {
+                'is_valid': False,
+                'is_active': False,
+                'type': 'unknown',
+                'title': '',
+                'members': 0,
+                'requires_join': details.get('is_join_request', False),
+                'is_verified': False,
+                'validation_score': 0,
+                'reason': '',
+                'method': 'advanced',
+                'is_channel': details.get('is_channel', False),
+                'is_group': details.get('is_group', False),
+                'is_supergroup': details.get('is_supergroup', False)
+            }
+            
+            if not url_info['is_valid']:
+                result['reason'] = 'رابط غير صالح'
+                return result
+            
+            # التحقق من روابط الانضمام
+            if details.get('is_join_request') and check_join_request:
+                try:
+                    invite_hash = details.get('invite_hash', '')
+                    if invite_hash:
+                        # محاولة الانضمام لتحقق
+                        invite = await client(functions.messages.CheckChatInviteRequest(
+                            hash=invite_hash
+                        ))
+                        
+                        if isinstance(invite, types.ChatInviteAlready):
+                            result['is_valid'] = True
+                            result['is_active'] = True
+                            result['type'] = 'join_request_already_member'
+                            result['is_verified'] = True
+                            result['validation_score'] = 85
+                        elif isinstance(invite, types.ChatInvite):
+                            result['is_valid'] = True
+                            result['is_active'] = True
+                            result['type'] = 'join_request_valid'
+                            result['title'] = invite.title
+                            result['members'] = invite.participants_count
+                            result['is_verified'] = True
+                            result['validation_score'] = 90
+                        elif isinstance(invite, types.ChatInvitePeek):
+                            result['is_valid'] = True
+                            result['is_active'] = True
+                            result['type'] = 'join_request_peek'
+                            result['title'] = invite.chat.title
+                            result['is_verified'] = True
+                            result['validation_score'] = 80
+                    else:
+                        result['reason'] = 'لا يوجد رمز دعوة'
+                except InviteHashInvalidError:
+                    result['reason'] = 'رابط دعوة غير صالح'
+                except InviteHashExpiredError:
+                    result['reason'] = 'رابط دعوة منتهي'
+                except Exception as e:
+                    result['reason'] = f'خطأ في التحقق: {str(e)[:50]}'
+            
+            # التحقق من المجموعات العامة
+            elif details.get('is_public') or details.get('username'):
+                username = details.get('username', '')
+                if username:
+                    try:
+                        entity = await client.get_entity(username)
+                        
+                        if isinstance(entity, types.Channel):
+                            if entity.broadcast:
+                                result['type'] = 'channel'
+                                result['is_channel'] = True
+                            else:
+                                result['type'] = 'supergroup' if entity.megagroup else 'group'
+                                result['is_group'] = True
+                                result['is_supergroup'] = entity.megagroup
+                        elif isinstance(entity, types.Chat):
+                            result['type'] = 'group'
+                            result['is_group'] = True
+                        
+                        result['is_valid'] = True
+                        result['is_active'] = True
+                        result['title'] = getattr(entity, 'title', '')
+                        result['members'] = getattr(entity, 'participants_count', 0)
+                        result['is_verified'] = True
+                        result['validation_score'] = 95
+                        
+                    except UsernameNotOccupiedError:
+                        result['reason'] = 'المستخدم/المجموعة غير موجودة'
+                    except ChannelPrivateError:
+                        result['reason'] = 'القناة/المجموعة خاصة'
+                    except Exception as e:
+                        result['reason'] = f'خطأ في الوصول: {str(e)[:50]}'
+            
+            # التحقق من الروابط الأخرى
+            else:
+                result['is_valid'] = True
+                result['is_active'] = True
+                result['type'] = 'unknown'
+                result['validation_score'] = 50
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"خطأ في التحقق المتقدم للرابط: {e}")
+            return {
+                'is_valid': False,
+                'is_active': False,
+                'type': 'error',
+                'reason': f'خطأ في التحقق: {str(e)[:50]}',
+                'validation_score': 0
+            }
+
 # ======================
 # Enhanced Database Manager - مدير قاعدة البيانات المحسن
 # ======================
@@ -4984,25 +5133,124 @@ class StructuredLogger:
             context.update(extra)
         
         self.logger.debug(f"{message} | {json.dumps(context, ensure_ascii=False)}")
+
+# ======================
+# FastAPI Health Check - فحص صحة FastAPI
+# ======================
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+import uvicorn
+import threading
+
+class HealthCheckServer:
+    """Health check server for Render - خادم فحص الصحة لـ Render"""
+    
+    def __init__(self, port: int = 8080):
+        self.port = port
+        self.app = FastAPI(title="Telegram Link Collector Health")
+        self._setup_routes()
+        self.server_thread = None
+        
+    def _setup_routes(self):
+        """Setup routes - إعداد المسارات"""
+        
+        @self.app.get("/")
+        async def root():
+            return {"status": "running", "service": "Telegram Link Collector"}
+        
+        @self.app.get("/health")
+        async def health():
+            try:
+                # التحقق من توفر البوت
+                bot_ok = False
+                try:
+                    import asyncio
+                    from telegram.ext import Application
+                    # محاولة الحصول على حالة البوت
+                    bot_ok = True
+                except:
+                    bot_ok = False
+                
+                # التحقق من قاعدة البيانات
+                db_ok = os.path.exists(Config.DB_PATH)
+                
+                # التحقق من الذاكرة
+                memory_ok = MemoryManager.get_instance().get_memory_percent() < 90
+                
+                status = {
+                    "status": "healthy" if all([bot_ok, db_ok, memory_ok]) else "degraded",
+                    "timestamp": datetime.now().isoformat(),
+                    "checks": {
+                        "bot": bot_ok,
+                        "database": db_ok,
+                        "memory": memory_ok,
+                        "memory_percent": MemoryManager.get_instance().get_memory_percent(),
+                        "memory_mb": MemoryManager.get_instance().get_memory_usage()
+                    }
+                }
+                
+                if status["status"] == "healthy":
+                    return JSONResponse(status_code=200, content=status)
+                else:
+                    return JSONResponse(status_code=503, content=status)
+                
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "status": "error",
+                        "error": str(e),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+        
+        @self.app.get("/metrics")
+        async def metrics():
+            try:
+                metrics_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "memory": MemoryManager.get_instance().get_metrics(),
+                    "cache": CacheManager.get_instance().get_stats(),
+                    "system": {
+                        "python_version": sys.version,
+                        "platform": sys.platform,
+                        "uptime_seconds": (datetime.now() - datetime.fromtimestamp(psutil.boot_time())).total_seconds()
+                    }
+                }
+                return JSONResponse(status_code=200, content=metrics_data)
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": str(e)}
+                )
+    
+    def start(self):
+        """Start server - بدء الخادم"""
+        def run_server():
+            uvicorn.run(
+                self.app,
+                host="0.0.0.0",
+                port=self.port,
+                log_level="warning",
+                access_log=False
+            )
+        
+        self.server_thread = threading.Thread(target=run_server, daemon=True)
+        self.server_thread.start()
+        logger.info(f"بدأ خادم فحص الصحة على المنفذ {self.port}")
+    
+    def stop(self):
+        """Stop server - إيقاف الخادم"""
+        if self.server_thread:
+            logger.info("إيقاف خادم فحص الصحة")
+
 # ======================
 # Main Entry Point - نقطة الدخول الرئيسية
 # ======================
 
-def setup_logging():
-    """Setup logging - إعداد التسجيل"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-        handlers=[
-            logging.FileHandler('bot.log', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
 async def main():
     """Main function - الوظيفة الرئيسية"""
-    setup_logging()  # إضافة هذا السطر المفقود
-    
     setup_signal_handlers()
     
     if sys.platform == 'win32':
@@ -5040,6 +5288,11 @@ async def main():
     os.makedirs("cache_data", exist_ok=True)
     os.makedirs("exports", exist_ok=True)
     
+    # بدء خادم فحص الصحة
+    health_server = HealthCheckServer(port=8080)
+    health_server.start()
+    
+    # بدء البوت
     bot = AdvancedTelegramBot()
     
     logger.info("🤖 بدء تشغيل بوت جمع الروابط الذكي المتقدم...")
@@ -5049,23 +5302,27 @@ async def main():
         cache_manager = CacheManager.get_instance()
         memory_manager = MemoryManager.get_instance()
         
+        # تشغيل الصيانة الدورية
         asyncio.create_task(periodic_maintenance())
         
-        # تشغيل البوت - تصحيح طريقة بدء Updater
+        # بدء البوت
         await bot.app.initialize()
         await bot.app.start()
         
-        # بدء ال polling بطريقة صحيحة
-        if hasattr(bot.app, 'updater') and bot.app.updater:
-            # استخدام start_polling بدون أي معاملات إضافية
-            await bot.app.updater.start_polling()
+        # استخدام start_polling بدون Updater
+        await bot.app.updater.start_polling()
         
         logger.info("🚀 البوت يعمل بنجاح مع الحدود المحسنة!")
         
         # الحفاظ على البوت يعمل
-        while True:
-            await asyncio.sleep(3600)  # انتظر ساعة واحدة
-            
+        idle_task = asyncio.create_task(bot.app.updater.idle())
+        
+        # انتظار حتى ينتهي idle (أو أي مهمة أخرى)
+        try:
+            await idle_task
+        except asyncio.CancelledError:
+            logger.info("تم إلغاء مهمة البوت")
+        
     except Exception as e:
         logger.error(f"❌ خطأ في البوت المتقدم: {e}", exc_info=True)
         raise
@@ -5081,6 +5338,8 @@ async def main():
             await db.close()
             
             cache_manager.clear()
+            
+            health_server.stop()
             
             logger.info("✅ اكتمل الإغلاق السلس")
             
