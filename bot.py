@@ -14,7 +14,7 @@ def ensure_packages():
         'psutil==5.9.8',
         'aiohttp==3.11.3',
         'fastapi==0.104.1',
-        'uvicorn==0.24.0',
+        'uvicorn[standard]==0.24.0',  # Changed to include standard
         'httpx==0.25.2',
         'pytz==2023.3'
     ]
@@ -1860,10 +1860,9 @@ class GroupCollectionManager:
         self.active = False
 
 # ======================
-# باقي الكود مع تعديلات للتركيز على المجموعات
+# Encryption Manager
 # ======================
 
-# Encryption Manager
 class EncryptionManager:
     """Encryption manager"""
     
@@ -1906,7 +1905,10 @@ class EncryptionManager:
             logger.error(f"خطأ في فك التشفير: {e}")
             return encrypted_data
 
+# ======================
 # Backup Manager
+# ======================
+
 class BackupManager:
     """Backup manager"""
     
@@ -1973,7 +1975,10 @@ class BackupManager:
         except Exception as e:
             logger.error(f"خطأ في تدوير النسخ الاحتياطية: {e}")
 
+# ======================
 # Telegram Bot - مخصص لجمع المجموعات فقط
+# ======================
+
 class TelegramBot:
     """Main Telegram bot - Groups Only Edition"""
     
@@ -1987,15 +1992,18 @@ class TelegramBot:
     
     def _setup_handlers(self):
         """Setup bot handlers"""
+        # Basic commands
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("stats", self.stats_command))
-        self.app.add_handler(CommandHandler("sessions", self.sessions_command))
         self.app.add_handler(CommandHandler("export", self.export_command))
         self.app.add_handler(CommandHandler("backup", self.backup_command))
         self.app.add_handler(CommandHandler("collect", self.collect_command))
         self.app.add_handler(CommandHandler("addsession", self.add_session_command))
+        
+        # Fixed: Added sessions_command handler
+        self.app.add_handler(CommandHandler("sessions", self.sessions_command))
         
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         
@@ -2073,17 +2081,18 @@ class TelegramBot:
 • /start - بدء البوت ورسالة الترحيب
 • /help - عرض هذه المساعدة
 • /status - عرض حالة النظام والجمع
+• /sessions - عرض الجلسات النشطة
+• /stats - إحصائيات النظام
 
 **إدارة الجلسات:**
-• /sessions - عرض الجلسات النشطة
 • /addsession - إضافة جلسة جديدة
+• /sessions - عرض الجلسات النشطة
 
 **الجمع والتصدير:**
 • /collect - بدء/إيقاف جمع المجموعات
 • /export - تصدير المجموعات المجمعة
 
 **الإدارة:**
-• /stats - إحصائيات النظام
 • /backup - إنشاء نسخة احتياطية
 
 **📌 كيفية البدء:**
@@ -2165,6 +2174,102 @@ class TelegramBot:
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
     
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        db = await EnhancedDatabaseManager.get_instance()
+        db_stats = await db.get_stats_summary()
+        
+        user_stats = await db.get_user_stats(user.id)
+        
+        stats_text = f"""
+**📈 إحصائيات النظام المتقدمة**
+
+🎯 **التركيز: المجموعات فقط (بدون قنوات)**
+
+**إحصائيات المستخدم:**
+"""
+        
+        if user_stats:
+            stats_text += f"""• 🆔 المعرف: {user.id}
+• 👤 الاسم: {user_stats.get('first_name', '')} {user_stats.get('last_name', '')}
+• 📅 العضو منذ: {user_stats.get('added_date', 'غير معروف')}
+• 📊 طلباتك: {user_stats.get('request_count', 0):,}
+• 🔗 مجموعاتك: {user_stats.get('total_links', 0):,}
+• 💼 جلساتك: {user_stats.get('total_sessions', 0)}
+"""
+        
+        stats_text += f"""
+**إحصائيات النظام (مجموعات فقط):**
+• 🔗 إجمالي المجموعات: {db_stats.get('group_links', 0):,}
+• 🎯 مجموعات ميجا: {db_stats.get('megagroup_links', 0):,}
+• 🚫 القنوات: {db_stats.get('channel_links', 0):,}
+• ✅ مجموعات مع زر انضمام: {db_stats.get('join_button_links', 0):,}
+• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
+• 👥 المستخدمين: {db_stats.get('total_users', 0)}
+• ✅ المجموعات المنضمة: {db_stats.get('joined_groups', 0):,}
+
+**توزيع المنصات:**
+"""
+        
+        for platform, count in db_stats.get('links_by_platform', {}).items():
+            stats_text += f"• {platform}: {count:,}\n"
+        
+        await update.message.reply_text(stats_text, parse_mode="Markdown")
+    
+    async def sessions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /sessions command - FIXED"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        db = await EnhancedDatabaseManager.get_instance()
+        sessions = await db.get_active_sessions(limit=20)
+        
+        if not sessions:
+            await update.message.reply_text("❌ لا توجد جلسات نشطة")
+            return
+        
+        sessions_text = f"""
+**👥 الجلسات النشطة ({len(sessions)})**
+
+"""
+        
+        for i, session in enumerate(sessions, 1):
+            display_name = session.get('display_name', 'غير معروف')
+            username = session.get('username', 'بدون معرف')
+            phone = session.get('phone_number', 'بدون رقم')
+            last_used = session.get('last_used', 'لم يستخدم')
+            uses = session.get('total_uses', 0)
+            total_links = session.get('total_links', 0)
+            
+            sessions_text += f"""**{i}. {display_name}**
+• المعرف: @{username}
+• الهاتف: {phone}
+• الاستخدامات: {uses}
+• الروابط المجمعة: {total_links}
+• آخر استخدام: {last_used}
+
+"""
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
+             InlineKeyboardButton("🔄 تحديث", callback_data="refresh_sessions")]
+        ])
+        
+        await update.message.reply_text(sessions_text, reply_markup=keyboard, parse_mode="Markdown")
+    
     async def export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /export command"""
         user = update.effective_user
@@ -2224,6 +2329,614 @@ class TelegramBot:
 """
         
         await update.message.reply_text(export_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def backup_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /backup command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💾 إنشاء نسخة", callback_data="create_backup"),
+             InlineKeyboardButton("📋 قائمة النسخ", callback_data="list_backups")],
+            [InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups")]
+        ])
+        
+        backup_text = f"""
+**💾 إدارة النسخ الاحتياطية**
+
+**المميزات:**
+• نسخ احتياطي تلقائي
+• حفظ بيانات الجلسات والمجموعات
+• استعادة البيانات عند الحاجة
+• تدوير تلقائي للنسخ القديمة
+
+**الإعدادات:**
+• عدد النسخ المحفوظة: {Config.MAX_BACKUPS}
+• النسخ التلقائية: {"✅ مفعل" if Config.BACKUP_ENABLED else "❌ معطل"}
+
+**الأوامر:**
+• إنشاء نسخة يدوية
+• عرض قائمة النسخ
+• تدوير النسخ القديمة
+"""
+        
+        await update.message.reply_text(backup_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def collect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /collect command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        status = self.collection_manager.get_status()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 بدء جمع المجموعات", callback_data="start_collect"),
+             InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
+             InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")],
+            [InlineKeyboardButton("⚙️ إعدادات الجمع", callback_data="collect_settings")]
+        ])
+        
+        collect_text = f"""
+**🚀 إدارة عملية جمع المجموعات فقط**
+
+🎯 **التركيز: المجموعات فقط (بدون قنوات)**
+⚙️ **الإعدادات النشطة:**
+• جمع المجموعات فقط: {"✅" if Config.COLLECT_ONLY_GROUPS else "❌"}
+• تخطي القنوات: {"✅" if Config.SKIP_CHANNELS else "❌"}
+• زر الانضمام مطلوب: {"✅" if Config.REQUIRE_JOIN_BUTTON else "❌"}
+
+**الحالة الحالية:**
+"""
+        
+        if status['active']:
+            if status['paused']:
+                collect_text += "⏸️ **موقف مؤقتاً**\n"
+            else:
+                collect_text += "🔄 **نشط**\n"
+        else:
+            collect_text += "🛑 **متوقف**\n"
+        
+        collect_text += f"""
+**الإحصائيات:**
+• المجموعات المجمعة: {status['stats']['total_collected']:,}
+• مجموعات انضمت: {status['stats']['groups_joined']:,}
+• مجموعات تخطيت: {status['stats']['groups_skipped']:,}
+• روابط من المجموعات: {status['stats']['links_from_groups']:,}
+• الأخطاء: {status['stats']['errors']:,}
+
+**المميزات:**
+• 🎯 جمع المجموعات فقط (لا قنوات)
+• ⏭️ تخطي القنوات التي تحتوي على زر "اشتراك"
+• ✅ جمع المجموعات التي تحتوي على زر "انضمام"
+• 👥 التركيز على المجموعات التي تحتوي على أعضاء
+
+**الحدود:**
+• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}
+• محاولات الانضمام لكل جلسة: {Config.MAX_JOIN_ATTEMPTS_PER_SESSION}
+• الرسائل لكل مجموعة: {Config.MAX_MESSAGES_TO_SCAN}
+• الحد الأدنى للأعضاء: {Config.MIN_GROUP_PARTICIPANTS}
+"""
+        
+        await update.message.reply_text(collect_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def add_session_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /addsession command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        self.user_states[user.id] = {'waiting_for_session': True}
+        
+        add_text = """
+**➕ إضافة جلسة جديدة**
+
+**تعليمات الإضافة:**
+1. افتح https://my.telegram.org
+2. سجل الدخول بحسابك
+3. انتقل إلى **API Development Tools**
+4. أنشئ تطبيق جديد واحصل على:
+   • api_id
+   • api_hash
+5. افتح @GetStringBot وأرسل /start
+6. أرسل إليه api_id و api_hash
+7. سيرسل لك كود الجلسة (session string)
+
+**أرسل كود الجلسة الآن:**
+(يمكنك نسخ الكود كاملاً وإرساله)
+"""
+        
+        await update.message.reply_text(add_text, parse_mode="Markdown")
+    
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle callback queries"""
+        query = update.callback_query
+        await query.answer()
+        
+        user = query.from_user
+        data = query.data
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await self._edit_message_safe(query, "❌ غير مصرح لك بالوصول")
+                return
+        
+        try:
+            if data == "start_collect":
+                await self._handle_start_collect(query)
+            elif data == "pause_collect":
+                await self._handle_pause_collect(query)
+            elif data == "stop_collect":
+                await self._handle_stop_collect(query)
+            elif data == "collect_status":
+                await self._handle_collect_status(query)
+            elif data == "collect_settings":
+                await self._handle_collect_settings(query)
+            elif data == "add_session":
+                await self._handle_add_session(query)
+            elif data == "show_sessions":
+                await self._handle_show_sessions(query)
+            elif data == "show_stats":
+                await self._handle_show_stats(query)
+            elif data == "export_groups":
+                await self._handle_export_groups(query)
+            elif data == "export_txt":
+                await self._handle_export_txt(query)
+            elif data == "export_csv":
+                await self._handle_export_csv(query)
+            elif data == "export_json":
+                await self._handle_export_json(query)
+            elif data == "export_telegram_groups":
+                await self._handle_export_telegram_groups(query)
+            elif data == "export_groups_with_join":
+                await self._handle_export_groups_with_join(query)
+            elif data == "export_megagroups":
+                await self._handle_export_megagroups(query)
+            elif data == "export_whatsapp":
+                await self._handle_export_whatsapp(query)
+            elif data == "export_all_groups":
+                await self._handle_export_all_groups(query)
+            elif data == "create_backup":
+                await self._handle_create_backup(query)
+            elif data == "list_backups":
+                await self._handle_list_backups(query)
+            elif data == "rotate_backups":
+                await self._handle_rotate_backups(query)
+            elif data == "refresh_status":
+                await self._handle_refresh_status(query)
+            elif data == "refresh_sessions":
+                await self._handle_refresh_sessions(query)
+            elif data == "show_help":
+                await self._handle_show_help(query)
+            elif data == "show_settings":
+                await self._handle_show_settings(query)
+            elif data == "manage_collect":
+                await self._handle_manage_collect(query)
+            else:
+                await self._edit_message_safe(query, "❌ أمر غير معروف")
+        
+        except Exception as e:
+            logger.error(f"خطأ في معالجة الاستدعاء: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
+    
+    async def _edit_message_safe(self, query, text, reply_markup=None, parse_mode="Markdown"):
+        """Edit message safely with error handling"""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                # تجاهل الخطأ إذا الرسالة لم تتغير
+                pass
+            else:
+                logger.error(f"خطأ في تعديل الرسالة: {e}")
+                # إعادة إرسال الرسالة بدلاً من التعديل
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+        except Exception as e:
+            logger.error(f"خطأ غير متوقع في تعديل الرسالة: {e}")
+            await query.message.reply_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+    
+    async def _handle_start_collect(self, query):
+        """Handle start collection"""
+        if self.collection_manager.active:
+            await self._edit_message_safe(query, "⏳ الجمع يعمل بالفعل")
+            return
+        
+        # بدء مهمة الجمع
+        await self.collection_manager.start_collection()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect"),
+             InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")],
+            [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")]
+        ])
+        
+        await self._edit_message_safe(
+            query,
+            "🚀 **بدأ جمع المجموعات بنجاح!**\n\n"
+            "جاري جمع روابط المجموعات فقط...\n"
+            "🎯 **ملاحظة:** البوت يجمع المجموعات فقط وليس القنوات\n\n"
+            "**ما يتم جمعه:**\n"
+            "• ✅ مجموعات تحتوي على زر انضمام\n"
+            "• ✅ مجموعات دعوة (روابط joinchat)\n"
+            "• ✅ مجموعات تحتوي على أعضاء\n"
+            "• ❌ **يتم تخطي القنوات تماماً**\n\n"
+            "سيتم تحديث الإحصائيات تلقائياً.",
+            reply_markup=keyboard
+        )
+    
+    async def _handle_pause_collect(self, query):
+        """Handle pause collection"""
+        if not self.collection_manager.active:
+            await self._edit_message_safe(query, "⚠️ الجمع غير نشط")
+            return
+        
+        await self.collection_manager.pause()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶️ استئناف", callback_data="start_collect"),
+             InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")]
+        ])
+        
+        await self._edit_message_safe(
+            query,
+            "⏸️ **تم إيقاف جمع المجموعات مؤقتاً**\n\n"
+            "يمكنك استئناف الجمع في أي وقت.\n"
+            "الجلسات تبقى نشطة.\n\n"
+            "**الإحصائيات الحالية:**\n"
+            f"• المجموعات المجمعة: {self.collection_manager.stats['total_collected']:,}\n"
+            f"• مجموعات انضمت: {self.collection_manager.stats['groups_joined']:,}\n"
+            f"• مجموعات تخطيت: {self.collection_manager.stats['groups_skipped']:,}",
+            reply_markup=keyboard
+        )
+    
+    async def _handle_stop_collect(self, query):
+        """Handle stop collection"""
+        if not self.collection_manager.active:
+            await self._edit_message_safe(query, "⚠️ الجمع غير نشط")
+            return
+        
+        await self.collection_manager.stop()
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 إعادة البدء", callback_data="start_collect"),
+             InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")]
+        ])
+        
+        await self._edit_message_safe(
+            query,
+            "⏹️ **تم إيقاف جمع المجموعات**\n\n"
+            "توقفت عملية الجمع بنجاح.\n"
+            "تم حفظ جميع المجموعات المجمعة.\n\n"
+            "**الإحصائيات النهائية:**\n"
+            f"• إجمالي المجموعات: {self.collection_manager.stats['total_collected']:,}\n"
+            f"• مجموعات تيليجرام: {self.collection_manager.stats['telegram_groups']:,}\n"
+            f"• مجموعات انضمت: {self.collection_manager.stats['groups_joined']:,}\n"
+            f"• مجموعات تخطيت: {self.collection_manager.stats['groups_skipped']:,}\n\n"
+            "🎯 **ملاحظة:** تم جمع المجموعات فقط وليس القنوات",
+            reply_markup=keyboard
+        )
+    
+    async def _handle_collect_status(self, query):
+        """Handle collect status"""
+        status = self.collection_manager.get_status()
+        
+        status_text = f"""
+**📊 حالة جمع المجموعات التفصيلية**
+
+🎯 **التركيز: المجموعات فقط (بدون قنوات)**
+
+**الحالة:** {"🔄 نشط" if status['active'] else "🛑 متوقف"}
+**الإيقاف المؤقت:** {"⏸️ نعم" if status['paused'] else "▶️ لا"}
+**طلب الإيقاف:** {"✅ نعم" if status['stop_requested'] else "❌ لا"}
+**الدورة الحالية:** {status['current_cycle']}
+
+**الإحصائيات:**
+• المجموعات المجمعة: {status['stats']['total_collected']:,}
+• مجموعات تيليجرام: {status['stats']['telegram_groups']:,}
+• مجموعات واتساب: {status['stats']['whatsapp_groups']:,}
+• مجموعات ديسكورد: {status['stats']['discord_groups']:,}
+• مجموعات سيجنال: {status['stats']['signal_groups']:,}
+• مجموعات انضمت: {status['stats']['groups_joined']:,}
+• مجموعات تخطيت: {status['stats']['groups_skipped']:,}
+• روابط من المجموعات: {status['stats']['links_from_groups']:,}
+• الأخطاء: {status['stats']['errors']:,}
+"""
+        
+        await self._edit_message_safe(query, status_text)
+    
+    async def _handle_collect_settings(self, query):
+        """Handle collect settings"""
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚙️ تغيير الحدود", callback_data="change_limits"),
+             InlineKeyboardButton("⏱️ ضبط التأخيرات", callback_data="adjust_delays")],
+            [InlineKeyboardButton("🔄 العودة", callback_data="manage_collect")]
+        ])
+        
+        settings_text = f"""
+**⚙️ إعدادات جمع المجموعات**
+
+🎯 **الإعدادات الأساسية:**
+• جمع المجموعات فقط: {"✅ مفعل" if Config.COLLECT_ONLY_GROUPS else "❌ معطل"}
+• تخطي القنوات: {"✅ مفعل" if Config.SKIP_CHANNELS else "❌ معطل"}
+• زر الانضمام مطلوب: {"✅ مفعل" if Config.REQUIRE_JOIN_BUTTON else "❌ معطل"}
+• الحد الأدنى للأعضاء: {Config.MIN_GROUP_PARTICIPANTS}
+
+**الإعدادات الفنية:**
+• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}
+• محاولات الانضمام: {Config.MAX_JOIN_ATTEMPTS_PER_SESSION}
+• الرسائل لكل مجموعة: {Config.MAX_MESSAGES_TO_SCAN}
+• الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}
+
+**التأخيرات:**
+• بين الجلسات: {Config.REQUEST_DELAYS['between_sessions']} ثانية
+• بعد الانضمام: {Config.REQUEST_DELAYS['after_join']} ثانية
+• بين الدورات: {Config.REQUEST_DELAYS['min_cycle_delay']}-{Config.REQUEST_DELAYS['max_cycle_delay']} ثانية
+"""
+        
+        await self._edit_message_safe(query, settings_text, reply_markup=keyboard)
+    
+    async def _handle_add_session(self, query):
+        """Handle add session"""
+        user = query.from_user
+        self.user_states[user.id] = {'waiting_for_session': True}
+        
+        add_text = """
+**➕ إضافة جلسة جديدة**
+
+**أرسل كود الجلسة الآن:**
+(يمكنك نسخ الكود كاملاً وإرساله)
+
+**ملاحظات:**
+• الجلسة ستخزن مشفرة
+• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة
+• الجلسة يجب أن تكون نشطة
+• تستخدم الجلسات لجمع المجموعات فقط
+"""
+        
+        await self._edit_message_safe(query, add_text)
+    
+    async def _handle_show_sessions(self, query):
+        """Handle show sessions"""
+        db = await EnhancedDatabaseManager.get_instance()
+        sessions = await db.get_active_sessions(limit=20)
+        
+        if not sessions:
+            await self._edit_message_safe(query, "❌ لا توجد جلسات نشطة")
+            return
+        
+        sessions_text = f"**👥 الجلسات النشطة ({len(sessions)})**\n\n"
+        
+        for i, session in enumerate(sessions, 1):
+            display_name = session.get('display_name', 'غير معروف')
+            username = session.get('username', 'بدون معرف')
+            uses = session.get('total_uses', 0)
+            total_links = session.get('total_links', 0)
+            
+            sessions_text += f"**{i}. {display_name}** (@{username}) - استخدامات: {uses} - روابط: {total_links:,}\n"
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
+             InlineKeyboardButton("🔄 تحديث", callback_data="refresh_sessions")]
+        ])
+        
+        await self._edit_message_safe(query, sessions_text, reply_markup=keyboard)
+    
+    async def _handle_show_stats(self, query):
+        """Handle show stats"""
+        db = await EnhancedDatabaseManager.get_instance()
+        db_stats = await db.get_stats_summary()
+        
+        stats_text = f"""
+**📈 إحصائيات المجموعات**
+
+🎯 **التركيز: المجموعات فقط (بدون قنوات)**
+
+**إحصائيات قاعدة البيانات:**
+• 🔗 إجمالي المجموعات: {db_stats.get('group_links', 0):,}
+• 🎯 مجموعات ميجا: {db_stats.get('megagroup_links', 0):,}
+• 🚫 القنوات: {db_stats.get('channel_links', 0):,}
+• ✅ مجموعات مع زر انضمام: {db_stats.get('join_button_links', 0):,}
+• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
+• 👥 المستخدمين: {db_stats.get('total_users', 0)}
+• ✅ المجموعات المنضمة: {db_stats.get('joined_groups', 0):,}
+"""
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تحديث", callback_data="show_stats"),
+             InlineKeyboardButton("📊 إحصائيات الجمع", callback_data="collect_status")]
+        ])
+        
+        await self._edit_message_safe(query, stats_text, reply_markup=keyboard)
+    
+    async def _handle_export_groups(self, query):
+        """Handle export groups"""
+        await self.export_command(query.message, query.message.reply_to_message)
+    
+    async def _handle_export_txt(self, query):
+        """Handle export as text"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            links = await db.export_links(limit=Config.MAX_EXPORT_LINKS)
+            
+            if not links:
+                await self._edit_message_safe(query, "❌ لا توجد مجموعات للتصدير")
+                return
+            
+            # حفظ في ملف نصي
+            filename = f"groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("🎯 **مجموعات فقط (بدون قنوات)**\n")
+                f.write(f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+                f.write(f"📊 عدد المجموعات: {len(links):,}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📦 **ملف المجموعات النصي**\n\n"
+                           f"📊 عدد المجموعات: **{len(links):,}**\n"
+                           f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                           f"🎯 **ملاحظة:**\n"
+                           f"• هذه مجموعات وليست قنوات\n"
+                           f"• تم تخطي جميع القنوات",
+                    parse_mode="Markdown"
+                )
+            
+            # حذف الملف المحلي
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير النصي: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
+    async def _handle_export_csv(self, query):
+        """Handle export as CSV"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url, platform, is_group, is_megagroup, has_join_button, 
+                       members_count, collected_date, is_verified
+                FROM links 
+                WHERE is_active = 1 AND is_group = 1
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد مجموعات للتصدير")
+                return
+            
+            # حفظ في ملف CSV
+            filename = f"groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("URL,Platform,Is_Group,Is_Megagroup,Has_Join_Button,Members,Date,Verified\n")
+                for row in rows:
+                    url, platform, is_group, is_megagroup, has_join_button, members, date, verified = row
+                    f.write(f'"{url}","{platform}",{is_group},{is_megagroup},{has_join_button},{members},"{date}",{verified}\n')
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📊 **ملف المجموعات CSV**\n\n"
+                           f"📊 عدد السجلات: **{len(rows):,}**\n"
+                           f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                           f"🎯 **يتضمن معلومات:**\n"
+                           f"• الرابط والمنصة\n"
+                           f"• نوع المجموعة\n"
+                           f"• عدد الأعضاء\n"
+                           f"• تاريخ الجمع",
+                    parse_mode="Markdown"
+                )
+            
+            # حذف الملف المحلي
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير CSV: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
+    async def _handle_export_json(self, query):
+        """Handle export as JSON"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url, platform, is_group, is_megagroup, has_join_button, 
+                       members_count, collected_date, is_verified, validation_score,
+                       is_public_group, is_private_group
+                FROM links 
+                WHERE is_active = 1 AND is_group = 1
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد مجموعات للتصدير")
+                return
+            
+            # تحويل إلى JSON
+            data = []
+            for row in rows:
+                item = dict(zip(columns, row))
+                data.append(item)
+            
+            # حفظ في ملف JSON
+            filename = f"groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📋 **ملف المجموعات JSON**\n\n"
+                           f"📊 عدد السجلات: **{len(data):,}**\n"
+                           f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                           f"🎯 **معلومات كاملة:**\n"
+                           f"• كافة بيانات المجموعات\n"
+                           f"• تنسيق JSON منظم\n"
+                           f"• جاهز للاستخدام في البرمجة",
+                    parse_mode="Markdown"
+                )
+            
+            # حذف الملف المحلي
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير JSON: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_export_telegram_groups(self, query):
         """Handle export Telegram groups only"""
@@ -2381,6 +3094,57 @@ class TelegramBot:
             logger.error(f"خطأ في تصدير مجموعات ميجا: {e}")
             await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
+    async def _handle_export_whatsapp(self, query):
+        """Handle export WhatsApp groups only"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير ملف مجموعات واتساب...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            links = await db.export_links(
+                {'platform': 'whatsapp'}, 
+                Config.MAX_EXPORT_LINKS
+            )
+            
+            if not links:
+                await self._edit_message_safe(query, "❌ لا توجد مجموعات واتساب للتصدير")
+                return
+            
+            # حفظ في ملف نصي
+            filename = f"whatsapp_groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("📱 **مجموعات واتساب**\n")
+                f.write(f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+                f.write(f"📊 عدد المجموعات: {len(links):,}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📱 **مجموعات واتساب**\n\n"
+                           f"📊 عدد المجموعات: **{len(links):,}**\n"
+                           f"📅 تاريخ التصدير: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                           f"**مميزات:**\n"
+                           f"• روابط مجموعات واتساب\n"
+                           f"• روابط دعوة مباشرة\n"
+                           f"• جاهزة للاستخدام",
+                    parse_mode="Markdown"
+                )
+            
+            # حذف الملف المحلي
+            os.remove(filepath)
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير مجموعات واتساب: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
     async def _handle_export_all_groups(self, query):
         """Handle export all groups (all platforms)"""
         await self._edit_message_safe(query, "⏳ جاري تحضير ملف جميع المجموعات...")
@@ -2434,78 +3198,136 @@ class TelegramBot:
             logger.error(f"خطأ في تصدير جميع المجموعات: {e}")
             await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
-    # باقي الدوال تبقى كما هي مع تعديلات بسيطة
-    
-    async def _handle_export_groups(self, query):
-        """Handle export groups button"""
-        await self.export_command(query.message, query.message.reply_to_message)
-    
-    async def collect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /collect command"""
-        user = update.effective_user
+    async def _handle_create_backup(self, query):
+        """Handle create backup"""
+        await self._edit_message_safe(query, "⏳ جاري إنشاء نسخة احتياطية...")
         
-        # التحقق من الوصول
-        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
-            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
-                await update.message.reply_text("❌ غير مصرح لك بالوصول")
-                return
+        backup = await BackupManager.create_backup()
         
-        status = self.collection_manager.get_status()
-        
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 بدء جمع المجموعات", callback_data="start_collect"),
-             InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
-            [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
-             InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")],
-            [InlineKeyboardButton("⚙️ إعدادات الجمع", callback_data="collect_settings")]
-        ])
-        
-        collect_text = f"""
-**🚀 إدارة عملية جمع المجموعات فقط**
-
-🎯 **التركيز: المجموعات فقط (بدون قنوات)**
-⚙️ **الإعدادات النشطة:**
-• جمع المجموعات فقط: {"✅" if Config.COLLECT_ONLY_GROUPS else "❌"}
-• تخطي القنوات: {"✅" if Config.SKIP_CHANNELS else "❌"}
-• زر الانضمام مطلوب: {"✅" if Config.REQUIRE_JOIN_BUTTON else "❌"}
-
-**الحالة الحالية:**
-"""
-        
-        if status['active']:
-            if status['paused']:
-                collect_text += "⏸️ **موقف مؤقتاً**\n"
-            else:
-                collect_text += "🔄 **نشط**\n"
+        if backup:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 قائمة النسخ", callback_data="list_backups"),
+                 InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups")]
+            ])
+            
+            await self._edit_message_safe(
+                query,
+                f"✅ **تم إنشاء نسخة احتياطية بنجاح!**\n\n"
+                f"**تفاصيل النسخة:**\n"
+                f"• المعرف: {backup['backup_id']}\n"
+                f"• الوقت: {backup['timestamp']}\n"
+                f"• الحجم: {backup['size_bytes'] / 1024 / 1024:.2f} MB\n"
+                f"• المسار: {backup['file_path']}",
+                reply_markup=keyboard
+            )
         else:
-            collect_text += "🛑 **متوقف**\n"
+            await self._edit_message_safe(query, "❌ فشل في إنشاء نسخة احتياطية")
+    
+    async def _handle_list_backups(self, query):
+        """Handle list backups"""
+        try:
+            if not os.path.exists("backups"):
+                await self._edit_message_safe(query, "❌ لا توجد نسخ احتياطية")
+                return
+            
+            backups = []
+            for filename in os.listdir("backups"):
+                if filename.startswith("backup_") and filename.endswith(".db"):
+                    path = os.path.join("backups", filename)
+                    size = os.path.getsize(path) / 1024 / 1024
+                    ctime = datetime.fromtimestamp(os.path.getctime(path))
+                    backups.append({
+                        'filename': filename,
+                        'size_mb': size,
+                        'created': ctime
+                    })
+            
+            if not backups:
+                await self._edit_message_safe(query, "❌ لا توجد نسخ احتياطية")
+                return
+            
+            backups.sort(key=lambda x: x['created'], reverse=True)
+            
+            list_text = "**📋 قائمة النسخ الاحتياطية**\n\n"
+            
+            for i, backup in enumerate(backups, 1):
+                list_text += f"""**{i}. {backup['filename']}**
+• الحجم: {backup['size_mb']:.2f} MB
+• التاريخ: {backup['created'].strftime('%Y-%m-%d %H:%M')}
+
+"""
+            
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups"),
+                 InlineKeyboardButton("💾 إنشاء نسخة", callback_data="create_backup")]
+            ])
+            
+            await self._edit_message_safe(query, list_text, reply_markup=keyboard)
+            
+        except Exception as e:
+            logger.error(f"خطأ في عرض النسخ: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
+    
+    async def _handle_rotate_backups(self, query):
+        """Handle rotate backups"""
+        await self._edit_message_safe(query, "⏳ جاري تدوير النسخ القديمة...")
         
-        collect_text += f"""
-**الإحصائيات:**
-• المجموعات المجمعة: {status['stats']['total_collected']:,}
-• مجموعات انضمت: {status['stats']['groups_joined']:,}
-• مجموعات تخطيت: {status['stats']['groups_skipped']:,}
-• روابط من المجموعات: {status['stats']['links_from_groups']:,}
-• الأخطاء: {status['stats']['errors']:,}
+        try:
+            await BackupManager.rotate_backups()
+            await self._edit_message_safe(query, "✅ تم تدوير النسخ الاحتياطية بنجاح")
+        except Exception as e:
+            logger.error(f"خطأ في تدوير النسخ: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
+    
+    async def _handle_refresh_status(self, query):
+        """Handle refresh status"""
+        # إعادة إنشاء الأمر /status
+        await self.status_command(query.message, query.message.reply_to_message)
+    
+    async def _handle_refresh_sessions(self, query):
+        """Handle refresh sessions"""
+        # إعادة إنشاء الأمر /sessions
+        await self.sessions_command(query.message, query.message.reply_to_message)
+    
+    async def _handle_show_help(self, query):
+        """Handle show help"""
+        await self.help_command(query.message, query.message.reply_to_message)
+    
+    async def _handle_show_settings(self, query):
+        """Handle show settings"""
+        settings_text = f"""
+**⚙️ إعدادات النظام**
 
-**المميزات:**
-• 🎯 جمع المجموعات فقط (لا قنوات)
-• ⏭️ تخطي القنوات التي تحتوي على زر "اشتراك"
-• ✅ جمع المجموعات التي تحتوي على زر "انضمام"
-• 👥 التركيز على المجموعات التي تحتوي على أعضاء
+**إعدادات الأمان:**
+• المدراء: {len(Config.ADMIN_USER_IDS)}
+• المستخدمون المسموحون: {len(Config.ALLOWED_USER_IDS)}
+• التشفير: {"✅ مفعل" if Config.ENCRYPTION_KEY else "❌ معطل"}
 
-**الحدود:**
+**إعدادات الأداء:**
 • الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}
-• محاولات الانضمام لكل جلسة: {Config.MAX_JOIN_ATTEMPTS_PER_SESSION}
-• الرسائل لكل مجموعة: {Config.MAX_MESSAGES_TO_SCAN}
+• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB
+
+**إعدادات قاعدة البيانات:**
+• المسار: {Config.DB_PATH}
+• النسخ الاحتياطي: {"✅ مفعل" if Config.BACKUP_ENABLED else "❌ معطل"}
+• عدد النسخ: {Config.MAX_BACKUPS}
+
+**إعدادات الجمع:**
+• جمع المجموعات فقط: {"✅ مفعل" if Config.COLLECT_ONLY_GROUPS else "❌ معطل"}
+• تخطي القنوات: {"✅ مفعل" if Config.SKIP_CHANNELS else "❌ معطل"}
 • الحد الأدنى للأعضاء: {Config.MIN_GROUP_PARTICIPANTS}
 """
         
-        await update.message.reply_text(collect_text, reply_markup=keyboard, parse_mode="Markdown")
+        await self._edit_message_safe(query, settings_text)
     
-    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command"""
+    async def _handle_manage_collect(self, query):
+        """Handle manage collect"""
+        await self.collect_command(query.message, query.message.reply_to_message)
+    
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle text messages"""
         user = update.effective_user
+        text = update.message.text
         
         # التحقق من الوصول
         if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
@@ -2513,47 +3335,128 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
+        # التحقق من حالة المستخدم
+        user_state = self.user_states.get(user.id, {})
+        
+        if user_state.get('waiting_for_session'):
+            await self._handle_session_input(update, text)
+        else:
+            await update.message.reply_text(
+                "مرحباً! يمكنك استخدام الأوامر التالية:\n"
+                "/start - بدء البوت\n"
+                "/help - المساعدة\n"
+                "/status - حالة النظام\n"
+                "/sessions - عرض الجلسات\n"
+                "/export - تصدير المجموعات\n"
+                "/collect - إدارة الجمع\n"
+                "أو استخدم الأزرار من رسالة الترحيب."
+            )
+    
+    async def _handle_session_input(self, update: Update, session_string: str):
+        """Handle session string input"""
+        user = update.effective_user
+        
+        # حذف حالة المستخدم
+        if user.id in self.user_states:
+            del self.user_states[user.id]
+        
+        await update.message.reply_text("⏳ جاري التحقق من الجلسة...")
+        
+        # التحقق من الجلسة
+        valid, result = await SessionManager.validate_session(session_string)
+        
+        if not valid:
+            await update.message.reply_text(f"❌ جلسة غير صالحة: {result.get('error', 'خطأ غير معروف')}")
+            return
+        
+        user_info = result.get('user_info', {})
+        
+        # تشفير الجلسة
+        enc_manager = EncryptionManager.get_instance()
+        encrypted_session = enc_manager.encrypt(session_string)
+        
+        # حفظ الجلسة في قاعدة البيانات
+        session_data = {
+            'session_string': encrypted_session,
+            'phone_number': user_info.get('phone', ''),
+            'user_id': user_info.get('id', 0),
+            'username': user_info.get('username', ''),
+            'display_name': f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip(),
+            'added_by_user': user.id,
+            'metadata': {
+                'validated_at': datetime.now().isoformat(),
+                'original_length': len(session_string),
+                'focus': 'groups_only'
+            }
+        }
+        
         db = await EnhancedDatabaseManager.get_instance()
-        db_stats = await db.get_stats_summary()
+        success, message, details = await db.add_session(session_data)
         
-        user_stats = await db.get_user_stats(user.id)
-        
-        stats_text = f"""
-**📈 إحصائيات النظام المتقدمة**
-
-🎯 **التركيز: المجموعات فقط (بدون قنوات)**
-
-**إحصائيات المستخدم:**
-"""
-        
-        if user_stats:
-            stats_text += f"""• 🆔 المعرف: {user.id}
-• 👤 الاسم: {user_stats.get('first_name', '')} {user_stats.get('last_name', '')}
-• 📅 العضو منذ: {user_stats.get('added_date', 'غير معروف')}
-• 📊 طلباتك: {user_stats.get('request_count', 0):,}
-• 🔗 مجموعاتك: {user_stats.get('total_links', 0):,}
-• 💼 جلساتك: {user_stats.get('total_sessions', 0)}
-"""
-        
-        stats_text += f"""
-**إحصائيات النظام (مجموعات فقط):**
-• 🔗 إجمالي المجموعات: {db_stats.get('group_links', 0):,}
-• 🎯 مجموعات ميجا: {db_stats.get('megagroup_links', 0):,}
-• 🚫 القنوات: {db_stats.get('channel_links', 0):,}
-• ✅ مجموعات مع زر انضمام: {db_stats.get('join_button_links', 0):,}
-• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
-• 👥 المستخدمين: {db_stats.get('total_users', 0)}
-• ✅ المجموعات المنضمة: {db_stats.get('joined_groups', 0):,}
-
-**توزيع المنصات:**
-"""
-        
-        for platform, count in db_stats.get('links_by_platform', {}).items():
-            stats_text += f"• {platform}: {count:,}\n"
-        
-        await update.message.reply_text(stats_text, parse_mode="Markdown")
-
-# باقي الكود يبقى كما هو...
+        if success:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 بدء جمع المجموعات", callback_data="start_collect"),
+                 InlineKeyboardButton("👥 عرض الجلسات", callback_data="show_sessions")]
+            ])
+            
+            await update.message.reply_text(
+                f"✅ **تمت إضافة الجلسة بنجاح!**\n\n"
+                f"**معلومات المستخدم:**\n"
+                f"• الاسم: {session_data['display_name']}\n"
+                f"• المعرف: @{session_data['username']}\n"
+                f"• الهاتف: {session_data['phone_number']}\n\n"
+                f"**الجلسة:**\n"
+                f"• مشفرة ومخزنة بأمان\n"
+                f"• جاهزة للاستخدام في جمع المجموعات فقط\n"
+                f"• رقم الجلسة: {details.get('session_id')}\n\n"
+                f"🎯 **ملاحظة:** هذه الجلسة سوف تجمع المجموعات فقط وليس القنوات",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(f"❌ فشل في إضافة الجلسة: {message}")
+    
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle errors"""
+        try:
+            error = context.error
+            
+            logger.error(f"خطأ غير معالج: {error}", exc_info=True)
+            
+            # معالجة خطأ Conflict (نسخة مزدوجة)
+            if isinstance(error, Conflict):
+                logger.error("⚠️ تم اكتشاف نسخة أخرى من البوت تعمل!")
+                
+                await asyncio.sleep(2)  # انتظار قصير
+                
+                try:
+                    await context.application.stop()
+                    await context.application.initialize()
+                    await context.application.start()
+                    logger.info("✅ تم إعادة تشغيل البوت بعد حل التعارض")
+                except Exception as restart_error:
+                    logger.error(f"فشل إعادة التشغيل: {restart_error}")
+                
+                return
+            
+            if update and update.effective_chat:
+                error_message = (
+                    "❌ **حدث خطأ غير متوقع**\n\n"
+                    "لقد واجهنا مشكلة فنية. حاول مرة أخرى بعد قليل.\n\n"
+                    "يمكنك استخدام /start للعودة للقائمة الرئيسية."
+                )
+                
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=error_message,
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
+                
+        except Exception as e:
+            logger.error(f"خطأ في معالج الأخطاء: {e}")
 
 # ======================
 # Health Check Server - خادم فحص الصحة
