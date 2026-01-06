@@ -65,7 +65,7 @@ from telegram.ext import (
     filters,
     ApplicationBuilder
 )
-from telegram.error import TelegramError, Conflict
+from telegram.error import TelegramError, Conflict, BadRequest
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl import functions, types
@@ -148,7 +148,7 @@ class Config:
     DB_PATH = "links_collector.db"
     BACKUP_ENABLED = True
     MAX_BACKUPS = 10
-    DB_POOL_SIZE = 5  # تقليل حجم البول لـ Render
+    DB_POOL_SIZE = 5
     
     # WhatsApp collection - جمع واتساب
     WHATSAPP_DAYS_BACK = 30
@@ -574,8 +574,8 @@ class EnhancedDatabaseManager:
         await self.conn.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_string TEXT UNIQUE NOT NULL,
-                session_hash TEXT NOT NULL,
+                session_string TEXT NOT NULL,
+                session_hash TEXT UNIQUE NOT NULL,
                 phone_number TEXT,
                 user_id INTEGER,
                 username TEXT,
@@ -590,8 +590,7 @@ class EnhancedDatabaseManager:
                 status TEXT DEFAULT 'active',
                 health_score INTEGER DEFAULT 100,
                 notes TEXT,
-                metadata TEXT,
-                CONSTRAINT unique_session_hash UNIQUE(session_hash)
+                metadata TEXT
             )
         ''')
         
@@ -625,8 +624,7 @@ class EnhancedDatabaseManager:
                 is_group BOOLEAN DEFAULT 0,
                 is_join_request BOOLEAN DEFAULT 0,
                 is_supergroup BOOLEAN DEFAULT 0,
-                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL,
-                CONSTRAINT unique_url_hash UNIQUE(url_hash)
+                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL
             )
         ''')
         
@@ -650,7 +648,7 @@ class EnhancedDatabaseManager:
             )
         ''')
         
-        # جدول نسخ الاحتياطي
+        # جدول النسخ الاحتياطي
         await self.conn.execute('''
             CREATE TABLE IF NOT EXISTS backups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1014,6 +1012,13 @@ class SessionManager:
     async def validate_session(session_string: str) -> Tuple[bool, Dict]:
         """Validate Telegram session"""
         try:
+            # تنظيف سلسلة الجلسة
+            session_string = session_string.strip()
+            
+            # التحقق من طول الجلسة
+            if len(session_string) < 50:
+                return False, {'error': 'جلسة قصيرة جداً', 'details': 'يجب أن تكون الجلسة أطول من 50 حرفاً'}
+            
             client = TelegramClient(
                 StringSession(session_string),
                 Config.API_ID,
@@ -1044,6 +1049,8 @@ class SessionManager:
                 'session_length': len(session_string)
             }
             
+        except ValueError as e:
+            return False, {'error': 'جلسة غير صالحة', 'details': 'تنسيق الجلسة خاطئ'}
         except Exception as e:
             return False, {'error': 'خطأ في التحقق', 'details': str(e)[:200]}
     
@@ -1051,6 +1058,14 @@ class SessionManager:
     async def create_client(session_string: str) -> Optional[TelegramClient]:
         """Create Telegram client from session string"""
         try:
+            # تنظيف سلسلة الجلسة
+            session_string = session_string.strip()
+            
+            # التحقق من صحة سلسلة الجلسة
+            if len(session_string) < 50:
+                logger.error(f"جلسة قصيرة جداً: {len(session_string)} حرف")
+                return None
+            
             client = TelegramClient(
                 StringSession(session_string),
                 Config.API_ID,
@@ -1066,10 +1081,14 @@ class SessionManager:
             
             if not await client.is_user_authorized():
                 await client.disconnect()
+                logger.error("الجلسة غير مصرح بها")
                 return None
             
             return client
             
+        except ValueError as e:
+            logger.error(f"خطأ في تنسيق الجلسة: {e}")
+            return None
         except Exception as e:
             logger.error(f"خطأ في إنشاء العميل: {e}")
             return None
@@ -1093,29 +1112,40 @@ class CollectionManager:
             'signal': 0,
             'errors': 0
         }
+        self.collection_task = None
     
     async def start_collection(self):
         """Start collection process"""
+        if self.active:
+            return
+        
         self.active = True
         self.paused = False
         self.stop_requested = False
         
         logger.info("🚀 بدء عملية الجمع")
         
-        try:
-            while self.active and not self.stop_requested:
-                if self.paused:
-                    await asyncio.sleep(1)
-                    continue
-                
+        # بدء مهمة الجمع في الخلفية
+        self.collection_task = asyncio.create_task(self._collection_loop())
+    
+    async def _collection_loop(self):
+        """Main collection loop"""
+        while self.active and not self.stop_requested:
+            if self.paused:
+                await asyncio.sleep(1)
+                continue
+            
+            try:
                 await self._collection_cycle()
                 await asyncio.sleep(30)  # تأخير بين الدورات
                 
-        except Exception as e:
-            logger.error(f"خطأ في عملية الجمع: {e}")
-        finally:
-            self.active = False
-            logger.info("⏹️ توقفت عملية الجمع")
+            except Exception as e:
+                logger.error(f"خطأ في دورة الجمع: {e}")
+                self.stats['errors'] += 1
+                await asyncio.sleep(10)
+        
+        self.active = False
+        logger.info("⏹️ توقفت عملية الجمع")
     
     async def _collection_cycle(self):
         """Single collection cycle"""
@@ -1148,6 +1178,10 @@ class CollectionManager:
             session_string = session.get('session_string', '')
             session_id = session.get('id')
             
+            if not session_string or session_string == '********':
+                logger.error(f"جلسة {session_id} غير متاحة")
+                return {'status': 'error', 'reason': 'جلسة غير متاحة'}
+            
             client = await SessionManager.create_client(session_string)
             if not client:
                 return {'status': 'error', 'reason': 'فشل إنشاء العميل'}
@@ -1169,6 +1203,7 @@ class CollectionManager:
             
         except Exception as e:
             logger.error(f"خطأ في معالجة الجلسة: {e}")
+            self.stats['errors'] += 1
             return {'status': 'error', 'reason': str(e)}
     
     async def _collect_from_dialogs(self, client: TelegramClient, session_id: int) -> List[Dict]:
@@ -1177,7 +1212,7 @@ class CollectionManager:
         
         try:
             async for dialog in client.iter_dialogs(limit=Config.MAX_DIALOGS_PER_SESSION):
-                if not self.active or self.stop_requested:
+                if not self.active or self.stop_requested or self.paused:
                     break
                 
                 try:
@@ -1310,6 +1345,15 @@ class CollectionManager:
         """Stop collection"""
         self.stop_requested = True
         logger.info("⏹️ تم طلب إيقاف الجمع")
+        
+        # انتظار حتى تتوقف المهمة
+        if self.collection_task:
+            try:
+                await asyncio.wait_for(self.collection_task, timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("مهلة انتظار إيقاف مهمة الجمع")
+        
+        self.active = False
 
 # ======================
 # Encryption Manager - مدير التشفير
@@ -1437,7 +1481,6 @@ class TelegramBot:
     def __init__(self):
         self.app = ApplicationBuilder().token(Config.BOT_TOKEN).build()
         self.collection_manager = CollectionManager()
-        self.collection_task = None
         
         self._setup_handlers()
         
@@ -1505,17 +1548,6 @@ class TelegramBot:
 • تصدير الروابط بتنسيقات مختلفة
 • نسخ احتياطي تلقائي
 • واجهة سهلة الاستخدام
-
-**الأوامر المتاحة:**
-/start - بدء البوت
-/help - المساعدة
-/status - حالة النظام
-/stats - الإحصائيات
-/sessions - إدارة الجلسات
-/export - تصدير الروابط
-/collect - إدارة الجمع
-/backup - إنشاء نسخة احتياطية
-/addsession - إضافة جلسة جديدة
 
 **🚀 اختر من الأزرار أدناه لبدء الاستخدام!**
 """
@@ -1601,12 +1633,7 @@ class TelegramBot:
 • 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
 • 👥 المستخدمين: {db_stats.get('total_users', 0)}
 • ✅ الروابط الموثقة: {db_stats.get('verified_links', 0):,}
-
-**توزيع المنصات:**
 """
-        
-        for platform, count in db_stats.get('links_by_platform', {}).items():
-            status_text += f"• {platform}: {count:,}\n"
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="refresh_status"),
@@ -1653,12 +1680,7 @@ class TelegramBot:
 • 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
 • 👥 المستخدمين: {db_stats.get('total_users', 0)}
 • ✅ الروابط الموثقة: {db_stats.get('verified_links', 0):,}
-
-**توزيع المنصات:**
 """
-        
-        for platform, count in db_stats.get('links_by_platform', {}).items():
-            stats_text += f"• {platform}: {count:,}\n"
         
         await update.message.reply_text(stats_text, parse_mode="Markdown")
     
@@ -1770,7 +1792,7 @@ class TelegramBot:
             [InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups")]
         ])
         
-        backup_text = """
+        backup_text = f"""
 **💾 إدارة النسخ الاحتياطية**
 
 **المميزات:**
@@ -1781,7 +1803,7 @@ class TelegramBot:
 
 **الإعدادات:**
 • عدد النسخ المحفوظة: {Config.MAX_BACKUPS}
-• النسخ التلقائية: {Config.BACKUP_ENABLED}
+• النسخ التلقائية: {"✅ مفعل" if Config.BACKUP_ENABLED else "❌ معطل"}
 
 **الأوامر:**
 • إنشاء نسخة يدوية
@@ -1888,7 +1910,7 @@ class TelegramBot:
         # التحقق من الوصول
         if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
             if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
-                await query.message.edit_text("❌ غير مصرح لك بالوصول")
+                await self._edit_message_safe(query, "❌ غير مصرح لك بالوصول")
                 return
         
         try:
@@ -1941,20 +1963,48 @@ class TelegramBot:
             elif data == "delete_session":
                 await self._handle_delete_session(query)
             else:
-                await query.message.edit_text("❌ أمر غير معروف")
+                await self._edit_message_safe(query, "❌ أمر غير معروف")
         
         except Exception as e:
             logger.error(f"خطأ في معالجة الاستدعاء: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
+    
+    async def _edit_message_safe(self, query, text, reply_markup=None, parse_mode="Markdown"):
+        """Edit message safely with error handling"""
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                # تجاهل الخطأ إذا الرسالة لم تتغير
+                pass
+            else:
+                logger.error(f"خطأ في تعديل الرسالة: {e}")
+                # إعادة إرسال الرسالة بدلاً من التعديل
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode
+                )
+        except Exception as e:
+            logger.error(f"خطأ غير متوقع في تعديل الرسالة: {e}")
+            await query.message.reply_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
     
     async def _handle_start_collect(self, query):
         """Handle start collection"""
         if self.collection_manager.active:
-            await query.message.edit_text("⏳ الجمع يعمل بالفعل")
+            await self._edit_message_safe(query, "⏳ الجمع يعمل بالفعل")
             return
         
         # بدء مهمة الجمع
-        self.collection_task = asyncio.create_task(self.collection_manager.start_collection())
+        await self.collection_manager.start_collection()
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect"),
@@ -1962,7 +2012,8 @@ class TelegramBot:
             [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")]
         ])
         
-        await query.message.edit_text(
+        await self._edit_message_safe(
+            query,
             "🚀 **بدأ الجمع بنجاح!**\n\n"
             "جاري جمع الروابط من الجلسات النشطة...\n"
             "سيتم تحديث الإحصائيات تلقائياً.\n\n"
@@ -1970,14 +2021,13 @@ class TelegramBot:
             "• العملية تعمل في الخلفية\n"
             "• يمكنك الاستمرار باستخدام البوت\n"
             "• الروابط تحفظ تلقائياً في قاعدة البيانات",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            reply_markup=keyboard
         )
     
     async def _handle_pause_collect(self, query):
         """Handle pause collection"""
         if not self.collection_manager.active:
-            await query.message.edit_text("⚠️ الجمع غير نشط")
+            await self._edit_message_safe(query, "⚠️ الجمع غير نشط")
             return
         
         await self.collection_manager.pause()
@@ -1987,20 +2037,20 @@ class TelegramBot:
              InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")]
         ])
         
-        await query.message.edit_text(
+        await self._edit_message_safe(
+            query,
             "⏸️ **تم إيقاف الجمع مؤقتاً**\n\n"
             "يمكنك استئناف الجمع في أي وقت.\n"
             "الجلسات تبقى نشطة.\n\n"
             "**الإحصائيات الحالية:**\n"
             f"• الروابط المجمعة: {self.collection_manager.stats['total_collected']:,}",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            reply_markup=keyboard
         )
     
     async def _handle_stop_collect(self, query):
         """Handle stop collection"""
         if not self.collection_manager.active:
-            await query.message.edit_text("⚠️ الجمع غير نشط")
+            await self._edit_message_safe(query, "⚠️ الجمع غير نشط")
             return
         
         await self.collection_manager.stop()
@@ -2010,7 +2060,8 @@ class TelegramBot:
              InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")]
         ])
         
-        await query.message.edit_text(
+        await self._edit_message_safe(
+            query,
             "⏹️ **تم إيقاف الجمع**\n\n"
             "توقفت عملية الجمع بنجاح.\n"
             "تم حفظ جميع الروابط المجمعة.\n\n"
@@ -2018,8 +2069,7 @@ class TelegramBot:
             f"• إجمالي الروابط: {self.collection_manager.stats['total_collected']:,}\n"
             f"• روابط تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
             f"• روابط واتساب: {self.collection_manager.stats['whatsapp']:,}",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            reply_markup=keyboard
         )
     
     async def _handle_collect_status(self, query):
@@ -2042,7 +2092,7 @@ class TelegramBot:
 • الأخطاء: {status['stats']['errors']:,}
 """
         
-        await query.message.edit_text(status_text, parse_mode="Markdown")
+        await self._edit_message_safe(query, status_text)
     
     async def _handle_collect_settings(self, query):
         """Handle collect settings"""
@@ -2071,7 +2121,7 @@ class TelegramBot:
 • التحقق المتقدم: {"✅ مفعل" if Config.ENABLE_ADVANCED_VALIDATION else "❌ معطل"}
 """
         
-        await query.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="Markdown")
+        await self._edit_message_safe(query, settings_text, reply_markup=keyboard)
     
     async def _handle_add_session(self, query):
         """Handle add session"""
@@ -2090,7 +2140,7 @@ class TelegramBot:
 • الجلسة يجب أن تكون نشطة
 """
         
-        await query.message.edit_text(add_text, parse_mode="Markdown")
+        await self._edit_message_safe(query, add_text)
     
     async def _handle_show_sessions(self, query):
         """Handle show sessions"""
@@ -2098,7 +2148,7 @@ class TelegramBot:
         sessions = await db.get_active_sessions(limit=20)
         
         if not sessions:
-            await query.message.edit_text("❌ لا توجد جلسات نشطة")
+            await self._edit_message_safe(query, "❌ لا توجد جلسات نشطة")
             return
         
         sessions_text = f"**👥 الجلسات النشطة ({len(sessions)})**\n\n"
@@ -2115,7 +2165,7 @@ class TelegramBot:
              InlineKeyboardButton("🔄 تحديث", callback_data="refresh_sessions")]
         ])
         
-        await query.message.edit_text(sessions_text, reply_markup=keyboard, parse_mode="Markdown")
+        await self._edit_message_safe(query, sessions_text, reply_markup=keyboard)
     
     async def _handle_show_stats(self, query):
         """Handle show stats"""
@@ -2142,7 +2192,7 @@ class TelegramBot:
              InlineKeyboardButton("📊 إحصائيات الجمع", callback_data="collect_status")]
         ])
         
-        await query.message.edit_text(stats_text, reply_markup=keyboard, parse_mode="Markdown")
+        await self._edit_message_safe(query, stats_text, reply_markup=keyboard)
     
     async def _handle_export_links(self, query):
         """Handle export links"""
@@ -2150,7 +2200,7 @@ class TelegramBot:
         total_links = await db.get_links_count()
         
         if total_links == 0:
-            await query.message.edit_text("❌ لا توجد روابط للتصدير")
+            await self._edit_message_safe(query, "❌ لا توجد روابط للتصدير")
             return
         
         keyboard = InlineKeyboardMarkup([
@@ -2170,18 +2220,18 @@ class TelegramBot:
 اختر تنسيق التصدير:
 """
         
-        await query.message.edit_text(export_text, reply_markup=keyboard, parse_mode="Markdown")
+        await self._edit_message_safe(query, export_text, reply_markup=keyboard)
     
     async def _handle_export_txt(self, query):
         """Handle export as text"""
-        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
             links = await db.export_links(limit=Config.MAX_EXPORT_LINKS)
             
             if not links:
-                await query.message.edit_text("❌ لا توجد روابط للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط للتصدير")
                 return
             
             # حفظ في ملف نصي
@@ -2206,11 +2256,11 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"خطأ في تصدير النصي: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_export_csv(self, query):
         """Handle export as CSV"""
-        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -2224,7 +2274,7 @@ class TelegramBot:
             rows = await cursor.fetchall()
             
             if not rows:
-                await query.message.edit_text("❌ لا توجد روابط للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط للتصدير")
                 return
             
             # حفظ في ملف CSV
@@ -2251,11 +2301,11 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"خطأ في تصدير CSV: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_export_json(self, query):
         """Handle export as JSON"""
-        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -2271,7 +2321,7 @@ class TelegramBot:
             columns = [desc[0] for desc in cursor.description]
             
             if not rows:
-                await query.message.edit_text("❌ لا توجد روابط للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط للتصدير")
                 return
             
             # تحويل إلى JSON
@@ -2301,7 +2351,7 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"خطأ في تصدير JSON: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_export_all(self, query):
         """Handle export all links"""
@@ -2309,14 +2359,14 @@ class TelegramBot:
     
     async def _handle_export_telegram(self, query):
         """Handle export Telegram links"""
-        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
             links = await db.export_links({'platform': 'telegram'}, Config.MAX_EXPORT_LINKS)
             
             if not links:
-                await query.message.edit_text("❌ لا توجد روابط تيليجرام للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط تيليجرام للتصدير")
                 return
             
             # حفظ في ملف نصي
@@ -2341,18 +2391,18 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"خطأ في تصدير تيليجرام: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_export_whatsapp(self, query):
         """Handle export WhatsApp links"""
-        await query.message.edit_text("⏳ جاري تحضير الملف...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير الملف...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
             links = await db.export_links({'platform': 'whatsapp'}, Config.MAX_EXPORT_LINKS)
             
             if not links:
-                await query.message.edit_text("❌ لا توجد روابط واتساب للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط واتساب للتصدير")
                 return
             
             # حفظ في ملف نصي
@@ -2377,11 +2427,11 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"خطأ في تصدير واتساب: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_create_backup(self, query):
         """Handle create backup"""
-        await query.message.edit_text("⏳ جاري إنشاء نسخة احتياطية...")
+        await self._edit_message_safe(query, "⏳ جاري إنشاء نسخة احتياطية...")
         
         backup = await BackupManager.create_backup()
         
@@ -2391,24 +2441,24 @@ class TelegramBot:
                  InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups")]
             ])
             
-            await query.message.edit_text(
+            await self._edit_message_safe(
+                query,
                 f"✅ **تم إنشاء نسخة احتياطية بنجاح!**\n\n"
                 f"**تفاصيل النسخة:**\n"
                 f"• المعرف: {backup['backup_id']}\n"
                 f"• الوقت: {backup['timestamp']}\n"
                 f"• الحجم: {backup['size_bytes'] / 1024 / 1024:.2f} MB\n"
                 f"• المسار: {backup['file_path']}",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
+                reply_markup=keyboard
             )
         else:
-            await query.message.edit_text("❌ فشل في إنشاء نسخة احتياطية")
+            await self._edit_message_safe(query, "❌ فشل في إنشاء نسخة احتياطية")
     
     async def _handle_list_backups(self, query):
         """Handle list backups"""
         try:
             if not os.path.exists("backups"):
-                await query.message.edit_text("❌ لا توجد نسخ احتياطية")
+                await self._edit_message_safe(query, "❌ لا توجد نسخ احتياطية")
                 return
             
             backups = []
@@ -2424,7 +2474,7 @@ class TelegramBot:
                     })
             
             if not backups:
-                await query.message.edit_text("❌ لا توجد نسخ احتياطية")
+                await self._edit_message_safe(query, "❌ لا توجد نسخ احتياطية")
                 return
             
             backups.sort(key=lambda x: x['created'], reverse=True)
@@ -2443,29 +2493,31 @@ class TelegramBot:
                  InlineKeyboardButton("💾 إنشاء نسخة", callback_data="create_backup")]
             ])
             
-            await query.message.edit_text(list_text, reply_markup=keyboard, parse_mode="Markdown")
+            await self._edit_message_safe(query, list_text, reply_markup=keyboard)
             
         except Exception as e:
             logger.error(f"خطأ في عرض النسخ: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
     
     async def _handle_rotate_backups(self, query):
         """Handle rotate backups"""
-        await query.message.edit_text("⏳ جاري تدوير النسخ القديمة...")
+        await self._edit_message_safe(query, "⏳ جاري تدوير النسخ القديمة...")
         
         try:
             await BackupManager.rotate_backups()
-            await query.message.edit_text("✅ تم تدوير النسخ الاحتياطية بنجاح")
+            await self._edit_message_safe(query, "✅ تم تدوير النسخ الاحتياطية بنجاح")
         except Exception as e:
             logger.error(f"خطأ في تدوير النسخ: {e}")
-            await query.message.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ: {str(e)[:100]}")
     
     async def _handle_refresh_status(self, query):
         """Handle refresh status"""
+        # إعادة إنشاء الأمر /status
         await self.status_command(query.message, query.message.reply_to_message)
     
     async def _handle_refresh_sessions(self, query):
         """Handle refresh sessions"""
+        # إعادة إنشاء الأمر /sessions
         await self.sessions_command(query.message, query.message.reply_to_message)
     
     async def _handle_show_help(self, query):
@@ -2485,7 +2537,6 @@ class TelegramBot:
 **إعدادات الأداء:**
 • الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}
 • الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB
-• حجم الكاش: {Config.MAX_CACHED_URLS:,}
 
 **إعدادات قاعدة البيانات:**
 • المسار: {Config.DB_PATH}
@@ -2498,7 +2549,7 @@ class TelegramBot:
 • تحقق متقدم: {"✅ مفعل" if Config.ENABLE_ADVANCED_VALIDATION else "❌ معطل"}
 """
         
-        await query.message.edit_text(settings_text, parse_mode="Markdown")
+        await self._edit_message_safe(query, settings_text)
     
     async def _handle_manage_collect(self, query):
         """Handle manage collect"""
@@ -2506,17 +2557,17 @@ class TelegramBot:
     
     async def _handle_delete_session(self, query):
         """Handle delete session"""
-        await query.message.edit_text("⏳ جاري تحضير قائمة الجلسات...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير قائمة الجلسات...")
         
         db = await EnhancedDatabaseManager.get_instance()
-        sessions = await db.get_active_sessions(limit=20)
+        sessions = await db.get_active_sessions(limit=10)
         
         if not sessions:
-            await query.message.edit_text("❌ لا توجد جلسات")
+            await self._edit_message_safe(query, "❌ لا توجد جلسات")
             return
         
         keyboard_buttons = []
-        for session in sessions[:10]:
+        for session in sessions:
             name = session.get('display_name', f"جلسة {session['id']}")
             callback_data = f"delete_session_{session['id']}"
             keyboard_buttons.append([InlineKeyboardButton(f"🗑️ {name}", callback_data=callback_data)])
@@ -2525,15 +2576,15 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup(keyboard_buttons)
         
-        await query.message.edit_text(
+        await self._edit_message_safe(
+            query,
             "**🗑️ حذف الجلسات**\n\n"
             "اختر الجلسة التي تريد حذفها:\n\n"
             "**تحذير:**\n"
             "• لا يمكن استرجاع الجلسة بعد الحذف\n"
             "• الروابط المجمعة تبقى محفوظة\n"
             "• يمكنك إضافة الجلسة مرة أخرى",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
+            reply_markup=keyboard
         )
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2790,14 +2841,12 @@ async def main():
             # تشغيل البوت
             await bot.app.initialize()
             await bot.app.start()
+            await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
             logger.info("📋 الأوامر المتاحة: /start, /help, /status, /stats, /sessions, /export, /collect")
             
             # الحفاظ على البوت يعمل
-            await bot.app.updater.start_polling()
-            
-            # انتظار إشارة الإيقاف
             stop_event = asyncio.Event()
             await stop_event.wait()
             
@@ -2812,7 +2861,8 @@ async def main():
             
             try:
                 # إيقاف البوت
-                await bot.app.stop()
+                if hasattr(bot, 'app'):
+                    await bot.app.stop()
                 
                 # إغلاق قاعدة البيانات
                 await db.close()
