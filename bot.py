@@ -1,6 +1,37 @@
 import os
 import sys
 import subprocess
+
+# 🔧 FIX FOR RENDER: Install missing packages on startup
+def ensure_packages():
+    """Ensure all required packages are installed"""
+    required = [
+        'python-telegram-bot==21.1',
+        'Telethon==1.34.0', 
+        'aiosqlite==0.19.0',
+        'aiofiles==23.2.1',
+        'cryptography==42.0.5',
+        'psutil==5.9.8',
+        'aiohttp==3.11.3',
+        'fastapi==0.104.1',
+        'uvicorn==0.24.0',
+        'httpx==0.25.2',
+        'pytz==2023.3',
+        'beautifulsoup4==4.12.3'  # هذه الحزمة مفقودة
+    ]
+    
+    for package in required:
+        pkg_name = package.split('==')[0]
+        try:
+            __import__(pkg_name.replace('-', '_'))
+        except ImportError:
+            print(f"📦 Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Run package check
+ensure_packages()
+
+# Now continue with the rest of your imports
 import asyncio
 import logging
 import re
@@ -24,7 +55,9 @@ from contextlib import asynccontextmanager
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from bs4 import BeautifulSoup
+
+# إزالة استيراد BeautifulSoup لأنه غير ضروري
+# from bs4 import BeautifulSoup
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -179,6 +212,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# ... باقي الكود يبقى كما هو بدون BeautifulSoup ...
 
 # ======================
 # Enhanced Link Processor
