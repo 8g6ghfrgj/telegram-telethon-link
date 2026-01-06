@@ -1807,58 +1807,49 @@ class TelegramBot:
              InlineKeyboardButton("⚙️ الإعدادات", callback_data="show_settings")]
         ])
         
-        welcome_text = f"""
-🤖 **مرحباً {user.first_name}!**
-
-**بوت جمع روابط المجموعات الحقيقي**
-
-**المميزات الجديدة:**
-• ✅ جمع حقيقي للمجموعات النشطة
-• ❌ تخطي القنوات وروابط الاشتراك
-• 🔍 جمع عميق من الرسائل والوصف
-• 📊 تصدير منفصل لكل منصة
-• 🧪 اختبار الجمع قبل البدء
-
-**🚀 اختر من الأزرار أدناه لبدء الجمع الحقيقي!**
-"""
+        welcome_text = (
+            f"🤖 **مرحباً {user.first_name}!**\n\n"
+            "**بوت جمع روابط المجموعات الحقيقي**\n\n"
+            "**المميزات الجديدة:**\n"
+            "• ✅ جمع حقيقي للمجموعات النشطة\n"
+            "• ❌ تخطي القنوات وروابط الاشتراك\n"
+            "• 🔍 جمع عميق من الرسائل والوصف\n"
+            "• 📊 تصدير منفصل لكل منصة\n"
+            "• 🧪 اختبار الجمع قبل البدء\n\n"
+            "**🚀 اختر من الأزرار أدناه لبدء الجمع الحقيقي!**"
+        )
         
         await update.message.reply_text(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
-        help_text = """
-**📖 دليل استخدام البوت - الإصدار الحقيقي**
-
-**الأوامر الأساسية:**
-• /start - بدء البوت ورسالة الترحيب
-• /help - عرض هذه المساعدة
-• /status - عرض حالة النظام والجمع
-
-**إدارة الجلسات:**
-• /sessions - عرض الجلسات النشطة
-• /addsession - إضافة جلسة جديدة
-
-**الجمع والتصدير:**
-• /collect - بدء/إيقاف الجمع الحقيقي
-• /test_collect - اختبار الجمع على مجموعة واحدة
-• /validate_links - التحقق من الروابط المخزنة
-• /export - تصدير الروابط المجمعة
-
-**الإدارة:**
-• /stats - إحصائيات النظام
-• /backup - إنشاء نسخة احتياطية
-
-**📌 كيفية البدء:**
-1. أضف جلسة تيليجرام باستخدام /addsession
-2. اختبر الجمع باستخدام /test_collect
-3. ابدأ الجمع الحقيقي باستخدام /collect
-4. قم بتصدير الروابط باستخدام /export
-
-**🔒 ملاحظات:**
-• البوت يجمع فقط المجموعات النشطة (طلب انضمام)
-• يتخطى القنوات وروابط الاشتراك
-• يجمع من الوصف والرسائل داخل المجموعات
-"""
+        help_text = (
+            "**📖 دليل استخدام البوت - الإصدار الحقيقي**\n\n"
+            "**الأوامر الأساسية:**\n"
+            "• /start - بدء البوت ورسالة الترحيب\n"
+            "• /help - عرض هذه المساعدة\n"
+            "• /status - عرض حالة النظام والجمع\n\n"
+            "**إدارة الجلسات:**\n"
+            "• /sessions - عرض الجلسات النشطة\n"
+            "• /addsession - إضافة جلسة جديدة\n\n"
+            "**الجمع والتصدير:**\n"
+            "• /collect - بدء/إيقاف الجمع الحقيقي\n"
+            "• /test_collect - اختبار الجمع على مجموعة واحدة\n"
+            "• /validate_links - التحقق من الروابط المخزنة\n"
+            "• /export - تصدير الروابط المجمعة\n\n"
+            "**الإدارة:**\n"
+            "• /stats - إحصائيات النظام\n"
+            "• /backup - إنشاء نسخة احتياطية\n\n"
+            "**📌 كيفية البدء:**\n"
+            "1. أضف جلسة تيليجرام باستخدام /addsession\n"
+            "2. اختبر الجمع باستخدام /test_collect\n"
+            "3. ابدأ الجمع الحقيقي باستخدام /collect\n"
+            "4. قم بتصدير الروابط باستخدام /export\n\n"
+            "**🔒 ملاحظات:**\n"
+            "• البوت يجمع فقط المجموعات النشطة (طلب انضمام)\n"
+            "• يتخطى القنوات وروابط الاشتراك\n"
+            "• يجمع من الوصف والرسائل داخل المجموعات"
+        )
         await update.message.reply_text(help_text, parse_mode="Markdown")
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1876,11 +1867,10 @@ class TelegramBot:
         db = await EnhancedDatabaseManager.get_instance()
         db_stats = await db.get_stats_summary()
         
-        status_text = f"""
-**📊 حالة النظام الحقيقية - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**
-
-**حالة الجمع:**
-"""
+        status_text = (
+            f"**📊 حالة النظام الحقيقية - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**\n\n"
+            "**حالة الجمع:**\n"
+        )
         
         if status['active']:
             if status['paused']:
@@ -1892,26 +1882,25 @@ class TelegramBot:
         else:
             status_text += "🛑 **متوقف**\n"
         
-        status_text += f"""
-**إحصائيات الجمع الحقيقية:**
-• 📦 المجموع المجمع: {status['stats']['total_collected']:,}
-• ✅ المجموعات الصالحة: {status['stats']['valid_groups']:,}
-• ❌ القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}
-• 📢 تيليجرام: {status['stats']['telegram']:,}
-• 📱 واتساب: {status['stats']['whatsapp']:,}
-• 🎮 ديسكورد: {status['stats']['discord']:,}
-• 📡 سيجنال: {status['stats']['signal']:,}
-• ⚡ الجلسات المستخدمة: {status['stats']['sessions_used']}
-• ❌ أخطاء: {status['stats']['errors']:,}
-• 🕒 آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}
-
-**إحصائيات قاعدة البيانات:**
-• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}
-• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}
-• 📺 القنوات: {db_stats.get('subscriptions', 0):,}
-• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
-• 👥 المستخدمين: {db_stats.get('total_users', 0)}
-"""
+        status_text += (
+            f"\n**إحصائيات الجمع الحقيقية:**\n"
+            f"• 📦 المجموع المجمع: {status['stats']['total_collected']:,}\n"
+            f"• ✅ المجموعات الصالحة: {status['stats']['valid_groups']:,}\n"
+            f"• ❌ القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}\n"
+            f"• 📢 تيليجرام: {status['stats']['telegram']:,}\n"
+            f"• 📱 واتساب: {status['stats']['whatsapp']:,}\n"
+            f"• 🎮 ديسكورد: {status['stats']['discord']:,}\n"
+            f"• 📡 سيجنال: {status['stats']['signal']:,}\n"
+            f"• ⚡ الجلسات المستخدمة: {status['stats']['sessions_used']}\n"
+            f"• ❌ أخطاء: {status['stats']['errors']:,}\n"
+            f"• 🕒 آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}\n\n"
+            f"**إحصائيات قاعدة البيانات:**\n"
+            f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
+            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📺 القنوات: {db_stats.get('subscriptions', 0):,}\n"
+            f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
+            f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}"
+        )
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="refresh_status"),
@@ -1938,29 +1927,26 @@ class TelegramBot:
         
         user_stats = await db.get_user_stats(user.id)
         
-        stats_text = f"""
-**📈 إحصائيات النظام المتقدمة**
-
-**إحصائيات المستخدم:**
-"""
+        stats_text = "**📈 إحصائيات النظام المتقدمة**\n\n**إحصائيات المستخدم:**\n"
         
         if user_stats:
-            stats_text += f"""• 🆔 المعرف: {user.id}
-• 👤 الاسم: {user_stats.get('first_name', '')} {user_stats.get('last_name', '')}
-• 📅 العضو منذ: {user_stats.get('added_date', 'غير معروف')}
-• 📊 طلباتك: {user_stats.get('request_count', 0):,}
-• 🔗 روابطك: {user_stats.get('total_links', 0):,}
-• 💼 جلساتك: {user_stats.get('total_sessions', 0)}
-"""
+            stats_text += (
+                f"• 🆔 المعرف: {user.id}\n"
+                f"• 👤 الاسم: {user_stats.get('first_name', '')} {user_stats.get('last_name', '')}\n"
+                f"• 📅 العضو منذ: {user_stats.get('added_date', 'غير معروف')}\n"
+                f"• 📊 طلباتك: {user_stats.get('request_count', 0):,}\n"
+                f"• 🔗 روابطك: {user_stats.get('total_links', 0):,}\n"
+                f"• 💼 جلساتك: {user_stats.get('total_sessions', 0)}\n\n"
+            )
         
-        stats_text += f"""
-**إحصائيات النظام:**
-• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}
-• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}
-• 📺 القنوات: {db_stats.get('subscriptions', 0):,}
-• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
-• 👥 المستخدمين: {db_stats.get('total_users', 0)}
-"""
+        stats_text += (
+            f"**إحصائيات النظام:**\n"
+            f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
+            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📺 القنوات: {db_stats.get('subscriptions', 0):,}\n"
+            f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
+            f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
+        )
         
         # إحصائيات المنصات
         if 'links_by_platform' in db_stats:
@@ -1987,10 +1973,7 @@ class TelegramBot:
             await update.message.reply_text("❌ لا توجد جلسات نشطة")
             return
         
-        sessions_text = f"""
-**👥 الجلسات النشطة ({len(sessions)})**
-
-"""
+        sessions_text = f"**👥 الجلسات النشطة ({len(sessions)})**\n\n"
         
         for i, session in enumerate(sessions, 1):
             display_name = session.get('display_name', 'غير معروف')
@@ -2000,14 +1983,14 @@ class TelegramBot:
             uses = session.get('total_uses', 0)
             links_collected = session.get('total_links', 0)
             
-            sessions_text += f"""**{i}. {display_name}**
-• المعرف: @{username}
-• الهاتف: {phone}
-• الاستخدامات: {uses}
-• الروابط المجمعة: {links_collected:,}
-• آخر استخدام: {last_used}
-
-"""
+            sessions_text += (
+                f"**{i}. {display_name}**\n"
+                f"• المعرف: @{username}\n"
+                f"• الهاتف: {phone}\n"
+                f"• الاستخدامات: {uses}\n"
+                f"• الروابط المجمعة: {links_collected:,}\n"
+                f"• آخر استخدام: {last_used}\n\n"
+            )
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
@@ -2045,27 +2028,24 @@ class TelegramBot:
              InlineKeyboardButton("📡 سيجنال فقط", callback_data="export_signal")]
         ])
         
-        export_text = f"""
-**📤 تصدير الروابط الصالحة**
-
-إجمالي الروابط الصالحة: **{total_links:,}**
-
-**خيارات التصدير:**
-• 📄 نصي - روابط فقط
-• 📊 CSV - مع المعلومات
-• 📋 JSON - كامل المعلومات
-• 📦 جميع الروابط الصالحة
-• 📢 روابط تيليجرام فقط
-• 📱 روابط واتساب فقط
-• 🎮 روابط ديسكورد فقط
-• 📡 روابط سيجنال فقط
-
-**ملاحظات:**
-• الحد الأقصى للتصدير: {Config.MAX_EXPORT_LINKS:,} رابط
-• الروابط فقط من المجموعات الصالحة
-• كل منصة تصدير منفصل
-• الروابط تنسيقها نظيف وجاهز للاستخدام
-"""
+        export_text = (
+            f"**📤 تصدير الروابط الصالحة**\n\n"
+            f"إجمالي الروابط الصالحة: **{total_links:,}**\n\n"
+            "**خيارات التصدير:**\n"
+            "• 📄 نصي - روابط فقط\n"
+            "• 📊 CSV - مع المعلومات\n"
+            "• 📋 JSON - كامل المعلومات\n"
+            "• 📦 جميع الروابط الصالحة\n"
+            "• 📢 روابط تيليجرام فقط\n"
+            "• 📱 روابط واتساب فقط\n"
+            "• 🎮 روابط ديسكورد فقط\n"
+            "• 📡 روابط سيجنال فقط\n\n"
+            "**ملاحظات:**\n"
+            f"• الحد الأقصى للتصدير: {Config.MAX_EXPORT_LINKS:,} رابط\n"
+            "• الروابط فقط من المجموعات الصالحة\n"
+            "• كل منصة تصدير منفصل\n"
+            "• الروابط تنسيقها نظيف وجاهز للاستخدام"
+        )
         
         await update.message.reply_text(export_text, reply_markup=keyboard, parse_mode="Markdown")
     
@@ -2085,24 +2065,21 @@ class TelegramBot:
             [InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups")]
         ])
         
-        backup_text = f"""
-**💾 إدارة النسخ الاحتياطية**
-
-**المميزات:**
-• نسخ احتياطي تلقائي
-• حفظ بيانات الجلسات والروابط
-• استعادة البيانات عند الحاجة
-• تدوير تلقائي للنسخ القديمة
-
-**الإعدادات:**
-• عدد النسخ المحفوظة: {Config.MAX_BACKUPS}
-• النسخ التلقائية: {"✅ مفعل" if Config.BACKUP_ENABLED else "❌ معطل"}
-
-**الأوامر:**
-• إنشاء نسخة يدوية
-• عرض قائمة النسخ
-• تدوير النسخ القديمة
-"""
+        backup_text = (
+            "**💾 إدارة النسخ الاحتياطية**\n\n"
+            "**المميزات:**\n"
+            "• نسخ احتياطي تلقائي\n"
+            "• حفظ بيانات الجلسات والروابط\n"
+            "• استعادة البيانات عند الحاجة\n"
+            "• تدوير تلقائي للنسخ القديمة\n\n"
+            f"**الإعدادات:**\n"
+            f"• عدد النسخ المحفوظة: {Config.MAX_BACKUPS}\n"
+            f"• النسخ التلقائية: {'✅ مفعل' if Config.BACKUP_ENABLED else '❌ معطل'}\n\n"
+            "**الأوامر:**\n"
+            "• إنشاء نسخة يدوية\n"
+            "• عرض قائمة النسخ\n"
+            "• تدوير النسخ القديمة"
+        )
         
         await update.message.reply_text(backup_text, reply_markup=keyboard, parse_mode="Markdown")
     
@@ -2127,11 +2104,7 @@ class TelegramBot:
              InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")]
         ])
         
-        collect_text = f"""
-**🚀 إدارة عملية الجمع الحقيقية**
-
-**الحالة الحالية:**
-"""
+        collect_text = "**🚀 إدارة عملية الجمع الحقيقية**\n\n**الحالة الحالية:**\n"
         
         if status['active']:
             if status['paused']:
@@ -2141,25 +2114,23 @@ class TelegramBot:
         else:
             collect_text += "🛑 **متوقف**\n"
         
-        collect_text += f"""
-**الإحصائيات الحقيقية:**
-• الروابط المجمعة: {status['stats']['total_collected']:,}
-• المجموعات الصالحة: {status['stats']['valid_groups']:,}
-• القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}
-• الأخطاء: {status['stats']['errors']:,}
-
-**المميزات الحقيقية:**
-• ✅ جمع فقط من المجموعات النشطة
-• ❌ تخطي القنوات وروابط الاشتراك
-• 🔍 جمع عميق من الرسائل والوصف
-• 📊 تصدير منفصل لكل منصة
-• 🧪 اختبار الجمع قبل البدء
-
-**الإعدادات:**
-• الجمع من المجموعات فقط: {"✅ نعم" if Config.COLLECT_ONLY_GROUPS else "❌ لا"}
-• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}
-• الجمع العميق: {"✅ مفعل" if Config.ENABLE_DEEP_COLLECTION else "❌ معطل"}
-"""
+        collect_text += (
+            f"\n**الإحصائيات الحقيقية:**\n"
+            f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
+            f"• المجموعات الصالحة: {status['stats']['valid_groups']:,}\n"
+            f"• القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}\n"
+            f"• الأخطاء: {status['stats']['errors']:,}\n\n"
+            "**المميزات الحقيقية:**\n"
+            "• ✅ جمع فقط من المجموعات النشطة\n"
+            "• ❌ تخطي القنوات وروابط الاشتراك\n"
+            "• 🔍 جمع عميق من الرسائل والوصف\n"
+            "• 📊 تصدير منفصل لكل منصة\n"
+            "• 🧪 اختبار الجمع قبل البدء\n\n"
+            f"**الإعدادات:**\n"
+            f"• الجمع من المجموعات فقط: {'✅ نعم' if Config.COLLECT_ONLY_GROUPS else '❌ لا'}\n"
+            f"• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}\n"
+            f"• الجمع العميق: {'✅ مفعل' if Config.ENABLE_DEEP_COLLECTION else '❌ معطل'}"
+        )
         
         await update.message.reply_text(collect_text, reply_markup=keyboard, parse_mode="Markdown")
     
@@ -2175,25 +2146,22 @@ class TelegramBot:
         
         self.user_states[user.id] = {'waiting_for_session': True}
         
-        add_text = """
-**➕ إضافة جلسة جديدة**
-
-**تعليمات الإضافة:**
-1. افتح https://my.telegram.org
-2. سجل الدخول بحسابك
-3. انتقل إلى **API Development Tools**
-4. أنشئ تطبيق جديد واحصل على:
-   • api_id
-   • api_hash
-5. افتح @GetStringBot وأرسل /start
-6. أرسل إليه api_id و api_hash
-7. سيرسل لك كود الجلسة (session string)
-
-**أرسل كود الجلسة الآن:**
-(يمكنك نسخ الكود كاملاً وإرساله)
-
-**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط من المجموعات النشطة
-"""
+        add_text = (
+            "**➕ إضافة جلسة جديدة**\n\n"
+            "**تعليمات الإضافة:**\n"
+            "1. افتح https://my.telegram.org\n"
+            "2. سجل الدخول بحسابك\n"
+            "3. انتقل إلى **API Development Tools**\n"
+            "4. أنشئ تطبيق جديد واحصل على:\n"
+            "   • api_id\n"
+            "   • api_hash\n"
+            "5. افتح @GetStringBot وأرسل /start\n"
+            "6. أرسل إليه api_id و api_hash\n"
+            "7. سيرسل لك كود الجلسة (session string)\n\n"
+            "**أرسل كود الجلسة الآن:**\n"
+            "(يمكنك نسخ الكود كاملاً وإرساله)\n\n"
+            "**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط من المجموعات النشطة"
+        )
         
         await update.message.reply_text(add_text, parse_mode="Markdown")
     
@@ -2242,62 +2210,65 @@ class TelegramBot:
                     # التحقق من نوع الكيان
                     validation = await GroupValidator.validate_group(client, entity)
                     
-                    test_result = f"""
-**🧪 نتائج الاختبار:**
-
-**المجموعة المختبرة:**
-• العنوان: {validation.get('title', 'غير معروف')}
-• النوع: {'مجموعة' if validation['is_group'] else 'قناة'}
-• الاشتراك: {'نعم' if validation['is_subscription'] else 'لا'}
-• عدد الأعضاء: {validation['members_count']}
-• نوع الانضمام: {validation['join_type']}
-• صالحة للجمع: {'✅ نعم' if validation['is_valid'] else '❌ لا'}
-"""
+                    test_result = (
+                        "**🧪 نتائج الاختبار:**\n\n"
+                        "**المجموعة المختبرة:**\n"
+                        f"• العنوان: {validation.get('title', 'غير معروف')}\n"
+                        f"• النوع: {'مجموعة' if validation['is_group'] else 'قناة'}\n"
+                        f"• الاشتراك: {'نعم' if validation['is_subscription'] else 'لا'}\n"
+                        f"• عدد الأعضاء: {validation['members_count']}\n"
+                        f"• نوع الانضمام: {validation['join_type']}\n"
+                        f"• صالحة للجمع: {'✅ نعم' if validation['is_valid'] else '❌ لا'}"
+                    )
+                    
+                    await update.message.reply_text(test_result, parse_mode="Markdown")
                     
                     if validation['is_valid']:
                         # جمع الروابط من المجموعة
                         links = await GroupValidator.extract_group_links(client, entity, max_messages=5)
                         
-                        test_result += f"""
-**الروابط المجمعة:** {len(links)}
-
-**عينة من الروابط:**
-"""
-                        for i, link in enumerate(links[:5], 1):
-                            test_result += f"{i}. {link}\n"
+                        if links:
+                            links_result = f"\n**الروابط المجمعة:** {len(links)}\n\n**عينة من الروابط:**\n"
+                            for i, link in enumerate(links[:5], 1):
+                                links_result += f"{i}. {link}\n"
+                            
+                            await update.message.reply_text(links_result)
+                            
+                            # حفظ بعض الروابط كعينة
+                            for link in links[:3]:
+                                link_info = EnhancedLinkProcessor.extract_url_info(link)
+                                if link_info['is_valid']:
+                                    details = link_info['details']
+                                    is_valid_group = (
+                                        details.get('is_group', False) and 
+                                        not details.get('is_channel', False) and
+                                        not details.get('is_subscription', False)
+                                    )
+                                    
+                                    link_data = {
+                                        'url': link,
+                                        'platform': link_info['platform'],
+                                        'link_type': 'group' if is_valid_group else 'channel',
+                                        'session_id': session.get('id'),
+                                        'is_valid_group': is_valid_group,
+                                        'added_by_user': user.id
+                                    }
+                                    
+                                    success, message, _ = await db.add_link(link_data)
+                                    if success:
+                                        collected.append(link)
                         
-                        # حفظ بعض الروابط كعينة
-                        for link in links[:3]:
-                            link_info = EnhancedLinkProcessor.extract_url_info(link)
-                            if link_info['is_valid']:
-                                details = link_info['details']
-                                is_valid_group = (
-                                    details.get('is_group', False) and 
-                                    not details.get('is_channel', False) and
-                                    not details.get('is_subscription', False)
-                                )
-                                
-                                link_data = {
-                                    'url': link,
-                                    'platform': link_info['platform'],
-                                    'link_type': 'group' if is_valid_group else 'channel',
-                                    'session_id': session.get('id'),
-                                    'is_valid_group': is_valid_group,
-                                    'added_by_user': user.id
-                                }
-                                
-                                success, message, _ = await db.add_link(link_data)
-                                if success:
-                                    collected.append(link)
-                        
-                        test_result += f"\n✅ **تم حفظ {len(collected)} روابط كعينة**"
+                        if collected:
+                            test_result += f"\n✅ **تم حفظ {len(collected)} روابط كعينة**"
+                        else:
+                            test_result += "\n⚠️ **لم يتم العثور على روابط صالحة**"
                     else:
-                        test_result += "\n⚠️ **هذه ليست مجموعة صالحة للجمع**\n"
+                        test_result += "\n⚠️ **هذه ليست مجموعة صالحة للجمع**"
                         
                         if validation['is_subscription']:
-                            test_result += "❌ **تم تخطيها لأنها قناة اشتراك**"
+                            test_result += "\n❌ **تم تخطيها لأنها قناة اشتراك**"
                         elif validation['members_count'] < Config.MIN_MEMBERS_FOR_GROUP:
-                            test_result += f"❌ **عدد الأعضاء أقل من {Config.MIN_MEMBERS_FOR_GROUP}**"
+                            test_result += f"\n❌ **عدد الأعضاء أقل من {Config.MIN_MEMBERS_FOR_GROUP}**"
                     
                     await update.message.reply_text(test_result, parse_mode="Markdown")
                     
@@ -2475,6 +2446,8 @@ class TelegramBot:
                 await self._handle_manage_collect(query)
             elif data == "delete_session":
                 await self._handle_delete_session(query)
+            elif data.startswith("delete_session_"):
+                await self._handle_delete_session_confirm(query, data)
             else:
                 await self._edit_message_safe(query, "❌ أمر غير معروف")
         
@@ -2598,25 +2571,23 @@ class TelegramBot:
         """Handle collect status"""
         status = self.collection_manager.get_status()
         
-        status_text = f"""
-**📊 حالة الجمع الحقيقية**
-
-**الحالة:** {"🔄 نشط - جمع حقيقي" if status['active'] else "🛑 متوقف"}
-**الإيقاف المؤقت:** {"⏸️ نعم" if status['paused'] else "▶️ لا"}
-**طلب الإيقاف:** {"✅ نعم" if status['stop_requested'] else "❌ لا"}
-
-**الإحصائيات الحقيقية:**
-• الروابط المجمعة: {status['stats']['total_collected']:,}
-• المجموعات الصالحة: {status['stats']['valid_groups']:,}
-• القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}
-• تيليجرام: {status['stats']['telegram']:,}
-• واتساب: {status['stats']['whatsapp']:,}
-• ديسكورد: {status['stats']['discord']:,}
-• سيجنال: {status['stats']['signal']:,}
-• الأخطاء: {status['stats']['errors']:,}
-• الجلسات المستخدمة: {status['stats']['sessions_used']}
-• آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}
-"""
+        status_text = (
+            f"**📊 حالة الجمع الحقيقية**\n\n"
+            f"**الحالة:** {'🔄 نشط - جمع حقيقي' if status['active'] else '🛑 متوقف'}\n"
+            f"**الإيقاف المؤقت:** {'⏸️ نعم' if status['paused'] else '▶️ لا'}\n"
+            f"**طلب الإيقاف:** {'✅ نعم' if status['stop_requested'] else '❌ لا'}\n\n"
+            f"**الإحصائيات الحقيقية:**\n"
+            f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
+            f"• المجموعات الصالحة: {status['stats']['valid_groups']:,}\n"
+            f"• القنوات المتخطاة: {status['stats']['subscriptions_skipped']:,}\n"
+            f"• تيليجرام: {status['stats']['telegram']:,}\n"
+            f"• واتساب: {status['stats']['whatsapp']:,}\n"
+            f"• ديسكورد: {status['stats']['discord']:,}\n"
+            f"• سيجنال: {status['stats']['signal']:,}\n"
+            f"• الأخطاء: {status['stats']['errors']:,}\n"
+            f"• الجلسات المستخدمة: {status['stats']['sessions_used']}\n"
+            f"• آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}"
+        )
         
         await self._edit_message_safe(query, status_text)
     
@@ -2628,31 +2599,27 @@ class TelegramBot:
             [InlineKeyboardButton("🔄 العودة", callback_data="manage_collect")]
         ])
         
-        settings_text = f"""
-**⚙️ إعدادات الجمع الحقيقي**
-
-**الإعدادات الحالية:**
-• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS}
-• الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}
-• الرسائل لكل بحث: {Config.MAX_MESSAGES_PER_SEARCH}
-• الروابط لكل دورة: {Config.MAX_LINKS_PER_CYCLE}
-
-**إعدادات التصفية:**
-• جمع المجموعات فقط: {"✅ نعم" if Config.COLLECT_ONLY_GROUPS else "❌ لا"}
-• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}
-• الجمع العميق: {"✅ مفعل" if Config.ENABLE_DEEP_COLLECTION else "❌ معطل"}
-• الرسائل في الجمع العميق: {Config.MAX_DEEP_MESSAGES}
-
-**التأخيرات:**
-• بين الجلسات: {Config.REQUEST_DELAYS['between_sessions']} ثانية
-• بين المهام: {Config.REQUEST_DELAYS['between_tasks']} ثانية
-• بين الدورات: {Config.REQUEST_DELAYS['min_cycle_delay']}-{Config.REQUEST_DELAYS['max_cycle_delay']} ثانية
-
-**نتيجة الإعدادات:**
-• ✅ المجموعات مع (طلب انضمام) → **يتم جمعها**
-• ❌ القنوات مع (اشتراك) → **تتم تخطيتها**
-• ✅ الروابط من داخل المجموعات → **يتم جمعها**
-"""
+        settings_text = (
+            f"**⚙️ إعدادات الجمع الحقيقي**\n\n"
+            f"**الإعدادات الحالية:**\n"
+            f"• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS}\n"
+            f"• الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}\n"
+            f"• الرسائل لكل بحث: {Config.MAX_MESSAGES_PER_SEARCH}\n"
+            f"• الروابط لكل دورة: {Config.MAX_LINKS_PER_CYCLE}\n\n"
+            f"**إعدادات التصفية:**\n"
+            f"• جمع المجموعات فقط: {'✅ نعم' if Config.COLLECT_ONLY_GROUPS else '❌ لا'}\n"
+            f"• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}\n"
+            f"• الجمع العميق: {'✅ مفعل' if Config.ENABLE_DEEP_COLLECTION else '❌ معطل'}\n"
+            f"• الرسائل في الجمع العميق: {Config.MAX_DEEP_MESSAGES}\n\n"
+            f"**التأخيرات:**\n"
+            f"• بين الجلسات: {Config.REQUEST_DELAYS['between_sessions']} ثانية\n"
+            f"• بين المهام: {Config.REQUEST_DELAYS['between_tasks']} ثانية\n"
+            f"• بين الدورات: {Config.REQUEST_DELAYS['min_cycle_delay']}-{Config.REQUEST_DELAYS['max_cycle_delay']} ثانية\n\n"
+            f"**نتيجة الإعدادات:**\n"
+            f"• ✅ المجموعات مع (طلب انضمام) → **يتم جمعها**\n"
+            f"• ❌ القنوات مع (اشتراك) → **تتم تخطيتها**\n"
+            f"• ✅ الروابط من داخل المجموعات → **يتم جمعها**"
+        )
         
         await self._edit_message_safe(query, settings_text, reply_markup=keyboard)
     
@@ -2665,18 +2632,16 @@ class TelegramBot:
         user = query.from_user
         self.user_states[user.id] = {'waiting_for_session': True}
         
-        add_text = """
-**➕ إضافة جلسة جديدة**
-
-**أرسل كود الجلسة الآن:**
-(يمكنك نسخ الكود كاملاً وإرساله)
-
-**ملاحظات:**
-• الجلسة ستخزن مشفرة
-• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة
-• الجلسة يجب أن تكون نشطة
-• تستخدم فقط لجمع الروابط من المجموعات
-"""
+        add_text = (
+            f"**➕ إضافة جلسة جديدة**\n\n"
+            f"**أرسل كود الجلسة الآن:**\n"
+            f"(يمكنك نسخ الكود كاملاً وإرساله)\n\n"
+            f"**ملاحظات:**\n"
+            f"• الجلسة ستخزن مشفرة\n"
+            f"• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة\n"
+            f"• الجلسة يجب أن تكون نشطة\n"
+            f"• تستخدم فقط لجمع الروابط من المجموعات"
+        )
         
         await self._edit_message_safe(query, add_text)
     
@@ -2701,7 +2666,8 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
-             InlineKeyboardButton("🔄 تحديث", callback_data="refresh_sessions")]
+             InlineKeyboardButton("🗑️ حذف جلسة", callback_data="delete_session")],
+            [InlineKeyboardButton("🔄 تحديث", callback_data="refresh_sessions")]
         ])
         
         await self._edit_message_safe(query, sessions_text, reply_markup=keyboard)
@@ -2711,19 +2677,17 @@ class TelegramBot:
         db = await EnhancedDatabaseManager.get_instance()
         db_stats = await db.get_stats_summary()
         
-        stats_text = f"""
-**📈 إحصائيات النظام الحقيقية**
-
-**إحصائيات قاعدة البيانات:**
-• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}
-• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}
-• 📺 القنوات: {db_stats.get('subscriptions', 0):,}
-• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}
-• 👥 المستخدمين: {db_stats.get('total_users', 0)}
-• نسبة الصلاحية: {(db_stats.get('valid_groups', 0)/db_stats.get('total_links', 1)*100 if db_stats.get('total_links', 0) > 0 else 0):.1f}%
-
-**توزيع المنصات (مجموعات صالحة فقط):**
-"""
+        stats_text = (
+            f"**📈 إحصائيات النظام الحقيقية**\n\n"
+            f"**إحصائيات قاعدة البيانات:**\n"
+            f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
+            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📺 القنوات: {db_stats.get('subscriptions', 0):,}\n"
+            f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
+            f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
+            f"• نسبة الصلاحية: {(db_stats.get('valid_groups', 0)/db_stats.get('total_links', 1)*100 if db_stats.get('total_links', 0) > 0 else 0):.1f}%\n\n"
+            f"**توزيع المنصات (مجموعات صالحة فقط):**\n"
+        )
         
         for platform, count in db_stats.get('links_by_platform', {}).items():
             stats_text += f"• {platform}: {count:,}\n"
@@ -2755,13 +2719,11 @@ class TelegramBot:
              InlineKeyboardButton("📡 سيجنال", callback_data="export_signal")]
         ])
         
-        export_text = f"""
-**📤 تصدير الروابط الصالحة**
-
-إجمالي الروابط الصالحة: **{total_links:,}**
-
-اختر تنسيق التصدير:
-"""
+        export_text = (
+            f"**📤 تصدير الروابط الصالحة**\n\n"
+            f"إجمالي الروابط الصالحة: **{total_links:,}**\n\n"
+            f"اختر تنسيق التصدير:"
+        )
         
         await self._edit_message_safe(query, export_text, reply_markup=keyboard)
     
@@ -2795,7 +2757,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير النصي: {e}")
@@ -2840,7 +2805,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير CSV: {e}")
@@ -2890,7 +2858,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير JSON: {e}")
@@ -2930,7 +2901,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير تيليجرام: {e}")
@@ -2966,7 +2940,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير واتساب: {e}")
@@ -3002,7 +2979,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير ديسكورد: {e}")
@@ -3038,7 +3018,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير سيجنال: {e}")
@@ -3083,7 +3066,10 @@ class TelegramBot:
                 )
             
             # حذف الملف المحلي
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except:
+                pass
             
         except Exception as e:
             logger.error(f"خطأ في تصدير الاختبار: {e}")
@@ -3185,11 +3171,11 @@ class TelegramBot:
             list_text = "**📋 قائمة النسخ الاحتياطية**\n\n"
             
             for i, backup in enumerate(backups, 1):
-                list_text += f"""**{i}. {backup['filename']}**
-• الحجم: {backup['size_mb']:.2f} MB
-• التاريخ: {backup['created'].strftime('%Y-%m-%d %H:%M')}
-
-"""
+                list_text += (
+                    f"**{i}. {backup['filename']}**\n"
+                    f"• الحجم: {backup['size_mb']:.2f} MB\n"
+                    f"• التاريخ: {backup['created'].strftime('%Y-%m-%d %H:%M')}\n\n"
+                )
             
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 تدوير النسخ", callback_data="rotate_backups"),
@@ -3227,30 +3213,26 @@ class TelegramBot:
     
     async def _handle_show_settings(self, query):
         """Handle show settings"""
-        settings_text = f"""
-**⚙️ إعدادات النظام الحقيقي**
-
-**إعدادات الأمان:**
-• المدراء: {len(Config.ADMIN_USER_IDS)}
-• المستخدمون المسموحون: {len(Config.ALLOWED_USER_IDS)}
-• التشفير: {"✅ مفعل" if Config.ENCRYPTION_KEY else "❌ معطل"}
-
-**إعدادات الأداء:**
-• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}
-• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB
-
-**إعدادات قاعدة البيانات:**
-• المسار: {Config.DB_PATH}
-• النسخ الاحتياطي: {"✅ مفعل" if Config.BACKUP_ENABLED else "❌ معطل"}
-• عدد النسخ: {Config.MAX_BACKUPS}
-
-**إعدادات الجمع الحقيقي:**
-• جمع المجموعات فقط: {"✅ نعم" if Config.COLLECT_ONLY_GROUPS else "❌ لا"}
-• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}
-• الجمع العميق: {"✅ مفعل" if Config.ENABLE_DEEP_COLLECTION else "❌ معطل"}
-• جمع غير محدود: {"✅ نعم" if Config.TELEGRAM_NO_TIME_LIMIT else "❌ لا"}
-• أيام واتساب: {Config.WHATSAPP_DAYS_BACK}
-"""
+        settings_text = (
+            f"**⚙️ إعدادات النظام الحقيقي**\n\n"
+            f"**إعدادات الأمان:**\n"
+            f"• المدراء: {len(Config.ADMIN_USER_IDS)}\n"
+            f"• المستخدمون المسموحون: {len(Config.ALLOWED_USER_IDS)}\n"
+            f"• التشفير: {'✅ مفعل' if Config.ENCRYPTION_KEY else '❌ معطل'}\n\n"
+            f"**إعدادات الأداء:**\n"
+            f"• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}\n"
+            f"• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB\n\n"
+            f"**إعدادات قاعدة البيانات:**\n"
+            f"• المسار: {Config.DB_PATH}\n"
+            f"• النسخ الاحتياطي: {'✅ مفعل' if Config.BACKUP_ENABLED else '❌ معطل'}\n"
+            f"• عدد النسخ: {Config.MAX_BACKUPS}\n\n"
+            f"**إعدادات الجمع الحقيقي:**\n"
+            f"• جمع المجموعات فقط: {'✅ نعم' if Config.COLLECT_ONLY_GROUPS else '❌ لا'}\n"
+            f"• الحد الأدنى للأعضاء: {Config.MIN_MEMBERS_FOR_GROUP}\n"
+            f"• الجمع العميق: {'✅ مفعل' if Config.ENABLE_DEEP_COLLECTION else '❌ معطل'}\n"
+            f"• جمع غير محدود: {'✅ نعم' if Config.TELEGRAM_NO_TIME_LIMIT else '❌ لا'}\n"
+            f"• أيام واتساب: {Config.WHATSAPP_DAYS_BACK}"
+        )
         
         await self._edit_message_safe(query, settings_text)
     
@@ -3289,6 +3271,43 @@ class TelegramBot:
             "• يمكنك إضافة الجلسة مرة أخرى",
             reply_markup=keyboard
         )
+    
+    async def _handle_delete_session_confirm(self, query, data):
+        """Handle delete session confirmation"""
+        try:
+            session_id = int(data.split('_')[2])
+            
+            db = await EnhancedDatabaseManager.get_instance()
+            
+            # الحصول على معلومات الجلسة
+            cursor = await db.conn.execute(
+                'SELECT display_name FROM sessions WHERE id = ?',
+                (session_id,)
+            )
+            session_info = await cursor.fetchone()
+            
+            if not session_info:
+                await self._edit_message_safe(query, "❌ الجلسة غير موجودة")
+                return
+            
+            # حذف الجلسة
+            await db.conn.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
+            await db.conn.commit()
+            
+            await self._edit_message_safe(
+                query,
+                f"✅ **تم حذف الجلسة بنجاح**\n\n"
+                f"• الجلسة: {session_info[0]}\n"
+                f"• رقم الجلسة: {session_id}\n\n"
+                f"**ملاحظة:**\n"
+                f"تم حذف الجلسة بشكل دائم\n"
+                f"الروابط التي جمعتها تبقى محفوظة\n"
+                f"يمكنك إضافة جلسة جديدة في أي وقت"
+            )
+            
+        except Exception as e:
+            logger.error(f"خطأ في حذف الجلسة: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في حذف الجلسة: {str(e)[:100]}")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages"""
