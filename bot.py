@@ -93,9 +93,6 @@ class Config:
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
     
-    # Server Port for Render
-    PORT = int(os.getenv("PORT", 8080))
-    
     # Security - الأمان
     @staticmethod
     def safe_parse_ids(env_var, default="0"):
@@ -119,6 +116,7 @@ class Config:
 
     ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS", "0")
     ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS", "0")
+    PORT = int(os.getenv("PORT", 10000))
     
     # Encryption - التشفير
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -4196,7 +4194,7 @@ class TelegramBot:
 class HealthCheckServer:
     """Health check server for Render"""
     
-    def __init__(self, port: int = Config.PORT):
+    def __init__(self, port: int = 10000):
         self.port = port
         self.app = FastAPI(title="Telegram Link Collector Health")
         self._setup_routes()
@@ -4276,7 +4274,7 @@ class HealthCheckServer:
 async def main():
     """Main function"""
     try:
-        render_port = Config.PORT
+        render_port = os.getenv("PORT", "10000")
         logger.info(f"🚀 تشغيل البوت على Render - PORT: {render_port}")
         
         # التحقق من المتغيرات البيئية المطلوبة
@@ -4300,8 +4298,8 @@ async def main():
         os.makedirs("exports", exist_ok=True)
         os.makedirs("cache_data", exist_ok=True)
         
-        # بدء خادم فحص الصحة (يستخدم نفس منفذ البوت)
-        health_server = HealthCheckServer(port=render_port)
+        # بدء خادم فحص الصحة
+        health_server = HealthCheckServer(port=8080)
         health_server.start()
         
         # تهيئة قاعدة البيانات
@@ -4320,11 +4318,9 @@ async def main():
         logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
         
         try:
-            # تشغيل البوت في الخلفية (بدون استخدام updater.start_polling())
+            # تشغيل البوت
             await bot.app.initialize()
             await bot.app.start()
-            
-            # بدء التحديثات يدوياً
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
