@@ -78,12 +78,9 @@ from telethon.errors import (
     UserNotParticipantError, ChatWriteForbiddenError
 )
 
-from fastapi import FastAPI, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
-import uvicorn
-import threading
-from threading import Thread
-import time
+# ======================
+# REMOVED FastAPI imports for Render compatibility
+# ======================
 
 # ======================
 # Configuration - تهيئة الإعدادات
@@ -94,9 +91,6 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
-    
-    # Web Server Port - منفذ خادم الويب
-    PORT = int(os.getenv("PORT", 8080))
     
     # Security - الأمان
     @staticmethod
@@ -226,102 +220,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================
-# Web Server for Render - خادم ويب لـ Render
-# ======================
-
-class RenderWebServer:
-    """Web server for Render deployment"""
-    
-    def __init__(self, port: int = 8080):
-        self.port = port
-        self.app = FastAPI(title="Telegram Link Collector")
-        self.setup_routes()
-        self.server_thread = None
-        
-    def setup_routes(self):
-        """Setup web server routes"""
-        
-        @self.app.get("/")
-        async def root():
-            return PlainTextResponse(
-                "🤖 Telegram Link Collector Bot is Running!\n"
-                "Use /start command in Telegram bot.\n"
-                f"Port: {self.port}\n"
-                "Status: ✅ Active"
-            )
-        
-        @self.app.get("/health")
-        async def health_check():
-            return JSONResponse({
-                "status": "healthy",
-                "service": "telegram-link-collector",
-                "timestamp": datetime.now().isoformat(),
-                "port": self.port
-            })
-        
-        @self.app.get("/ping")
-        async def ping():
-            return PlainTextResponse("pong")
-        
-        @self.app.get("/metrics")
-        async def metrics():
-            import psutil
-            return JSONResponse({
-                "timestamp": datetime.now().isoformat(),
-                "memory": {
-                    "total": psutil.virtual_memory().total,
-                    "available": psutil.virtual_memory().available,
-                    "percent": psutil.virtual_memory().percent
-                },
-                "cpu": psutil.cpu_percent(),
-                "disk": {
-                    "total": psutil.disk_usage('/').total,
-                    "used": psutil.disk_usage('/').used,
-                    "percent": psutil.disk_usage('/').percent
-                }
-            })
-        
-        @self.app.get("/status")
-        async def status():
-            return JSONResponse({
-                "service": "Telegram Link Collector Bot",
-                "status": "running",
-                "port": self.port,
-                "uptime": time.time() - self.start_time if hasattr(self, 'start_time') else 0,
-                "version": "2.0.0"
-            })
-    
-    def start(self):
-        """Start web server in background thread"""
-        self.start_time = time.time()
-        
-        def run_server():
-            try:
-                logger.info(f"🌐 Starting Render web server on port {self.port}")
-                uvicorn.run(
-                    self.app,
-                    host="0.0.0.0",
-                    port=self.port,
-                    log_level="warning",
-                    access_log=True
-                )
-            except Exception as e:
-                logger.error(f"❌ Web server error: {e}")
-        
-        # Start server in a separate thread
-        self.server_thread = Thread(target=run_server, daemon=True)
-        self.server_thread.start()
-        
-        # Wait for server to start
-        time.sleep(2)
-        logger.info(f"✅ Web server started on port {self.port}")
-    
-    def stop(self):
-        """Stop web server"""
-        logger.info("🛑 Stopping web server...")
-        # Uvicorn doesn't have a clean shutdown in thread, but it's daemon so it will exit with main thread
-
-# ======================
 # Single Instance Manager - مدير النسخة الواحدة
 # ======================
 
@@ -425,7 +323,14 @@ class EnhancedLinkProcessor:
                 logger.debug(f"النطاق غير مسموح: {domain}")
                 return ""
             
-            # إزالة معاملات التتبع
+            # معالجة خاصة لروابط واتساب - الحفاظ عليها كما هي
+            if 'whatsapp.com' in domain or 'chat.whatsapp.com' in domain:
+                # لروابط واتساب، نعيدها كما هي دون تغيير (مع إضافة https إذا كانت مفقودة)
+                if not original_url.startswith(('http://', 'https://')):
+                    return 'https://' + original_url.strip()
+                return original_url.strip()
+            
+            # إزالة معاملات التتبع (لروابط تيليجرام فقط)
             query_params = []
             if parsed.query:
                 params = parse_qs(parsed.query, keep_blank_values=True)
@@ -716,12 +621,22 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def _extract_whatsapp_info(url: str, parsed) -> Dict:
-        """Extract WhatsApp specific information"""
+        """Extract WhatsApp specific information - الحفاظ على الرابط كما هو"""
+        # لروابط واتساب، نعيد الرابط الأصلي تماماً
+        original_url = url
+        
+        # فقط نتحقق من أن الرابط يحتوي على chat.whatsapp.com
+        if 'chat.whatsapp.com' in original_url.lower():
+            return {
+                'is_valid': True,
+                'invite_code': parsed.path.strip('/'),
+                'is_group': True,
+                'is_active': True,
+                'original_url': original_url  # حفظ الرابط الأصلي
+            }
         return {
-            'is_valid': True,
-            'invite_code': parsed.path.strip('/'),
-            'is_group': True,
-            'is_active': True
+            'is_valid': False,
+            'original_url': original_url
         }
 
 # ======================
@@ -833,6 +748,7 @@ class EnhancedDatabaseManager:
                 filter_reason TEXT,
                 has_members BOOLEAN DEFAULT 0,
                 has_subscribers BOOLEAN DEFAULT 0,
+                whatsapp_code TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL
             )
         ''')
@@ -891,7 +807,8 @@ class EnhancedDatabaseManager:
             'CREATE INDEX IF NOT EXISTS idx_links_message_date ON links(message_date)',
             'CREATE INDEX IF NOT EXISTS idx_links_group_name ON links(group_name)',
             'CREATE INDEX IF NOT EXISTS idx_links_has_members ON links(has_members)',
-            'CREATE INDEX IF NOT EXISTS idx_links_filter_reason ON links(filter_reason)'
+            'CREATE INDEX IF NOT EXISTS idx_links_filter_reason ON links(filter_reason)',
+            'CREATE INDEX IF NOT EXISTS idx_links_whatsapp_code ON links(whatsapp_code)'
         ]
         
         for index_sql in indexes:
@@ -935,6 +852,15 @@ class EnhancedDatabaseManager:
             
             details = url_info['details']
             
+            # لروابط واتساب، نستخدم الرابط الأصلي
+            if url_info['platform'] == 'whatsapp':
+                # الحفاظ على الرابط الأصلي لواتساب
+                url_to_store = url_info.get('original_url', url_info['normalized_url'])
+                whatsapp_code = details.get('invite_code', '')
+            else:
+                url_to_store = url_info['normalized_url']
+                whatsapp_code = ''
+            
             # التحقق من التكرار
             cursor = await self.conn.execute(
                 'SELECT id FROM links WHERE url_hash = ?',
@@ -952,7 +878,8 @@ class EnhancedDatabaseManager:
                     members_count = ?,
                     validation_score = ?,
                     has_members = ?,
-                    has_subscribers = ?
+                    has_subscribers = ?,
+                    whatsapp_code = ?
                     WHERE id = ?
                 ''', (
                     link_info.get('is_active', True),
@@ -960,6 +887,7 @@ class EnhancedDatabaseManager:
                     link_info.get('validation_score', 0),
                     link_info.get('has_members', False),
                     link_info.get('has_subscribers', False),
+                    whatsapp_code,
                     existing[0]
                 ))
                 await self.conn.commit()
@@ -974,11 +902,11 @@ class EnhancedDatabaseManager:
                  tags, added_by_user, source, is_channel, is_group, is_join_request, 
                  is_supergroup, is_subscription, is_valid_group, last_validated,
                  collected_from, message_date, group_name, group_id, filter_reason,
-                 has_members, has_subscribers)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 has_members, has_subscribers, whatsapp_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 url_info['url_hash'],
-                url_info['normalized_url'],
+                url_to_store,
                 url_info['original_url'],
                 url_info['platform'],
                 link_info.get('link_type', 'unknown'),
@@ -1009,7 +937,8 @@ class EnhancedDatabaseManager:
                 link_info.get('group_id', 0),
                 filter_reason or '',
                 link_info.get('has_members', False),
-                link_info.get('has_subscribers', False)
+                link_info.get('has_subscribers', False),
+                whatsapp_code
             ))
             
             link_id = cursor.lastrowid
@@ -4287,15 +4216,17 @@ class TelegramBot:
             logger.error(f"خطأ في معالج الأخطاء: {e}")
 
 # ======================
+# REMOVED Health Check Server - تم إزالته لتجنب مشاكل المنافذ
+# ======================
+
+# ======================
 # Main Function - الوظيفة الرئيسية
 # ======================
 
 async def main():
     """Main function"""
     try:
-        # الحصول على المنفذ من متغير البيئة
-        port = Config.PORT
-        logger.info(f"🚀 تشغيل البوت على Render - PORT: {port}")
+        logger.info(f"🚀 تشغيل البوت مع التصفية المتقدمة وروابط واتساب المحفوظة كما هي")
         
         # التحقق من المتغيرات البيئية المطلوبة
         required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
@@ -4318,10 +4249,6 @@ async def main():
         os.makedirs("exports", exist_ok=True)
         os.makedirs("cache_data", exist_ok=True)
         
-        # بدء خادم الويب
-        web_server = RenderWebServer(port=port)
-        web_server.start()
-        
         # تهيئة قاعدة البيانات
         db = await EnhancedDatabaseManager.get_instance()
         
@@ -4329,10 +4256,10 @@ async def main():
         bot = TelegramBot()
         
         logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
-        logger.info(f"🌐 PORT: {port}")
         logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
         logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
         logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
+        logger.info(f"📱 واتساب: الروابط تحفظ كما هي دون تغيير")
         logger.info(f"⚡ الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}")
         logger.info(f"⚡ الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}")
         logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
@@ -4345,6 +4272,7 @@ async def main():
             
             logger.info("✅ البوت يعمل بنجاح!")
             logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
+            logger.info("📱 روابط واتساب: يتم حفظها كما هي دون تغيير")
             
             # الحفاظ على البوت يعمل
             stop_event = asyncio.Event()
