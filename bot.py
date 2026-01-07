@@ -78,10 +78,12 @@ from telethon.errors import (
     UserNotParticipantError, ChatWriteForbiddenError
 )
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
 import uvicorn
 import threading
+from threading import Thread
+import time
 
 # ======================
 # Configuration - تهيئة الإعدادات
@@ -92,6 +94,9 @@ class Config:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
+    
+    # Web Server Port - منفذ خادم الويب
+    PORT = int(os.getenv("PORT", 8080))
     
     # Security - الأمان
     @staticmethod
@@ -116,7 +121,6 @@ class Config:
 
     ADMIN_USER_IDS = safe_parse_ids("ADMIN_USER_IDS", "0")
     ALLOWED_USER_IDS = safe_parse_ids("ALLOWED_USER_IDS", "0")
-    PORT = int(os.getenv("PORT", 10000))
     
     # Encryption - التشفير
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
@@ -220,6 +224,102 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# ======================
+# Web Server for Render - خادم ويب لـ Render
+# ======================
+
+class RenderWebServer:
+    """Web server for Render deployment"""
+    
+    def __init__(self, port: int = 8080):
+        self.port = port
+        self.app = FastAPI(title="Telegram Link Collector")
+        self.setup_routes()
+        self.server_thread = None
+        
+    def setup_routes(self):
+        """Setup web server routes"""
+        
+        @self.app.get("/")
+        async def root():
+            return PlainTextResponse(
+                "🤖 Telegram Link Collector Bot is Running!\n"
+                "Use /start command in Telegram bot.\n"
+                f"Port: {self.port}\n"
+                "Status: ✅ Active"
+            )
+        
+        @self.app.get("/health")
+        async def health_check():
+            return JSONResponse({
+                "status": "healthy",
+                "service": "telegram-link-collector",
+                "timestamp": datetime.now().isoformat(),
+                "port": self.port
+            })
+        
+        @self.app.get("/ping")
+        async def ping():
+            return PlainTextResponse("pong")
+        
+        @self.app.get("/metrics")
+        async def metrics():
+            import psutil
+            return JSONResponse({
+                "timestamp": datetime.now().isoformat(),
+                "memory": {
+                    "total": psutil.virtual_memory().total,
+                    "available": psutil.virtual_memory().available,
+                    "percent": psutil.virtual_memory().percent
+                },
+                "cpu": psutil.cpu_percent(),
+                "disk": {
+                    "total": psutil.disk_usage('/').total,
+                    "used": psutil.disk_usage('/').used,
+                    "percent": psutil.disk_usage('/').percent
+                }
+            })
+        
+        @self.app.get("/status")
+        async def status():
+            return JSONResponse({
+                "service": "Telegram Link Collector Bot",
+                "status": "running",
+                "port": self.port,
+                "uptime": time.time() - self.start_time if hasattr(self, 'start_time') else 0,
+                "version": "2.0.0"
+            })
+    
+    def start(self):
+        """Start web server in background thread"""
+        self.start_time = time.time()
+        
+        def run_server():
+            try:
+                logger.info(f"🌐 Starting Render web server on port {self.port}")
+                uvicorn.run(
+                    self.app,
+                    host="0.0.0.0",
+                    port=self.port,
+                    log_level="warning",
+                    access_log=True
+                )
+            except Exception as e:
+                logger.error(f"❌ Web server error: {e}")
+        
+        # Start server in a separate thread
+        self.server_thread = Thread(target=run_server, daemon=True)
+        self.server_thread.start()
+        
+        # Wait for server to start
+        time.sleep(2)
+        logger.info(f"✅ Web server started on port {self.port}")
+    
+    def stop(self):
+        """Stop web server"""
+        logger.info("🛑 Stopping web server...")
+        # Uvicorn doesn't have a clean shutdown in thread, but it's daemon so it will exit with main thread
 
 # ======================
 # Single Instance Manager - مدير النسخة الواحدة
@@ -2341,7 +2441,6 @@ class TelegramBot:
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
     
-    # باقي الأوامر تبقى كما هي مع تعديل بسيط في النصوص
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command"""
         user = update.effective_user
@@ -4188,94 +4287,15 @@ class TelegramBot:
             logger.error(f"خطأ في معالج الأخطاء: {e}")
 
 # ======================
-# Health Check Server - خادم فحص الصحة
-# ======================
-
-class HealthCheckServer:
-    """Health check server for Render"""
-    
-    def __init__(self, port: int = 10000):
-        self.port = port
-        self.app = FastAPI(title="Telegram Link Collector Health")
-        self._setup_routes()
-        self.server_thread = None
-        
-    def _setup_routes(self):
-        """Setup routes"""
-        
-        @self.app.get("/")
-        async def root():
-            return {"status": "running", "service": "Telegram Link Collector"}
-        
-        @self.app.get("/health")
-        async def health():
-            try:
-                status = {
-                    "status": "healthy",
-                    "timestamp": datetime.now().isoformat(),
-                    "checks": {
-                        "database": os.path.exists(Config.DB_PATH),
-                        "memory": psutil.virtual_memory().percent < 90,
-                        "bot": True
-                    }
-                }
-                return JSONResponse(status_code=200, content=status)
-                
-            except Exception as e:
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "status": "error",
-                        "error": str(e),
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
-        
-        @self.app.get("/metrics")
-        async def metrics():
-            try:
-                metrics_data = {
-                    "timestamp": datetime.now().isoformat(),
-                    "memory": psutil.virtual_memory()._asdict(),
-                    "disk": psutil.disk_usage('/')._asdict(),
-                    "cpu": psutil.cpu_percent(interval=1)
-                }
-                return JSONResponse(status_code=200, content=metrics_data)
-            except Exception as e:
-                return JSONResponse(
-                    status_code=500,
-                    content={"error": str(e)}
-                )
-    
-    def start(self):
-        """Start server"""
-        def run_server():
-            uvicorn.run(
-                self.app,
-                host="0.0.0.0",
-                port=self.port,
-                log_level="warning",
-                access_log=False
-            )
-        
-        self.server_thread = threading.Thread(target=run_server, daemon=True)
-        self.server_thread.start()
-        logger.info(f"بدأ خادم فحص الصحة على المنفذ {self.port}")
-    
-    def stop(self):
-        """Stop server"""
-        if self.server_thread:
-            logger.info("إيقاف خادم فحص الصحة")
-
-# ======================
 # Main Function - الوظيفة الرئيسية
 # ======================
 
 async def main():
     """Main function"""
     try:
-        render_port = os.getenv("PORT", "10000")
-        logger.info(f"🚀 تشغيل البوت على Render - PORT: {render_port}")
+        # الحصول على المنفذ من متغير البيئة
+        port = Config.PORT
+        logger.info(f"🚀 تشغيل البوت على Render - PORT: {port}")
         
         # التحقق من المتغيرات البيئية المطلوبة
         required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
@@ -4298,9 +4318,9 @@ async def main():
         os.makedirs("exports", exist_ok=True)
         os.makedirs("cache_data", exist_ok=True)
         
-        # بدء خادم فحص الصحة
-        health_server = HealthCheckServer(port=8080)
-        health_server.start()
+        # بدء خادم الويب
+        web_server = RenderWebServer(port=port)
+        web_server.start()
         
         # تهيئة قاعدة البيانات
         db = await EnhancedDatabaseManager.get_instance()
@@ -4309,7 +4329,7 @@ async def main():
         bot = TelegramBot()
         
         logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
-        logger.info(f"🌐 PORT: {render_port}")
+        logger.info(f"🌐 PORT: {port}")
         logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
         logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
         logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
@@ -4324,7 +4344,6 @@ async def main():
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
-            logger.info(f"🔗 رابط الصحة: https://YOUR-APP.onrender.com/health")
             logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
             
             # الحفاظ على البوت يعمل
@@ -4347,9 +4366,6 @@ async def main():
                 
                 # إغلاق قاعدة البيانات
                 await db.close()
-                
-                # إيقاف خادم الصحة
-                health_server.stop()
                 
                 # تحرير قفل النسخة الواحدة
                 await instance_manager.release_lock()
