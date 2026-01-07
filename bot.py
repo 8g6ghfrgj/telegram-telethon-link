@@ -93,6 +93,9 @@ class Config:
     API_ID = int(os.getenv("API_ID", 0))
     API_HASH = os.getenv("API_HASH", "")
     
+    # Server Port for Render
+    PORT = int(os.getenv("PORT", 8080))
+    
     # Security - الأمان
     @staticmethod
     def safe_parse_ids(env_var, default="0"):
@@ -4193,7 +4196,7 @@ class TelegramBot:
 class HealthCheckServer:
     """Health check server for Render"""
     
-    def __init__(self, port: int = 8080):
+    def __init__(self, port: int = Config.PORT):
         self.port = port
         self.app = FastAPI(title="Telegram Link Collector Health")
         self._setup_routes()
@@ -4273,7 +4276,7 @@ class HealthCheckServer:
 async def main():
     """Main function"""
     try:
-        render_port = os.getenv("PORT", "8080")
+        render_port = Config.PORT
         logger.info(f"🚀 تشغيل البوت على Render - PORT: {render_port}")
         
         # التحقق من المتغيرات البيئية المطلوبة
@@ -4297,8 +4300,8 @@ async def main():
         os.makedirs("exports", exist_ok=True)
         os.makedirs("cache_data", exist_ok=True)
         
-        # بدء خادم فحص الصحة
-        health_server = HealthCheckServer(port=8080)
+        # بدء خادم فحص الصحة (يستخدم نفس منفذ البوت)
+        health_server = HealthCheckServer(port=render_port)
         health_server.start()
         
         # تهيئة قاعدة البيانات
@@ -4317,9 +4320,11 @@ async def main():
         logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
         
         try:
-            # تشغيل البوت
+            # تشغيل البوت في الخلفية (بدون استخدام updater.start_polling())
             await bot.app.initialize()
             await bot.app.start()
+            
+            # بدء التحديثات يدوياً
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
