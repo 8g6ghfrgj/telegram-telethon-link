@@ -4273,6 +4273,9 @@ class HealthCheckServer:
 async def main():
     """Main function"""
     try:
+        render_port = os.getenv("PORT", "8080")
+        logger.info(f"🚀 تشغيل البوت على Render - PORT: {render_port}")
+        
         # التحقق من المتغيرات البيئية المطلوبة
         required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
         missing = [var for var in required_env_vars if not os.getenv(var)]
@@ -4305,6 +4308,7 @@ async def main():
         bot = TelegramBot()
         
         logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
+        logger.info(f"🌐 PORT: {render_port}")
         logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
         logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
         logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
@@ -4319,6 +4323,7 @@ async def main():
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
+            logger.info(f"🔗 رابط الصحة: https://YOUR-APP.onrender.com/health")
             logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
             
             # الحفاظ على البوت يعمل
