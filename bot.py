@@ -126,25 +126,27 @@ class Config:
     MAX_MEMORY_MB = 500
     
     # Performance settings - إعدادات الأداء
-    MAX_CONCURRENT_SESSIONS = 5  # تقليل عدد الجلسات المتزامنة لتجنب الحظر
+    MAX_CONCURRENT_SESSIONS = 10
     REQUEST_DELAYS = {
-        'normal': 1.0,
-        'join_request': 5.0,
-        'search': 2.0,
+        'normal': 0.5,
+        'join_request': 3.0,
+        'search': 1.5,
         'flood_wait': 5.0,
-        'between_sessions': 3.0,  # زيادة التأخير بين الجلسات
-        'between_tasks': 0.5,    # زيادة التأخير بين المهام
-        'min_cycle_delay': 30.0,
-        'max_cycle_delay': 120.0,
-        'validation_delay': 2.0
+        'between_sessions': 1.0,
+        'between_tasks': 0.2,
+        'min_cycle_delay': 5.0,
+        'max_cycle_delay': 15.0,
+        'validation_delay': 1.0,
+        'between_groups': 0.5,
+        'between_messages': 0.1
     }
     
     # Collection limits - حدود الجمع
-    MAX_DIALOGS_PER_SESSION = 200  # زيادة عدد الدردشات لكل جلسة
-    MAX_MESSAGES_PER_SEARCH = 20   # تقليل عدد الرسائل للبحث لتسريع العملية
+    MAX_DIALOGS_PER_SESSION = 200  # زيادة كبيرة لجمع كل المجموعات
+    MAX_MESSAGES_PER_SEARCH = 100   # زيادة عدد الرسائل للبحث
     MAX_SEARCH_TERMS = 8
     MAX_LINKS_PER_CYCLE = 1000     # زيادة عدد الروابط
-    MAX_BATCH_SIZE = 50
+    MAX_BATCH_SIZE = 100
     
     # Database - قاعدة البيانات
     DB_PATH = "links_collector.db"
@@ -153,16 +155,16 @@ class Config:
     DB_POOL_SIZE = 5
     
     # WhatsApp collection - جمع واتساب
-    WHATSAPP_DAYS_BACK = 60  # جمع روابط واتساب من آخر 60 يوماً
+    WHATSAPP_DAYS_BACK = 60
     
     # Link verification - التحقق من الروابط
-    MIN_GROUP_MEMBERS = 1    # تقليل الحد الأدنى للأعضاء
+    MIN_GROUP_MEMBERS = 1  # الحد الأدنى للأعضاء
     MAX_LINK_LENGTH = 200
     VALIDATION_TIMEOUT = 30
     
     # Rate limiting - الحد من الطلبات
     USER_RATE_LIMIT = {
-        'max_requests': 15,
+        'max_requests': 20,
         'per_seconds': 60
     }
     
@@ -177,16 +179,34 @@ class Config:
     # Advanced settings - إعدادات متقدمة
     TELEGRAM_NO_TIME_LIMIT = True
     JOIN_REQUEST_CHECK_DELAY = 30
-    ENABLE_ADVANCED_VALIDATION = False  # تعطيل التحقق المتقدم لتسريع الجمع
+    ENABLE_ADVANCED_VALIDATION = True
     
     # Collection settings - إعدادات الجمع الحقيقي
-    COLLECT_ONLY_GROUPS = False  # جمع جميع أنواع المحادثات (المجموعات والقنوات)
-    MIN_MEMBERS_FOR_GROUP = 1    # الحد الأدنى للأعضاء في المجموعة
-    COLLECT_ACTIVE_LINKS_ONLY = True  # جمع الروابط النشطة فقط
-    ENABLE_DEEP_COLLECTION = True  # تمكين الجمع العميق
-    MAX_DEEP_MESSAGES = 50      # تقليل عدد الرسائل في الجمع العميق لتسريع العملية
-    COLLECT_ONLY_TELEGRAM_WHATSAPP = True  # جمع تيليجرام وواتساب فقط
-    SEARCH_KEYWORDS = ['https://chat.whatsapp.com', 'https://t.me/+', 'https://t.me/', 't.me/+', 'joinchat']
+    COLLECT_ONLY_GROUPS = True  # جمع المجموعات فقط
+    MIN_MEMBERS_FOR_GROUP = 1   # الحد الأدنى للأعضاء
+    COLLECT_ACTIVE_LINKS_ONLY = True
+    ENABLE_DEEP_COLLECTION = True
+    MAX_DEEP_MESSAGES = 150     # زيادة عدد الرسائل في الجمع العميق
+    COLLECT_ONLY_TELEGRAM_WHATSAPP = True
+    COLLECT_FROM_ALL_GROUPS = True  # جمع من جميع المجموعات
+    ENABLE_MASS_COLLECTION = True   # تمكين الجمع الجماعي
+    MESSAGES_PER_GROUP = 100        # عدد الرسائل لكل مجموعة
+    
+    # Keywords - الكلمات المفتاحية
+    TELEGRAM_KEYWORDS = ['t.me', 'telegram.me', 'telegram.dog', 'joinchat', 'join']
+    WHATSAPP_KEYWORDS = ['chat.whatsapp.com', 'whatsapp.com']
+    ALL_KEYWORDS = TELEGRAM_KEYWORDS + WHATSAPP_KEYWORDS
+    
+    # Filter settings - إعدادات الفلترة الجديدة
+    FILTER_BOT_LINKS = True  # تجاهل روابط البوتات
+    FILTER_MESSAGE_LINKS = True  # تجاهل روابط الرسائل
+    FILTER_PHONE_NUMBER_LINKS = True  # تجاهل روابط تحتوي على أرقام
+    FILTER_SUBSCRIPTION_GROUPS = True  # تجاهل المجموعات التي تحتوي على "مشتركين"
+    FILTER_DEAD_LINKS = True  # تجاهل الروابط الميتة
+    
+    # Target links - الروابط المستهدفة
+    TARGET_JOIN_REQUESTS = True  # جمع روابط الانضمام فقط
+    TARGET_MEMBERS_GROUPS = True  # جمع المجموعات التي تحتوي على "أعضاء"
 
 # Setup logging
 logging.basicConfig(
@@ -237,11 +257,11 @@ class SingleInstanceManager:
         return self._is_running
 
 # ======================
-# Enhanced Link Processor - معالج الروابط المحسن
+# Enhanced Link Processor - معالج الروابط المحسن مع الفلترة
 # ======================
 
 class EnhancedLinkProcessor:
-    """Advanced link processing with improved Telegram detection"""
+    """Advanced link processing with improved Telegram detection and filtering"""
     
     TRACKING_PARAMS = [
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
@@ -273,7 +293,6 @@ class EnhancedLinkProcessor:
             r'(https?://[^\s<>]+)',
             r'(t\.me/[^\s<>]+)',
             r'(telegram\.me/[^\s<>]+)',
-            r'(telegram\.dog/[^\s<>]+)',
             r'(chat\.whatsapp\.com/[^\s<>]+)',
             r'(whatsapp\.com/[^\s<>]+)'
         ]
@@ -360,6 +379,65 @@ class EnhancedLinkProcessor:
             return url.lower()
     
     @staticmethod
+    def should_filter_link(url: str, link_info: Dict = None) -> Tuple[bool, str]:
+        """
+        التحقق مما إذا كان يجب تصفية الرابط
+        Returns: (should_filter, reason)
+        """
+        try:
+            if not link_info:
+                link_info = EnhancedLinkProcessor.extract_url_info(url)
+            
+            # 1. تجاهل روابط البوتات (تحتوي على bot)
+            if Config.FILTER_BOT_LINKS and 'bot' in url.lower():
+                return True, "رابط بوت"
+            
+            # 2. تجاهل روابط الرسائل (تحتوي على /c/ أو تحتوي على أرقام طويلة في المسار)
+            if Config.FILTER_MESSAGE_LINKS:
+                parsed = urlparse(url.lower())
+                path = parsed.path.strip('/')
+                path_parts = path.split('/')
+                
+                # روابط القنوات مع أرقام الرسائل: t.me/c/xxxx/1234
+                if 't.me/c/' in url.lower() or 'telegram.me/c/' in url.lower():
+                    if len(path_parts) >= 3 and path_parts[2].isdigit():
+                        return True, "رابط رسالة"
+                
+                # روابط المجموعات مع أرقام الرسائل: t.me/groupname/1234
+                if len(path_parts) == 2 and path_parts[1].isdigit() and len(path_parts[1]) > 3:
+                    return True, "رابط رسالة"
+            
+            # 3. تجاهل الروابط التي تحتوي على أرقام هواتف
+            if Config.FILTER_PHONE_NUMBER_LINKS:
+                # البحث عن أرقام هواتف في الروابط
+                phone_patterns = [
+                    r'\+?\d{10,}',  # 10+ أرقام
+                    r't\.me\/\+\d+',  # t.me/+966xxxxxxxx
+                    r'telegram\.me\/\+\d+'
+                ]
+                
+                for pattern in phone_patterns:
+                    if re.search(pattern, url, re.IGNORECASE):
+                        return True, "رابط يحتوي على رقم هاتف"
+            
+            # 4. تجاهل المجموعات التي تحتوي على "مشتركين" (سيتم التحقق لاحقاً بالواجهة)
+            # هذه الفلترة ستتم في GroupValidator
+            
+            # 5. تجاهل الروابط الميتة (سيتم التحقق لاحقاً)
+            
+            # التحقق من أن الرابط هو رابط انضمام للمجموعة
+            if Config.TARGET_JOIN_REQUESTS:
+                details = link_info.get('details', {})
+                if not details.get('is_join_request', False) and not details.get('is_group', False):
+                    return True, "ليس رابط انضمام للمجموعة"
+            
+            return False, ""
+            
+        except Exception as e:
+            logger.debug(f"خطأ في فحص الرابط للفلترة: {e}")
+            return False, ""
+    
+    @staticmethod
     def extract_url_info(url: str) -> Dict:
         """Extract comprehensive information from URL"""
         normalized_url = EnhancedLinkProcessor.normalize_url(url)
@@ -400,7 +478,7 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def _extract_telegram_info_enhanced(url: str, parsed) -> Dict:
-        """Extract Telegram specific information with improved filtering"""
+        """Extract Telegram specific information"""
         result = {
             'is_valid': False,
             'username': '',
@@ -418,7 +496,7 @@ class EnhancedLinkProcessor:
             'is_subscription': False,
             'is_message_link': False,
             'is_bot_link': False,
-            'is_phone_link': False
+            'has_phone_number': False
         }
         
         path = parsed.path.strip('/')
@@ -428,34 +506,24 @@ class EnhancedLinkProcessor:
         segments = path.split('/')
         result['path_segments'] = segments
         
-        # تحليل الرابط للكشف عن الأنواع غير المرغوب فيها
-        url_lower = url.lower()
-        
-        # 1. كشف روابط البوتات (bot في المسار)
-        if 'bot' in url_lower or any(segment.startswith('bot') for segment in segments):
+        # كشف روابط البوتات
+        if 'bot' in url.lower():
             result['is_bot_link'] = True
             result['is_valid'] = False
             return result
         
-        # 2. كشف روابط الرسائل (c/ أو channel/ متبوعة برقم)
-        if ('c/' in url_lower or 'channel/' in url_lower) and len(segments) >= 2:
-            # التحقق إذا كان الجزء الثاني رقم (رابط رسالة)
-            if segments[1].isdigit() or re.match(r'^\d+$', segments[1]):
-                result['is_message_link'] = True
-                result['is_valid'] = False
-                return result
+        # كشف روابط الرسائل
+        if len(segments) >= 2 and segments[-1].isdigit() and len(segments[-1]) > 3:
+            result['is_message_link'] = True
+            result['is_valid'] = False
+            return result
         
-        # 3. كشف الروابط التي تحتوي على أرقام هواتف
-        phone_patterns = [
-            r'\+\d{10,}',  # +966562854364
-            r'\d{10,}',    # 966562854364
-        ]
-        
-        for pattern in phone_patterns:
-            if re.search(pattern, url):
-                result['is_phone_link'] = True
-                result['is_valid'] = False
-                return result
+        # كشف روابط تحتوي على أرقام هواتف
+        phone_pattern = r'\+?\d{10,}'
+        if re.search(phone_pattern, url):
+            result['has_phone_number'] = True
+            result['is_valid'] = False
+            return result
         
         # كشف روابط الانضمام (joinchat)
         join_patterns = [
@@ -480,7 +548,7 @@ class EnhancedLinkProcessor:
             result['is_join_link'] = True
             
             # تحقق إذا كان رابط انضمام لمجموعة وليس قناة
-            if 'channel' in url_lower or 'c/' in url_lower:
+            if 'channel' in url.lower() or 'c/' in url.lower():
                 result['is_channel'] = True
                 result['is_group'] = False
                 result['is_subscription'] = True
@@ -488,9 +556,9 @@ class EnhancedLinkProcessor:
         
         # كشف القنوات
         channel_patterns = [
-            r'c/([^/\d]+)',  # تجنب الأرقام (رسائل)
-            r'channel/([^/\d]+)',
-            r's/([^/\d]+)'
+            r'c/([^/]+)',
+            r'channel/([^/]+)',
+            r's/([^/]+)'
         ]
         
         channel_name = None
@@ -510,12 +578,6 @@ class EnhancedLinkProcessor:
             username = segments[0].lower()
             result['username'] = username
             
-            # التحقق من روابط البوتات
-            if username.endswith('bot') or 'bot' in username:
-                result['is_bot_link'] = True
-                result['is_valid'] = False
-                return result
-            
             if username.startswith('+'):
                 result['is_join_request'] = True
                 result['is_private'] = True
@@ -524,12 +586,7 @@ class EnhancedLinkProcessor:
                 result['is_valid'] = True
                 result['is_join_link'] = True
             else:
-                # تحقق من القنوات المشهورة
-                if any(keyword in username for keyword in ['channel', 'official', 'news', 'tv', 'media']):
-                    result['is_channel'] = True
-                    result['is_subscription'] = True
-                else:
-                    result['is_group'] = True
+                result['is_group'] = True
                 result['is_public'] = True
                 result['is_valid'] = True
                 result['is_supergroup'] = True
@@ -537,15 +594,10 @@ class EnhancedLinkProcessor:
         # كشف المجموعات مع مسار أطول
         elif len(segments) >= 2:
             if segments[0].lower() in ['c', 'channel', 's']:
-                # إذا كان الجزء الثاني رقم، فهو رابط رسالة
-                if segments[1].isdigit():
-                    result['is_message_link'] = True
-                    result['is_valid'] = False
-                else:
-                    result['is_channel'] = True
-                    result['is_broadcast'] = True
-                    result['is_valid'] = True
-                    result['is_subscription'] = True
+                result['is_channel'] = True
+                result['is_broadcast'] = True
+                result['is_valid'] = True
+                result['is_subscription'] = True
             elif segments[0].lower() == 'joinchat':
                 result['is_join_request'] = True
                 result['is_private'] = True
@@ -554,12 +606,7 @@ class EnhancedLinkProcessor:
                 result['is_valid'] = True
                 result['is_join_link'] = True
             else:
-                # تحقق إذا كان المجموعة أو قناة
-                if any(keyword in segments[0].lower() for keyword in ['channel', 'official']):
-                    result['is_channel'] = True
-                    result['is_subscription'] = True
-                else:
-                    result['is_group'] = True
+                result['is_group'] = True
                 result['is_public'] = True
                 result['is_supergroup'] = True
                 result['is_valid'] = True
@@ -680,9 +727,11 @@ class EnhancedDatabaseManager:
                 last_validated TIMESTAMP,
                 collected_from TEXT,
                 message_date TIMESTAMP,
-                is_bot_link BOOLEAN DEFAULT 0,
-                is_message_link BOOLEAN DEFAULT 0,
-                is_phone_link BOOLEAN DEFAULT 0,
+                group_name TEXT,
+                group_id INTEGER,
+                filter_reason TEXT,
+                has_members BOOLEAN DEFAULT 0,
+                has_subscribers BOOLEAN DEFAULT 0,
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL
             )
         ''')
@@ -738,7 +787,10 @@ class EnhancedDatabaseManager:
             'CREATE INDEX IF NOT EXISTS idx_links_is_valid_group ON links(is_valid_group)',
             'CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active)',
             'CREATE INDEX IF NOT EXISTS idx_users_last_active ON bot_users(last_active)',
-            'CREATE INDEX IF NOT EXISTS idx_links_message_date ON links(message_date)'
+            'CREATE INDEX IF NOT EXISTS idx_links_message_date ON links(message_date)',
+            'CREATE INDEX IF NOT EXISTS idx_links_group_name ON links(group_name)',
+            'CREATE INDEX IF NOT EXISTS idx_links_has_members ON links(has_members)',
+            'CREATE INDEX IF NOT EXISTS idx_links_filter_reason ON links(filter_reason)'
         ]
         
         for index_sql in indexes:
@@ -755,16 +807,32 @@ class EnhancedDatabaseManager:
             url = link_info.get('url', '')
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
-            # إذا كان الرابط غير صالح أو من نوع غير مرغوب فيه، نتجاهله
             if not url_info['is_valid']:
                 return False, "رابط غير صالح", {}
             
-            details = url_info['details']
+            # تطبيق الفلترة
+            should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url, url_info)
+            if should_filter:
+                logger.info(f"⏭️ تم تصفية الرابط: {url[:50]}... - السبب: {filter_reason}")
+                
+                # تسجيل الرابط المصفي مع السبب
+                cursor = await self.conn.execute('''
+                    INSERT OR IGNORE INTO links 
+                    (url_hash, url, original_url, platform, is_valid_group, filter_reason)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    url_info['url_hash'],
+                    url_info['normalized_url'],
+                    url_info['original_url'],
+                    url_info['platform'],
+                    0,
+                    filter_reason
+                ))
+                
+                await self.conn.commit()
+                return False, f"تم تصفية الرابط: {filter_reason}", {}
             
-            # التحقق من الروابط غير المرغوب فيها
-            if details.get('is_bot_link') or details.get('is_message_link') or details.get('is_phone_link'):
-                logger.debug(f"تخطي رابط غير مرغوب فيه: {url}")
-                return False, "رابط غير مرغوب فيه", {}
+            details = url_info['details']
             
             # التحقق من التكرار
             cursor = await self.conn.execute(
@@ -781,12 +849,16 @@ class EnhancedDatabaseManager:
                     check_count = check_count + 1,
                     is_active = ?,
                     members_count = ?,
-                    validation_score = ?
+                    validation_score = ?,
+                    has_members = ?,
+                    has_subscribers = ?
                     WHERE id = ?
                 ''', (
                     link_info.get('is_active', True),
                     link_info.get('members', 0),
                     link_info.get('validation_score', 0),
+                    link_info.get('has_members', False),
+                    link_info.get('has_subscribers', False),
                     existing[0]
                 ))
                 await self.conn.commit()
@@ -800,8 +872,9 @@ class EnhancedDatabaseManager:
                  is_active, requires_join, is_verified, validation_score, metadata, 
                  tags, added_by_user, source, is_channel, is_group, is_join_request, 
                  is_supergroup, is_subscription, is_valid_group, last_validated,
-                 collected_from, message_date, is_bot_link, is_message_link, is_phone_link)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 collected_from, message_date, group_name, group_id, filter_reason,
+                 has_members, has_subscribers)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 url_info['url_hash'],
                 url_info['normalized_url'],
@@ -831,9 +904,11 @@ class EnhancedDatabaseManager:
                 link_info.get('last_validated', datetime.now().isoformat()),
                 link_info.get('collected_from', ''),
                 link_info.get('message_date', ''),
-                details.get('is_bot_link', False),
-                details.get('is_message_link', False),
-                details.get('is_phone_link', False)
+                link_info.get('group_name', ''),
+                link_info.get('group_id', 0),
+                filter_reason or '',
+                link_info.get('has_members', False),
+                link_info.get('has_subscribers', False)
             ))
             
             link_id = cursor.lastrowid
@@ -850,6 +925,8 @@ class EnhancedDatabaseManager:
                 )
             
             await self.conn.commit()
+            
+            logger.info(f"✅ تمت إضافة رابط جديد: {url[:50]}...")
             
             return True, "تمت إضافة الرابط بنجاح", {
                 'link_id': link_id,
@@ -902,6 +979,8 @@ class EnhancedDatabaseManager:
                 await self.update_user_stats(session_data['added_by_user'], 'session_added')
             
             await self.conn.commit()
+            
+            logger.info(f"✅ تمت إضافة جلسة جديدة: {session_data.get('display_name', 'غير معروف')}")
             
             return True, "تمت إضافة الجلسة بنجاح", {
                 'session_id': session_id,
@@ -1032,13 +1111,7 @@ class EnhancedDatabaseManager:
     async def get_links_count(self) -> int:
         """Get total links count"""
         try:
-            cursor = await self.conn.execute('''
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            ''')
+            cursor = await self.conn.execute('SELECT COUNT(*) FROM links WHERE platform IN ("telegram", "whatsapp")')
             result = await cursor.fetchone()
             return result[0] if result else 0
         except Exception as e:
@@ -1050,24 +1123,14 @@ class EnhancedDatabaseManager:
         try:
             stats = {}
             
-            cursor = await self.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            """)
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE platform IN ('telegram', 'whatsapp')")
             stats['total_links'] = (await cursor.fetchone())[0]
             
-            cursor = await self.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND (is_group = 1 OR (platform = 'whatsapp' AND is_group = 1))
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            """)
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp')")
             stats['valid_groups'] = (await cursor.fetchone())[0]
+            
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE is_subscription = 1 AND platform IN ('telegram', 'whatsapp')")
+            stats['subscriptions'] = (await cursor.fetchone())[0]
             
             cursor = await self.conn.execute("SELECT COUNT(*) FROM sessions WHERE is_active = 1")
             stats['active_sessions'] = (await cursor.fetchone())[0]
@@ -1075,25 +1138,22 @@ class EnhancedDatabaseManager:
             cursor = await self.conn.execute("SELECT COUNT(*) FROM bot_users")
             stats['total_users'] = (await cursor.fetchone())[0]
             
-            cursor = await self.conn.execute("""
-                SELECT platform, COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-                GROUP BY platform
-            """)
+            cursor = await self.conn.execute("SELECT platform, COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp') GROUP BY platform")
             stats['links_by_platform'] = dict(await cursor.fetchall())
             
-            cursor = await self.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_verified = 1 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            """)
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE is_verified = 1 AND platform IN ('telegram', 'whatsapp')")
             stats['verified_links'] = (await cursor.fetchone())[0]
+            
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE date(collected_date) = date('now') AND platform IN ('telegram', 'whatsapp')")
+            stats['today_links'] = (await cursor.fetchone())[0]
+            
+            # إحصائيات الفلترة
+            cursor = await self.conn.execute("SELECT filter_reason, COUNT(*) FROM links WHERE filter_reason IS NOT NULL AND filter_reason != '' GROUP BY filter_reason")
+            stats['filtered_links'] = dict(await cursor.fetchall())
+            
+            # إحصائيات المجموعات ذات الأعضاء
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE has_members = 1 AND platform IN ('telegram', 'whatsapp')")
+            stats['groups_with_members'] = (await cursor.fetchone())[0]
             
             return stats
             
@@ -1104,13 +1164,7 @@ class EnhancedDatabaseManager:
     async def export_links(self, filters: Dict = None, limit: int = 1000) -> List[str]:
         """Export links"""
         try:
-            query = '''
-                SELECT url FROM links 
-                WHERE platform IN ("telegram", "whatsapp") 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            '''
+            query = 'SELECT url FROM links WHERE platform IN ("telegram", "whatsapp")'
             params = []
             
             if filters:
@@ -1124,8 +1178,11 @@ class EnhancedDatabaseManager:
                     where_clauses.append("members_count >= ?")
                     params.append(filters['min_members'])
                 
-                if filters.get('only_groups'):
-                    where_clauses.append("is_group = 1")
+                if filters.get('only_valid'):
+                    where_clauses.append("is_valid_group = 1")
+                
+                if filters.get('only_members'):
+                    where_clauses.append("has_members = 1")
                 
                 if where_clauses:
                     query += " AND " + " AND ".join(where_clauses)
@@ -1241,11 +1298,11 @@ class SessionManager:
             return None
 
 # ======================
-# Group Validator - مدقق المجموعات
+# Advanced Group Validator - مدقق المجموعات المتقدم مع الفلترة
 # ======================
 
-class GroupValidator:
-    """Validate Telegram groups and channels"""
+class AdvancedGroupValidator:
+    """Validate Telegram groups and channels with advanced filtering"""
     
     @staticmethod
     async def validate_group(client: TelegramClient, entity) -> Dict:
@@ -1259,17 +1316,24 @@ class GroupValidator:
                 'members_count': 0,
                 'title': '',
                 'description': '',
-                'join_type': 'unknown'
+                'join_type': 'unknown',
+                'entity_id': None,
+                'has_members': False,
+                'has_subscribers': False,
+                'is_dead': False,
+                'filter_reason': ''
             }
             
             if not entity:
+                result['filter_reason'] = 'كيان غير موجود'
                 return result
             
             # الحصول على معلومات الكيان
             try:
                 full_info = await client.get_entity(entity)
-                result['title'] = getattr(full_info, 'title', '') or getattr(full_info, 'first_name', '') or getattr(full_info, 'username', '')
+                result['title'] = getattr(full_info, 'title', '') or 'مجموعة غير معروفة'
                 result['description'] = getattr(full_info, 'about', '')
+                result['entity_id'] = getattr(full_info, 'id', None)
                 
                 # تحديد نوع الكيان
                 if hasattr(full_info, 'megagroup') and full_info.megagroup:
@@ -1279,23 +1343,29 @@ class GroupValidator:
                     result['is_channel'] = True
                     result['is_group'] = False
                     result['is_subscription'] = True
+                    result['has_subscribers'] = True
                 elif hasattr(full_info, 'gigagroup'):
                     result['is_group'] = True
                     result['is_channel'] = False
                 elif hasattr(full_info, 'participants_count'):
                     result['is_group'] = True
                 else:
-                    # افتراض أنه مجموعة إذا كان هناك عنوان
-                    if result['title']:
-                        result['is_group'] = True
+                    # إذا لم نتمكن من تحديد النوع، نفترض أنها مجموعة
+                    result['is_group'] = True
                 
-                # الحصول على عدد الأعضاء
+                # الحصول على عدد الأعضاء/المشتركين
                 if hasattr(full_info, 'participants_count'):
                     result['members_count'] = full_info.participants_count
+                    result['has_members'] = True
                 elif hasattr(full_info, 'members_count'):
                     result['members_count'] = full_info.members_count
+                    result['has_members'] = True
+                elif hasattr(full_info, 'users_count'):
+                    result['members_count'] = full_info.users_count
+                    result['has_members'] = True
                 else:
-                    result['members_count'] = 1  # قيمة افتراضية
+                    result['members_count'] = 0
+                    result['has_members'] = False
                 
                 # تحديد نوع الانضمام
                 if hasattr(full_info, 'join_request'):
@@ -1307,12 +1377,50 @@ class GroupValidator:
                 else:
                     result['join_type'] = 'unknown'
                 
-                # التحقق من صحة المجموعة
-                result['is_valid'] = True  # نقبل جميع المجموعات الآن
+                # الفلترة: تجاهل المجموعات التي تحتوي على "مشتركين"
+                if Config.FILTER_SUBSCRIPTION_GROUPS and result['has_subscribers']:
+                    result['filter_reason'] = 'مجموعة تحتوي على مشتركين'
+                    result['is_valid'] = False
+                    return result
+                
+                # التحقق من أن المجموعة ليست ميتة
+                if Config.FILTER_DEAD_LINKS:
+                    # تحقق من إذا كان عدد الأعضاء صفر أو الكيان غير متاح
+                    if result['members_count'] == 0:
+                        result['is_dead'] = True
+                        result['filter_reason'] = 'رابط ميت (لا يوجد أعضاء)'
+                        result['is_valid'] = False
+                        return result
+                    
+                    # محاولة جلب بعض المعلومات الإضافية للتحقق من النشاط
+                    try:
+                        # محاولة جلب بعض المشاركات الحديثة
+                        messages = await client.get_messages(entity, limit=1)
+                        if not messages:
+                            result['is_dead'] = True
+                            result['filter_reason'] = 'رابط ميت (لا توجد مشاركات)'
+                            result['is_valid'] = False
+                            return result
+                    except Exception:
+                        result['is_dead'] = True
+                        result['filter_reason'] = 'رابط ميت (غير قابل للوصول)'
+                        result['is_valid'] = False
+                        return result
+                
+                # التحقق من صحة المجموعة المستهدفة
+                if Config.TARGET_MEMBERS_GROUPS and not result['has_members']:
+                    result['filter_reason'] = 'مجموعة لا تحتوي على أعضاء'
+                    result['is_valid'] = False
+                    return result
+                
+                # إذا مرت جميع الاختبارات، المجموعة صالحة
+                result['is_valid'] = True
                 
             except Exception as e:
                 logger.debug(f"خطأ في الحصول على معلومات الكيان: {e}")
-                return result
+                result['title'] = 'مجموعة غير قابلة للتحقق'
+                result['filter_reason'] = f'خطأ في التحقق: {str(e)[:50]}'
+                result['is_valid'] = False
             
             return result
             
@@ -1324,52 +1432,125 @@ class GroupValidator:
                 'is_channel': False,
                 'is_subscription': False,
                 'members_count': 0,
-                'title': '',
+                'title': 'خطأ في المجموعة',
                 'description': '',
-                'join_type': 'unknown'
+                'join_type': 'unknown',
+                'entity_id': None,
+                'has_members': False,
+                'has_subscribers': False,
+                'is_dead': True,
+                'filter_reason': f'خطأ في التحقق: {str(e)[:50]}'
             }
     
     @staticmethod
-    async def extract_group_links(client: TelegramClient, entity, max_messages: int = 50) -> List[Dict]:
-        """Extract group links from entity messages with metadata"""
+    async def validate_and_filter_link(client: TelegramClient, url: str) -> Tuple[bool, Dict]:
+        """Validate and filter a single link"""
+        try:
+            url_info = EnhancedLinkProcessor.extract_url_info(url)
+            
+            if not url_info['is_valid']:
+                return False, {'filter_reason': 'رابط غير صالح'}
+            
+            # التصفية الأولية
+            should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url, url_info)
+            if should_filter:
+                return False, {'filter_reason': filter_reason}
+            
+            # إذا كان الرابط مطلوباً للانضمام، نقبله مباشرة
+            details = url_info['details']
+            if details.get('is_join_request', False) or details.get('is_join_link', False):
+                return True, {
+                    'is_valid': True,
+                    'is_group': True,
+                    'requires_join': True,
+                    'has_members': True,  # نفترض أن روابط الانضمام تحتوي على أعضاء
+                    'members_count': 1,
+                    'filter_reason': ''
+                }
+            
+            # محاولة الحصول على الكيان للتحقق منه
+            try:
+                entity = None
+                
+                if details.get('username'):
+                    entity = await client.get_entity(details['username'])
+                elif details.get('invite_hash'):
+                    try:
+                        entity = await client.get_entity(details['invite_hash'])
+                    except:
+                        pass
+                
+                if entity:
+                    validation_result = await AdvancedGroupValidator.validate_group(client, entity)
+                    return validation_result['is_valid'], validation_result
+                else:
+                    # إذا لم نستطع الحصول على الكيان، نقبل الرابط لكن نضع علامة للتحقق لاحقاً
+                    return True, {
+                        'is_valid': True,
+                        'is_group': True,
+                        'requires_join': details.get('is_join_request', False),
+                        'has_members': True,
+                        'members_count': 1,
+                        'filter_reason': 'يتطلب تحقق يدوي'
+                    }
+                    
+            except Exception as e:
+                logger.debug(f"خطأ في التحقق من الرابط {url}: {e}")
+                # نقبل الروابط التي تحتوي على join حتى لو فشل التحقق
+                if details.get('is_join_request', False):
+                    return True, {
+                        'is_valid': True,
+                        'is_group': True,
+                        'requires_join': True,
+                        'has_members': True,
+                        'members_count': 1,
+                        'filter_reason': 'رابط انضمام'
+                    }
+                return False, {'filter_reason': f'خطأ في التحقق: {str(e)[:50]}'}
+            
+        except Exception as e:
+            logger.error(f"خطأ في التحقق والتصفية: {e}")
+            return False, {'filter_reason': f'خطأ عام: {str(e)[:50]}'}
+    
+    @staticmethod
+    async def extract_group_links(client: TelegramClient, entity, max_messages: int = 150) -> List[Dict]:
+        """Extract group links from entity messages with metadata and filtering"""
         links = []
         
         try:
-            group_info = await GroupValidator.validate_group(client, entity)
-            group_title = group_info.get('title', 'Unknown Group')
-            
-            logger.info(f"🔍 جاري البحث عن روابط في: {group_title}")
+            group_info = await AdvancedGroupValidator.validate_group(client, entity)
             
             # جمع الروابط من الوصف
             if group_info.get('description'):
-                extracted = GroupValidator._extract_links_from_text(group_info['description'])
+                extracted = AdvancedGroupValidator._extract_links_from_text(group_info['description'])
                 for link in extracted:
                     links.append({
                         'url': link,
                         'source': 'description',
                         'message_date': datetime.now().isoformat(),
-                        'group_title': group_title,
-                        'group_members': group_info['members_count']
+                        'group_title': group_info['title'],
+                        'group_members': group_info['members_count'],
+                        'group_id': group_info.get('entity_id')
                     })
-                logger.info(f"   ⏺️  {len(extracted)} روابط من الوصف")
             
             # جمع الروابط من الرسائل
             message_count = 0
             async for message in client.iter_messages(entity, limit=max_messages):
                 try:
-                    message_date = message.date.isoformat() if message.date else datetime.now().isoformat()
                     message_count += 1
+                    message_date = message.date.isoformat() if message.date else datetime.now().isoformat()
                     
                     # البحث عن روابط في نص الرسالة
                     if message.text:
-                        extracted = GroupValidator._extract_links_from_text(message.text)
+                        extracted = AdvancedGroupValidator._extract_links_from_text(message.text)
                         for link in extracted:
                             links.append({
                                 'url': link,
                                 'source': 'message_text',
                                 'message_date': message_date,
-                                'group_title': group_title,
-                                'group_members': group_info['members_count']
+                                'group_title': group_info['title'],
+                                'group_members': group_info['members_count'],
+                                'group_id': group_info.get('entity_id')
                             })
                     
                     # البحث عن روابط في الملاحظات/التعليقات
@@ -1378,48 +1559,28 @@ class GroupValidator:
                             for row in message.reply_markup.rows:
                                 for button in row.buttons:
                                     if hasattr(button, 'url'):
-                                        extracted = GroupValidator._extract_links_from_text(button.url)
+                                        extracted = AdvancedGroupValidator._extract_links_from_text(button.url)
                                         for link in extracted:
                                             links.append({
                                                 'url': link,
                                                 'source': 'button',
                                                 'message_date': message_date,
-                                                'group_title': group_title,
-                                                'group_members': group_info['members_count']
+                                                'group_title': group_info['title'],
+                                                'group_members': group_info['members_count'],
+                                                'group_id': group_info.get('entity_id')
                                             })
                         except:
                             pass
                     
-                    # البحث عن روابط في الوسائط (الملفات المرفقة)
-                    if message.media:
-                        try:
-                            # التحقق من وجود أسماء ملفات
-                            if hasattr(message.media, 'document') and hasattr(message.media.document, 'attributes'):
-                                for attr in message.media.document.attributes:
-                                    if hasattr(attr, 'file_name'):
-                                        extracted = GroupValidator._extract_links_from_text(attr.file_name)
-                                        for link in extracted:
-                                            links.append({
-                                                'url': link,
-                                                'source': 'file_name',
-                                                'message_date': message_date,
-                                                'group_title': group_title,
-                                                'group_members': group_info['members_count']
-                                            })
-                        except:
-                            pass
-                    
-                    # عرض التقدم كل 10 رسائل
+                    # تأخير قصير بين الرسائل
                     if message_count % 10 == 0:
-                        logger.info(f"   ⏺️  تم معالجة {message_count} رسالة، {len(links)} رابط")
-                    
-                    await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.1)
                     
                 except Exception as e:
                     logger.debug(f"خطأ في معالجة رسالة: {e}")
                     continue
             
-            logger.info(f"   ✅ اكتمل البحث في {group_title}: {message_count} رسالة، {len(links)} رابط")
+            logger.info(f"✅ تمت معالجة {message_count} رسالة في مجموعة {group_info['title']}")
             
             # إزالة التكرارات
             unique_links = []
@@ -1430,7 +1591,26 @@ class GroupValidator:
                     seen.add(url)
                     unique_links.append(link_data)
             
-            return unique_links
+            logger.info(f"✅ تم استخراج {len(unique_links)} رابط فريد من مجموعة {group_info['title']}")
+            
+            # تصفية الروابط
+            filtered_links = []
+            for link_data in unique_links:
+                url = link_data['url']
+                url_info = EnhancedLinkProcessor.extract_url_info(url)
+                
+                # التصفية الأولية
+                should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url, url_info)
+                if should_filter:
+                    logger.debug(f"⏭️ تم تصفية الرابط: {url[:50]}... - السبب: {filter_reason}")
+                    continue
+                
+                # إضافة الرابط بعد التصفية
+                filtered_links.append(link_data)
+            
+            logger.info(f"✅ بعد التصفية: {len(filtered_links)} رابط صالح")
+            
+            return filtered_links
             
         except Exception as e:
             logger.error(f"خطأ في استخراج روابط المجموعة: {e}")
@@ -1452,33 +1632,43 @@ class GroupValidator:
             r'(telegram\.me/[^\s<>"\']+)',
             r'(telegram\.dog/[^\s<>"\']+)',
             r'(chat\.whatsapp\.com/[^\s<>"\']+)',
-            r'(whatsapp\.com/[^\s<>"\']+)'
+            r'(whatsapp\.com/[^\s<>"\']+)',
+            r'(\+[A-Za-z0-9_-]+)',  # روابط الانضمام مثل +xxxx
+            r'(joinchat/[A-Za-z0-9_-]+)'  # روابط joinchat
         ]
         
         for pattern in text_patterns:
             found = re.findall(pattern, text, re.IGNORECASE)
             for link in found:
                 if not link.startswith(('http://', 'https://')):
-                    all_links.append('https://' + link)
+                    # إضافة https:// للروابط النسبية
+                    if 't.me' in pattern or 'telegram' in pattern:
+                        all_links.append('https://' + link)
+                    elif link.startswith('+'):
+                        all_links.append('https://t.me/' + link)
+                    elif 'joinchat' in link:
+                        all_links.append('https://t.me/' + link)
+                    else:
+                        all_links.append('https://' + link)
         
         # فلترة الروابط المطلوبة فقط
         filtered_links = []
         for link in all_links:
             # تيليجرام فقط
-            if any(domain in link.lower() for domain in ['t.me', 'telegram.me', 'telegram.dog']):
+            if any(keyword in link.lower() for keyword in Config.TELEGRAM_KEYWORDS):
                 filtered_links.append(link)
             # واتساب فقط
-            elif any(domain in link.lower() for domain in ['chat.whatsapp.com', 'whatsapp.com']):
+            elif any(keyword in link.lower() for keyword in Config.WHATSAPP_KEYWORDS):
                 filtered_links.append(link)
         
         return filtered_links
 
 # ======================
-# Collection Manager - مدير الجمع الحقيقي
+# Real Collection Manager - مدير الجمع الحقيقي مع التصفية
 # ======================
 
-class CollectionManager:
-    """Manage real link collection from Telegram groups"""
+class RealCollectionManager:
+    """Manage real link collection from Telegram groups with filtering"""
     
     def __init__(self):
         self.active = False
@@ -1487,121 +1677,104 @@ class CollectionManager:
         self.stats = {
             'total_collected': 0,
             'total_processed': 0,
-            'valid_groups': 0,
-            'subscriptions_skipped': 0,
+            'groups_processed': 0,
+            'messages_scanned': 0,
             'telegram': 0,
             'whatsapp': 0,
             'errors': 0,
             'sessions_used': 0,
-            'last_collection_time': None
+            'filtered_links': 0,
+            'filter_reasons': defaultdict(int),
+            'last_collection_time': None,
+            'current_session': None,
+            'current_group': None
         }
         self.collection_task = None
+        self.last_progress_update = datetime.now()
     
     async def start_collection(self):
         """Start collection process"""
         if self.active:
-            logger.info("الجمع يعمل بالفعل")
             return
         
         self.active = True
         self.paused = False
         self.stop_requested = False
         
-        logger.info("🚀 بدء عملية الجمع الحقيقية للمجموعات")
+        logger.info("🚀 بدء عملية الجمع الحقيقية مع التصفية المتقدمة...")
         
         # بدء مهمة الجمع في الخلفية
         self.collection_task = asyncio.create_task(self._collection_loop())
     
     async def _collection_loop(self):
         """Main collection loop"""
-        cycle_count = 0
-        
         while self.active and not self.stop_requested:
             if self.paused:
-                logger.info("⏸️ الجمع متوقف مؤقتاً")
-                await asyncio.sleep(5)
+                await asyncio.sleep(1)
                 continue
             
-            cycle_count += 1
-            logger.info(f"🔄 بدء دورة الجمع #{cycle_count}")
-            
             try:
-                await self._collection_cycle()
+                await self._mass_collection_cycle()
                 
                 # تأخير بين الدورات
-                delay = max(Config.REQUEST_DELAYS['min_cycle_delay'], 
-                          min(Config.REQUEST_DELAYS['max_cycle_delay'], 
-                             30 + (cycle_count * 5)))  # زيادة التأخير مع كل دورة
-                
+                delay = Config.REQUEST_DELAYS['max_cycle_delay']
                 logger.info(f"⏳ تأخير {delay} ثانية قبل الدورة القادمة")
                 await asyncio.sleep(delay)
                 
             except Exception as e:
                 logger.error(f"خطأ في دورة الجمع: {e}")
                 self.stats['errors'] += 1
-                await asyncio.sleep(30)
+                await asyncio.sleep(10)
         
         self.active = False
         logger.info("⏹️ توقفت عملية الجمع")
     
-    async def _collection_cycle(self):
-        """Single collection cycle"""
+    async def _mass_collection_cycle(self):
+        """Mass collection cycle - جمع من جميع الجلسات"""
         try:
             db = await EnhancedDatabaseManager.get_instance()
             sessions = await db.get_active_sessions(limit=Config.MAX_CONCURRENT_SESSIONS)
             
             if not sessions:
-                logger.warning("⚠️ لا توجد جلسات نشطة للجمع")
+                logger.warning("لا توجد جلسات نشطة")
                 return
             
             self.stats['sessions_used'] = len(sessions)
             self.stats['last_collection_time'] = datetime.now().isoformat()
             
-            logger.info(f"🔧 جارٍ معالجة {len(sessions)} جلسة")
+            tasks = []
+            for session in sessions:
+                task = self._process_session_mass(session)
+                tasks.append(task)
+                await asyncio.sleep(Config.REQUEST_DELAYS['between_sessions'])
             
-            # استخدام semaphore للتحكم في التزامن
-            semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT_SESSIONS)
-            
-            async def process_with_semaphore(session):
-                async with semaphore:
-                    return await self._process_session(session)
-            
-            tasks = [process_with_semaphore(session) for session in sessions]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            successful = 0
-            total_collected_this_cycle = 0
+            successful = sum(1 for r in results if not isinstance(r, Exception))
+            total_collected = sum(r.get('collected', 0) for r in results if isinstance(r, dict))
+            total_filtered = sum(r.get('filtered', 0) for r in results if isinstance(r, dict))
             
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.error(f"خطأ في جلسة #{i}: {result}")
-                    self.stats['errors'] += 1
-                elif result and result.get('status') == 'success':
-                    successful += 1
-                    total_collected_this_cycle += result.get('collected', 0)
-            
-            logger.info(f"✅ اكتملت دورة الجمع: {successful}/{len(tasks)} جلسات ناجحة، {total_collected_this_cycle} رابط جديد")
+            logger.info(f"✅ اكتملت دورة الجمع الجماعي: {successful}/{len(tasks)} جلسات ناجحة - {total_collected} رابط مجمع - {total_filtered} رابط مصفي")
             
             # حفظ الإحصائيات
             await self._save_stats()
             
         except Exception as e:
-            logger.error(f"خطأ في دورة الجمع: {e}")
+            logger.error(f"خطأ في دورة الجمع الجماعي: {e}")
             self.stats['errors'] += 1
     
-    async def _process_session(self, session: Dict):
-        """Process single session"""
-        session_id = session.get('id')
-        display_name = session.get('display_name', f'جلسة {session_id}')
-        
-        logger.info(f"🔍 بدء معالجة الجلسة: {display_name} (ID: {session_id})")
-        
+    async def _process_session_mass(self, session: Dict):
+        """Process single session with mass collection"""
         try:
             session_string = session.get('session_string', '')
+            session_id = session.get('id')
+            session_name = session.get('display_name', f'جلسة {session_id}')
             
             if not session_string or session_string == '********':
                 logger.error(f"جلسة {session_id} غير متاحة")
                 return {'status': 'error', 'reason': 'جلسة غير متاحة'}
+            
+            self.stats['current_session'] = session_name
             
             # فك تشفير الجلسة
             enc_manager = EncryptionManager.get_instance()
@@ -1609,11 +1782,12 @@ class CollectionManager:
             
             client = await SessionManager.create_client(decrypted_session)
             if not client:
-                logger.error(f"فشل إنشاء عميل للجلسة {session_id}")
                 return {'status': 'error', 'reason': 'فشل إنشاء العميل'}
             
-            # جمع الروابط من المجموعات
-            collected = await self._collect_from_groups(client, session_id, display_name)
+            logger.info(f"📱 بدء الجمع من جلسة: {session_name}")
+            
+            # جمع الروابط من جميع المجموعات
+            collected, filtered_count = await self._collect_from_all_groups(client, session_id, session_name)
             
             await client.disconnect()
             
@@ -1625,92 +1799,99 @@ class CollectionManager:
             )
             await db.conn.commit()
             
-            logger.info(f"✅ اكتملت معالجة الجلسة {display_name}: {len(collected)} رابط جديد")
+            logger.info(f"✅ انتهى الجمع من جلسة {session_name}: {len(collected)} رابط مجمع - {filtered_count} رابط مصفي")
             
-            return {'status': 'success', 'collected': len(collected)}
+            return {
+                'status': 'success', 
+                'collected': len(collected), 
+                'filtered': filtered_count,
+                'session': session_name
+            }
             
         except Exception as e:
-            logger.error(f"خطأ في معالجة الجلسة {display_name}: {e}")
+            logger.error(f"خطأ في معالجة الجلسة: {e}")
             self.stats['errors'] += 1
             return {'status': 'error', 'reason': str(e)}
     
-    async def _collect_from_groups(self, client: TelegramClient, session_id: int, session_name: str) -> List[Dict]:
-        """Collect links from all Telegram groups in the session"""
+    async def _collect_from_all_groups(self, client: TelegramClient, session_id: int, session_name: str) -> Tuple[List[Dict], int]:
+        """Collect links from all Telegram groups in session"""
         collected = []
+        filtered_count = 0
         groups_processed = 0
-        total_dialogs = 0
         
         try:
-            logger.info(f"🔍 بدء جمع الروابط من {session_name}")
-            
+            # الحصول على جميع الدردشات
+            all_dialogs = []
             async for dialog in client.iter_dialogs(limit=Config.MAX_DIALOGS_PER_SESSION):
+                all_dialogs.append(dialog)
+            
+            logger.info(f"📊 جلسة {session_name}: تم العثور على {len(all_dialogs)} دردشة")
+            
+            for dialog in all_dialogs:
                 if not self.active or self.stop_requested or self.paused:
-                    logger.info(f"⏹️ توقف الجمع بناءً على الطلب")
                     break
-                
-                total_dialogs += 1
                 
                 try:
                     entity = dialog.entity
                     
-                    # تخطي المحادثات الخاصة
-                    if isinstance(entity, types.User):
+                    # تخطي الرسائل الخاصة والمحادثات الشخصية
+                    if not hasattr(entity, 'title'):
                         continue
                     
-                    # الحصول على اسم المجموعة/القناة
-                    title = getattr(entity, 'title', None)
-                    if not title:
-                        continue
+                    self.stats['current_group'] = getattr(entity, 'title', 'غير معروف')
+                    groups_processed += 1
                     
-                    logger.info(f"   📝 معالجة: {title}")
+                    logger.info(f"🔍 معالجة المجموعة {groups_processed}: {self.stats['current_group']}")
                     
-                    # التحقق من المجموعة
-                    validation = await GroupValidator.validate_group(client, entity)
+                    # جمع الروابط من المجموعة
+                    link_data_list = await AdvancedGroupValidator.extract_group_links(
+                        client, 
+                        entity, 
+                        max_messages=Config.MESSAGES_PER_GROUP
+                    )
                     
-                    # جمع الروابط من جميع المحادثات (المجموعات والقنوات)
-                    if validation['is_valid']:
-                        link_data_list = await GroupValidator.extract_group_links(
-                            client, 
-                            entity, 
-                            max_messages=Config.MAX_DEEP_MESSAGES
-                        )
-                        
-                        # معالجة الروابط المجمعة
-                        links_added = 0
-                        for link_data in link_data_list:
-                            link_info = await self._process_link(link_data, session_id, validation)
-                            if link_info:
-                                collected.append(link_info)
-                                links_added += 1
-                        
-                        # تحديث الإحصائيات
-                        self.stats['valid_groups'] += 1
-                        self.stats['total_processed'] += 1
-                        groups_processed += 1
-                        
-                        if links_added > 0:
-                            logger.info(f"   ✅ {title}: تمت إضافة {links_added} رابط")
+                    # معالجة الروابط المجمعة
+                    for link_data in link_data_list:
+                        link_info = await self._process_link(link_data, session_id, {'title': self.stats['current_group'], 'members_count': 0})
+                        if link_info:
+                            collected.append(link_info)
                         else:
-                            logger.info(f"   ⚠️  {title}: لم يتم العثور على روابط")
-                        
-                        # تأخير بين المجموعات
-                        await asyncio.sleep(Config.REQUEST_DELAYS['between_tasks'])
+                            filtered_count += 1
+                    
+                    # تحديث الإحصائيات
+                    self.stats['groups_processed'] += 1
+                    self.stats['total_processed'] += len(link_data_list)
+                    
+                    # إرسال تحديث التقدم كل 5 مجموعات
+                    if groups_processed % 5 == 0:
+                        logger.info(f"📈 التقدم: {groups_processed}/{len(all_dialogs)} مجموعة - {len(collected)} رابط مجمع - {filtered_count} رابط مصفي")
+                    
+                    # تأخير بين المجموعات
+                    await asyncio.sleep(Config.REQUEST_DELAYS['between_groups'])
                     
                 except Exception as e:
-                    logger.debug(f"خطأ في جمع الروابط من المحادثة: {e}")
+                    logger.debug(f"خطأ في جمع الروابط من المجموعة: {e}")
                     continue
             
-            logger.info(f"✅ اكتمل الجمع من {session_name}: {total_dialogs} محادثة، {groups_processed} مجموعة، {len(collected)} رابط جديد")
+            logger.info(f"✅ جلسة {session_name}: تمت معالجة {groups_processed} مجموعة، تم جمع {len(collected)} رابط، تم تصفية {filtered_count} رابط")
             
         except Exception as e:
-            logger.error(f"خطأ في جمع الروابط من الجلسة {session_name}: {e}")
+            logger.error(f"خطأ في جمع الروابط من جميع المجموعات: {e}")
         
-        return collected
+        return collected, filtered_count
     
     async def _process_link(self, link_data: Dict, session_id: int, group_info: Dict) -> Optional[Dict]:
         """Process and save a single link"""
         try:
             url = link_data['url']
+            
+            # التصفية الأولية
+            should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url)
+            if should_filter:
+                self.stats['filtered_links'] += 1
+                self.stats['filter_reasons'][filter_reason] += 1
+                return None
+            
             url_info = EnhancedLinkProcessor.extract_url_info(url)
             
             if not url_info['is_valid']:
@@ -1723,12 +1904,31 @@ class CollectionManager:
             if Config.COLLECT_ONLY_TELEGRAM_WHATSAPP and platform not in ['telegram', 'whatsapp']:
                 return None
             
-            # تخطي الروابط غير المرغوب فيها
-            if details.get('is_bot_link') or details.get('is_message_link') or details.get('is_phone_link'):
+            # تخطي القنوات إذا كان مطلوباً
+            if Config.COLLECT_ONLY_GROUPS and details.get('is_subscription'):
+                logger.debug(f"تخطي رابط اشتراك: {url}")
                 return None
             
             # تحديد إذا كان رابط مجموعة صالحة
             is_valid_group = True
+            
+            if platform == 'telegram':
+                # التركيز على روابط الانضمام والمجموعات ذات الأعضاء
+                is_valid_group = (
+                    (details.get('is_group', True) or details.get('is_join_request', False)) and 
+                    not details.get('is_channel', False) and
+                    not details.get('is_subscription', False) and
+                    not details.get('is_bot_link', False) and
+                    not details.get('is_message_link', False) and
+                    not details.get('has_phone_number', False)
+                )
+            elif platform == 'whatsapp':
+                is_valid_group = True
+            
+            # التحقق من أن الرابط يحتوي على انضمام أو أعضاء
+            if Config.TARGET_JOIN_REQUESTS and not details.get('is_join_request', False):
+                # إذا لم يكن رابط انضمام، نحتاج للتحقق من أنه يحتوي على أعضاء
+                pass
             
             link_info = {
                 'url': url,
@@ -1750,7 +1950,7 @@ class CollectionManager:
                     'source_members': group_info.get('members_count', 0),
                     'source_type': link_data.get('source', 'unknown')
                 },
-                'source': 'real_collection',
+                'source': 'real_mass_collection',
                 'is_channel': details.get('is_channel', False),
                 'is_group': details.get('is_group', True),
                 'is_join_request': details.get('is_join_request', False),
@@ -1760,9 +1960,10 @@ class CollectionManager:
                 'last_validated': datetime.now().isoformat(),
                 'collected_from': link_data.get('source', ''),
                 'message_date': link_data.get('message_date', ''),
-                'is_bot_link': details.get('is_bot_link', False),
-                'is_message_link': details.get('is_message_link', False),
-                'is_phone_link': details.get('is_phone_link', False)
+                'group_name': link_data.get('group_title', ''),
+                'group_id': link_data.get('group_id', 0),
+                'has_members': True,  # نفترض أن جميع الروابط المجمعة تحتوي على أعضاء
+                'has_subscribers': False  # لا نقبل المجموعات ذات المشتركين
             }
             
             db = await EnhancedDatabaseManager.get_instance()
@@ -1776,12 +1977,16 @@ class CollectionManager:
                 elif platform == 'whatsapp':
                     self.stats['whatsapp'] += 1
                 
+                # تسجيل بعض الروابط في اللوج
+                if self.stats['total_collected'] % 50 == 0:
+                    logger.info(f"✅ تم حفظ {self.stats['total_collected']} رابط حتى الآن")
+                
                 return link_info
             
             return None
             
         except Exception as e:
-            logger.debug(f"خطأ في معالجة الرابط {url}: {e}")
+            logger.error(f"خطأ في معالجة الرابط {url}: {e}")
             return None
     
     async def _save_stats(self):
@@ -1826,7 +2031,7 @@ class CollectionManager:
         # انتظار حتى تتوقف المهمة
         if self.collection_task:
             try:
-                await asyncio.wait_for(self.collection_task, timeout=30)
+                await asyncio.wait_for(self.collection_task, timeout=10)
             except asyncio.TimeoutError:
                 logger.warning("مهلة انتظار إيقاف مهمة الجمع")
         
@@ -1879,15 +2084,15 @@ class EncryptionManager:
             return encrypted_data
 
 # ======================
-# Telegram Bot - بوت تليجرام
+# Telegram Bot - بوت تليجرام مع التحسينات
 # ======================
 
 class TelegramBot:
-    """Main Telegram bot"""
+    """Main Telegram bot with enhanced filtering"""
     
     def __init__(self):
         self.app = ApplicationBuilder().token(Config.BOT_TOKEN).build()
-        self.collection_manager = CollectionManager()
+        self.collection_manager = RealCollectionManager()
         
         self._setup_handlers()
         
@@ -1907,6 +2112,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("test_collect", self.test_collect_command))
         self.app.add_handler(CommandHandler("validate_links", self.validate_links_command))
         self.app.add_handler(CommandHandler("force_collect", self.force_collect_command))
+        self.app.add_handler(CommandHandler("quick_collect", self.quick_collect_command))
+        self.app.add_handler(CommandHandler("filter_stats", self.filter_stats_command))
         
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         
@@ -1938,44 +2145,99 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚀 بدء الجمع الحقيقي", callback_data="start_collect"),
-             InlineKeyboardButton("⏸️ إدارة الجمع", callback_data="manage_collect")],
+             InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect")],
             [InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session"),
              InlineKeyboardButton("👥 الجلسات", callback_data="show_sessions")],
             [InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_links"),
              InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
             [InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection"),
-             InlineKeyboardButton("⚙️ الإعدادات", callback_data="show_settings")]
+             InlineKeyboardButton("⚙️ إحصائيات التصفية", callback_data="filter_stats")]
         ])
         
         welcome_text = (
             f"🤖 **مرحباً {user.first_name}!**\n\n"
-            "**بوت جمع روابط المجموعات الحقيقي**\n\n"
-            "**المميزات المحسنة:**\n"
-            "• ✅ جمع حقيقي من جميع المحادثات\n"
-            "• 📢 روابط تيليجرام النظيفة فقط\n"
-            "• 📱 روابط واتساب النظيفة فقط\n"
-            "• 🔍 جمع عميق من الرسائل والوصف\n"
-            "• 🚫 تصفية تلقائية للروابط غير المرغوب فيها\n"
-            "• 📊 تصدير منفصل لكل منصة\n"
-            "• 🧪 اختبار الجمع قبل البدء\n\n"
+            "**بوت جمع روابط المجموعات الحقيقي مع التصفية المتقدمة**\n\n"
+            "**المميزات الجديدة:**\n"
+            "✅ جمع حقيقي من جميع المجموعات\n"
+            "⏭️ تصفية 5 أنواع من الروابط:\n"
+            "   • روابط البوتات\n"
+            "   • روابط الرسائل\n"
+            "   • روابط تحتوي على أرقام\n"
+            "   • مجموعات تحتوي على مشتركين\n"
+            "   • الروابط الميتة\n\n"
+            "🎯 **الروابط المستهدفة فقط:**\n"
+            "• روابط الانضمام (انظمام/طلب انضمام)\n"
+            "• المجموعات التي تحتوي على أعضاء\n"
+            "• الروابط النشطة فقط\n\n"
             "**🚀 اختر من الأزرار أدناه لبدء الجمع الحقيقي!**"
         )
         
         await update.message.reply_text(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
     
+    async def filter_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /filter_stats command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        db = await EnhancedDatabaseManager.get_instance()
+        db_stats = await db.get_stats_summary()
+        
+        collection_stats = self.collection_manager.get_status()['stats']
+        
+        stats_text = "**📊 إحصائيات التصفية المتقدمة**\n\n"
+        
+        stats_text += "**🔥 إحصائيات الجمع الحالية:**\n"
+        stats_text += f"• الروابط المجمعة: {collection_stats['total_collected']:,}\n"
+        stats_text += f"• الروابط المصفاة: {collection_stats['filtered_links']:,}\n"
+        stats_text += f"• المجموعات المعالجة: {collection_stats['groups_processed']:,}\n"
+        
+        if collection_stats['filter_reasons']:
+            stats_text += "\n**أسباب التصفية:**\n"
+            for reason, count in collection_stats['filter_reasons'].items():
+                stats_text += f"• {reason}: {count:,}\n"
+        
+        stats_text += "\n**📦 إحصائيات قاعدة البيانات:**\n"
+        if 'filtered_links' in db_stats:
+            stats_text += f"• إجمالي الروابط المصفاة: {sum(db_stats['filtered_links'].values()):,}\n"
+            for reason, count in db_stats['filtered_links'].items():
+                stats_text += f"  - {reason}: {count:,}\n"
+        
+        stats_text += f"• المجموعات ذات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
+        
+        stats_text += "\n**⚙️ إعدادات التصفية النشطة:**\n"
+        stats_text += f"• تصفية البوتات: {'✅' if Config.FILTER_BOT_LINKS else '❌'}\n"
+        stats_text += f"• تصفية الرسائل: {'✅' if Config.FILTER_MESSAGE_LINKS else '❌'}\n"
+        stats_text += f"• تصفية الأرقام: {'✅' if Config.FILTER_PHONE_NUMBER_LINKS else '❌'}\n"
+        stats_text += f"• تصفية المشتركين: {'✅' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌'}\n"
+        stats_text += f"• تصفية الروابط الميتة: {'✅' if Config.FILTER_DEAD_LINKS else '❌'}\n"
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تحديث", callback_data="filter_stats"),
+             InlineKeyboardButton("📊 إحصائيات عامة", callback_data="show_stats")]
+        ])
+        
+        await update.message.reply_text(stats_text, reply_markup=keyboard, parse_mode="Markdown")
+    
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = (
-            "**📖 دليل استخدام البوت - الإصدار المحسن**\n\n"
+            "**📖 دليل استخدام البوت - الإصدار مع التصفية**\n\n"
             "**الأوامر الأساسية:**\n"
             "• /start - بدء البوت ورسالة الترحيب\n"
             "• /help - عرض هذه المساعدة\n"
-            "• /status - عرض حالة النظام والجمع\n\n"
+            "• /status - عرض حالة النظام والجمع\n"
+            "• /filter_stats - إحصائيات التصفية\n\n"
             "**إدارة الجلسات:**\n"
             "• /sessions - عرض الجلسات النشطة\n"
             "• /addsession - إضافة جلسة جديدة\n\n"
             "**الجمع والتصدير:**\n"
-            "• /collect - بدء/إيقاف الجمع الحقيقي\n"
+            "• /collect - بدء/إيقاف الجمع الحقيقي من جميع المجموعات\n"
+            "• /quick_collect - جمع سريع من 5 مجموعات\n"
             "• /test_collect - اختبار الجمع على مجموعة واحدة\n"
             "• /force_collect - بدء جمع فوري\n"
             "• /validate_links - التحقق من الروابط المخزنة\n"
@@ -1983,21 +2245,27 @@ class TelegramBot:
             "**الإدارة:**\n"
             "• /stats - إحصائيات النظام\n"
             "• /backup - إنشاء نسخة احتياطية\n\n"
+            "**🎯 الروابط المستهدفة فقط:**\n"
+            "• روابط الانضمام (انظمام/طلب انضمام)\n"
+            "• المجموعات التي تحتوي على أعضاء\n"
+            "• الروابط النشطة فقط\n\n"
+            "**⏭️ الروابط المصفاة:**\n"
+            "1. روابط البوتات\n"
+            "2. روابط الرسائل\n"
+            "3. روابط تحتوي على أرقام هواتف\n"
+            "4. مجموعات تحتوي على مشتركين\n"
+            "5. الروابط الميتة\n\n"
             "**📌 كيفية البدء:**\n"
             "1. أضف جلسة تيليجرام باستخدام /addsession\n"
             "2. اختبر الجمع باستخدام /test_collect\n"
-            "3. ابدأ الجمع الحقيقي باستخدام /collect\n"
-            "4. قم بتصدير الروابط باستخدام /export\n\n"
-            "**🔒 الروابط التي يتم تصفيتها تلقائياً:**\n"
-            "• روابط البوتات (تحتوي على bot)\n"
-            "• روابط الرسائل (c/ متبوعة برقم)\n"
-            "• روابط تحتوي على أرقام هواتف\n\n"
-            "**ملاحظات:**\n"
-            "• البوت يجمع فقط روابط تيليجرام وواتساب\n"
-            "• يجمع من جميع المجموعات والقنوات\n"
-            "• يجمع من الوصف والرسائل داخل المحادثات\n"
-            "• التجميع تلقائي من آخر 60 يوماً لروابط واتساب\n"
-            "• لا يوجد قيود زمنية لروابط تيليجرام"
+            "3. ابدأ الجمع السريع باستخدام /quick_collect\n"
+            "4. ابدأ الجمع الحقيقي باستخدام /collect\n"
+            "5. قم بتصدير الروابط باستخدام /export\n\n"
+            "**🔒 ملاحظات:**\n"
+            "• البوت يجمع فقط روابط المجموعات المستهدفة\n"
+            "• التصفية التلقائية لـ 5 أنواع من الروابط\n"
+            "• التركيز على روابط الانضمام والمجموعات النشطة\n"
+            "• كل رابط يتم التحقق منه قبل التخزين"
         )
         await update.message.reply_text(help_text, parse_mode="Markdown")
     
@@ -2017,7 +2285,7 @@ class TelegramBot:
         db_stats = await db.get_stats_summary()
         
         status_text = (
-            f"**📊 حالة النظام المحسنة - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**\n\n"
+            f"**📊 حالة النظام مع التصفية - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**\n\n"
             "**حالة الجمع:**\n"
         )
         
@@ -2027,14 +2295,23 @@ class TelegramBot:
             elif status['stop_requested']:
                 status_text += "🛑 **جاري الإيقاف...**\n"
             else:
-                status_text += "🔄 **نشط - جمع حقيقي**\n"
+                status_text += "🔄 **نشط - جمع حقيقي مع تصفية**\n"
         else:
             status_text += "🛑 **متوقف**\n"
         
+        # معلومات الجمع الحالية
+        if status['active'] and not status['paused']:
+            status_text += f"\n**💼 الجمع الحالي:**\n"
+            if status['stats']['current_session']:
+                status_text += f"• الجلسة: {status['stats']['current_session']}\n"
+            if status['stats']['current_group']:
+                status_text += f"• المجموعة: {status['stats']['current_group']}\n"
+        
         status_text += (
-            f"\n**إحصائيات الجمع الحقيقية:**\n"
+            f"\n**إحصائيات الجمع مع التصفية:**\n"
             f"• 📦 المجموع المجمع: {status['stats']['total_collected']:,}\n"
-            f"• ✅ المحادثات المعالجة: {status['stats']['valid_groups']:,}\n"
+            f"• ⏭️ الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• 👥 المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• 📢 تيليجرام: {status['stats']['telegram']:,}\n"
             f"• 📱 واتساب: {status['stats']['whatsapp']:,}\n"
             f"• ⚡ الجلسات المستخدمة: {status['stats']['sessions_used']}\n"
@@ -2042,7 +2319,7 @@ class TelegramBot:
             f"• 🕒 آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}\n\n"
             f"**إحصائيات قاعدة البيانات:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
-            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
         )
         
@@ -2055,14 +2332,15 @@ class TelegramBot:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="refresh_status"),
              InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")],
-            [InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect"),
-             InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")],
-            [InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection"),
-             InlineKeyboardButton("📤 تصدير", callback_data="export_links")]
+            [InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect"),
+             InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
+            [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
+             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")]
         ])
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
     
+    # باقي الأوامر تبقى كما هي مع تعديل بسيط في النصوص
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command"""
         user = update.effective_user
@@ -2078,7 +2356,7 @@ class TelegramBot:
         
         user_stats = await db.get_user_stats(user.id)
         
-        stats_text = "**📈 إحصائيات النظام المتقدمة**\n\n**إحصائيات المستخدم:**\n"
+        stats_text = "**📈 إحصائيات النظام مع التصفية**\n\n**إحصائيات المستخدم:**\n"
         
         if user_stats:
             stats_text += (
@@ -2093,16 +2371,22 @@ class TelegramBot:
         stats_text += (
             f"**إحصائيات النظام:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
-            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
+            f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
         )
         
         # إحصائيات المنصات
         if 'links_by_platform' in db_stats:
-            stats_text += "\n**توزيع المنصات (روابط نظيفة فقط):**\n"
+            stats_text += "\n**توزيع المنصات:**\n"
             for platform, count in db_stats['links_by_platform'].items():
                 stats_text += f"• {platform}: {count:,}\n"
+        
+        if 'filtered_links' in db_stats and db_stats['filtered_links']:
+            stats_text += "\n**الروابط المصفاة:**\n"
+            for reason, count in db_stats['filtered_links'].items():
+                stats_text += f"• {reason}: {count:,}\n"
         
         await update.message.reply_text(stats_text, parse_mode="Markdown")
     
@@ -2166,12 +2450,13 @@ class TelegramBot:
         if total_links == 0:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect"),
-                 InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")]
+                 InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect")]
             ])
             await update.message.reply_text(
                 "❌ **لا توجد روابط صالحة للتصدير**\n\n"
                 "يمكنك البدء في جمع الروابط باستخدام:\n"
                 "• /collect - بدء الجمع الحقيقي\n"
+                "• /quick_collect - جمع سريع من 5 مجموعات\n"
                 "• /test_collect - اختبار الجمع على مجموعة",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
@@ -2181,23 +2466,27 @@ class TelegramBot:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 تيليجرام فقط", callback_data="export_telegram"),
              InlineKeyboardButton("📱 واتساب فقط", callback_data="export_whatsapp")],
+            [InlineKeyboardButton("🎯 روابط الانضمام", callback_data="export_join_links"),
+             InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
             [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
         ])
         
         export_text = (
-            f"**📤 تصدير الروابط الصالحة**\n\n"
-            f"إجمالي الروابط الصالحة: **{total_links:,}**\n\n"
+            f"**📤 تصدير الروابط بعد التصفية**\n\n"
+            f"إجمالي الروابط المجمعة: **{total_links:,}**\n\n"
             "**خيارات التصدير:**\n"
             "• 📢 روابط تيليجرام فقط\n"
             "• 📱 روابط واتساب فقط\n"
+            "• 🎯 روابط الانضمام فقط\n"
+            "• 👥 مجموعات ذات أعضاء فقط\n"
             "• 📄 جميع الروابط (نصي)\n"
             "• 📊 CSV كامل المعلومات\n\n"
             "**ملاحظات:**\n"
             f"• الحد الأقصى للتصدير: {Config.MAX_EXPORT_LINKS:,} رابط\n"
-            "• الروابط النظيفة فقط (بدون بوتات، رسائل، أرقام)\n"
-            "• كل منصة تصدير منفصل\n"
+            "• الروابط جاهزة للاستخدام المباشر\n"
+            "• كل نوع تصدير منفصل\n"
             "• الروابط تنسيقها نظيف وجاهز للاستخدام"
         )
         
@@ -2254,45 +2543,43 @@ class TelegramBot:
              InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
             [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
              InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")],
-            [InlineKeyboardButton("⚙️ إعدادات الجمع", callback_data="collect_settings"),
+            [InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect"),
              InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")]
         ])
         
-        collect_text = "**🚀 إدارة عملية الجمع الحقيقية**\n\n**الحالة الحالية:**\n"
+        collect_text = "**🚀 إدارة عملية الجمع مع التصفية**\n\n**الحالة الحالية:**\n"
         
         if status['active']:
             if status['paused']:
                 collect_text += "⏸️ **موقف مؤقتاً**\n"
             else:
-                collect_text += "🔄 **نشط - جمع حقيقي**\n"
+                collect_text += "🔄 **نشط - جمع حقيقي مع تصفية**\n"
         else:
             collect_text += "🛑 **متوقف**\n"
         
         collect_text += (
-            f"\n**الإحصائيات الحقيقية:**\n"
+            f"\n**الإحصائيات مع التصفية:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
-            f"• المحادثات المعالجة: {status['stats']['valid_groups']:,}\n"
+            f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• التليجرام: {status['stats']['telegram']:,}\n"
             f"• الواتساب: {status['stats']['whatsapp']:,}\n"
             f"• الأخطاء: {status['stats']['errors']:,}\n\n"
-            "**المميزات الحقيقية:**\n"
-            "• ✅ جمع من جميع المحادثات\n"
-            "• 📢 روابط تيليجرام النظيفة فقط\n"
-            "• 📱 روابط واتساب النظيفة فقط\n"
-            "• 🚫 تصفية تلقائية للروابط غير المرغوب فيها\n"
-            "• 🔍 جمع عميق من الرسائل والوصف\n"
-            "• 📊 تصدير منفصل لكل منصة\n"
-            "• 🧪 اختبار الجمع قبل البدء\n\n"
+            "**🎯 الروابط المستهدفة:**\n"
+            "• روابط الانضمام (انظمام/طلب انضمام)\n"
+            "• المجموعات التي تحتوي على أعضاء\n"
+            "• الروابط النشطة فقط\n\n"
+            "**⏭️ الروابط المصفاة:**\n"
+            "1. روابط البوتات\n"
+            "2. روابط الرسائل\n"
+            "3. روابط تحتوي على أرقام\n"
+            "4. مجموعات تحتوي على مشتركين\n"
+            "5. الروابط الميتة\n\n"
             f"**الإعدادات:**\n"
-            f"• الجمع من جميع المحادثات: {'✅ نعم'}\n"
-            f"• الرسائل في الجمع العميق: {Config.MAX_DEEP_MESSAGES}\n"
+            f"• الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}\n"
+            f"• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}\n"
             f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم\n"
-            f"• تيليجرام: بدون قيود زمنية\n\n"
-            "**الروابط المصفاة تلقائياً:**\n"
-            "• روابط البوتات (❌)\n"
-            "• روابط الرسائل (❌)\n"
-            "• روابط تحتوي على أرقام هواتف (❌)\n"
-            "• روابط المجموعات والقنوات (✅)"
+            f"• تيليجرام: بدون قيود زمنية"
         )
         
         await update.message.reply_text(collect_text, reply_markup=keyboard, parse_mode="Markdown")
@@ -2323,7 +2610,7 @@ class TelegramBot:
             "7. سيرسل لك كود الجلسة (session string)\n\n"
             "**أرسل كود الجلسة الآن:**\n"
             "(يمكنك نسخ الكود كاملاً وإرساله)\n\n"
-            "**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط من المحادثات"
+            "**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط المستهدفة مع التصفية"
         )
         
         await update.message.reply_text(add_text, parse_mode="Markdown")
@@ -2338,7 +2625,7 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🧪 **جاري اختبار الجمع على محادثات واحدة...**")
+        await update.message.reply_text("🧪 **جاري اختبار الجمع مع التصفية على مجموعة واحدة...**")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -2350,6 +2637,7 @@ class TelegramBot:
             
             session = sessions[0]
             session_string = session.get('session_string', '')
+            session_name = session.get('display_name', 'غير معروف')
             
             if not session_string or session_string == '********':
                 await update.message.reply_text("❌ الجلسة غير متاحة")
@@ -2366,104 +2654,117 @@ class TelegramBot:
             
             # اختبار الجمع من أول مجموعة
             collected = []
+            filtered = []
             groups_found = 0
             
-            async for dialog in client.iter_dialogs(limit=5):  # اختبار أول 5 محادثات فقط
+            async for dialog in client.iter_dialogs(limit=10):
                 try:
                     entity = dialog.entity
                     
-                    # تخطي المحادثات الخاصة
-                    if isinstance(entity, types.User):
+                    # تخطي الرسائل الخاصة
+                    if not hasattr(entity, 'title'):
                         continue
                     
-                    # الحصول على اسم المجموعة/القناة
-                    title = getattr(entity, 'title', None)
-                    if not title:
-                        continue
+                    groups_found += 1
+                    group_title = getattr(entity, 'title', 'غير معروف')
                     
-                    # التحقق من المجموعة
-                    validation = await GroupValidator.validate_group(client, entity)
+                    # جمع الروابط من المجموعة
+                    link_data_list = await AdvancedGroupValidator.extract_group_links(
+                        client, entity, max_messages=20
+                    )
                     
-                    if validation['is_valid']:
-                        groups_found += 1
-                        
-                        # جمع الروابط من المجموعة
-                        link_data_list = await GroupValidator.extract_group_links(
-                            client, entity, max_messages=5
-                        )
-                        
-                        links_found = len(link_data_list)
-                        
-                        test_result = (
-                            f"**🧪 نتائج الاختبار للمحادثة {groups_found}:**\n\n"
-                            f"**المحادثة:** {title}\n"
-                            f"• الأعضاء: {validation['members_count']}\n"
-                            f"• النوع: {validation['join_type']}\n"
-                            f"• الروابط الموجودة: {links_found}\n"
-                        )
-                        
-                        await update.message.reply_text(test_result, parse_mode="Markdown")
-                        
-                        if links_found > 0:
-                            # حفظ الروابط كعينة
-                            for link_data in link_data_list[:3]:  # حفظ أول 3 روابط فقط كعينة
-                                link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
+                    links_found = len(link_data_list)
+                    
+                    test_result = (
+                        f"**🧪 نتائج الاختبار:**\n\n"
+                        f"**المجموعة:** {group_title}\n"
+                        f"• الروابط الموجودة: {links_found}\n"
+                        f"• الجلسة: {session_name}\n"
+                    )
+                    
+                    await update.message.reply_text(test_result, parse_mode="Markdown")
+                    
+                    if links_found > 0:
+                        # حفظ الروابط كعينة
+                        saved_count = 0
+                        filtered_count = 0
+                        for link_data in link_data_list:
+                            link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
+                            
+                            # التصفية
+                            should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(link_data['url'], link_info)
+                            if should_filter:
+                                filtered.append({
+                                    'url': link_data['url'],
+                                    'reason': filter_reason
+                                })
+                                filtered_count += 1
+                                continue
+                            
+                            if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
                                 
-                                # تخطي الروابط غير المرغوب فيها
-                                if (link_info['is_valid'] and 
-                                    link_info['platform'] in ['telegram', 'whatsapp'] and
-                                    not link_info['details'].get('is_bot_link') and
-                                    not link_info['details'].get('is_message_link') and
-                                    not link_info['details'].get('is_phone_link')):
-                                    
-                                    details = link_info['details']
-                                    
-                                    is_valid_group = True
-                                    if link_info['platform'] == 'telegram':
-                                        is_valid_group = (
-                                            details.get('is_group', False) and 
-                                            not details.get('is_channel', False) and
-                                            not details.get('is_subscription', False)
-                                        )
-                                    
-                                    link_item = {
-                                        'url': link_data['url'],
-                                        'platform': link_info['platform'],
-                                        'link_type': 'group',
-                                        'session_id': session.get('id'),
-                                        'is_valid_group': is_valid_group,
-                                        'added_by_user': user.id,
-                                        'collected_from': link_data.get('source', ''),
-                                        'message_date': link_data.get('message_date', ''),
-                                        'is_bot_link': details.get('is_bot_link', False),
-                                        'is_message_link': details.get('is_message_link', False),
-                                        'is_phone_link': details.get('is_phone_link', False)
-                                    }
-                                    
-                                    success, message, _ = await db.add_link(link_item)
-                                    if success:
-                                        collected.append(link_data['url'])
+                                link_item = {
+                                    'url': link_data['url'],
+                                    'platform': link_info['platform'],
+                                    'link_type': 'group',
+                                    'session_id': session.get('id'),
+                                    'is_valid_group': True,
+                                    'added_by_user': user.id,
+                                    'collected_from': link_data.get('source', ''),
+                                    'message_date': link_data.get('message_date', ''),
+                                    'group_name': link_data.get('group_title', ''),
+                                    'has_members': True
+                                }
+                                
+                                success, message, _ = await db.add_link(link_item)
+                                if success:
+                                    collected.append(link_data['url'])
+                                    saved_count += 1
                         
-                        # اختبار محادثة واحدة فقط إذا وجدنا روابط
-                        if links_found > 0:
-                            break
+                        if saved_count > 0:
+                            await update.message.reply_text(f"✅ تم جمع {saved_count} رابط من {group_title}")
+                        
+                        if filtered_count > 0:
+                            await update.message.reply_text(f"⏭️ تم تصفية {filtered_count} رابط من {group_title}")
+                    
+                    # اختبار مجموعة واحدة فقط
+                    break
                     
                 except Exception as e:
-                    logger.debug(f"خطأ في اختبار المحادثة: {e}")
+                    logger.debug(f"خطأ في اختبار المجموعة: {e}")
                     continue
             
             await client.disconnect()
             
-            if collected:
+            if collected or filtered:
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚀 بدء الجمع الحقيقي", callback_data="start_collect"),
                      InlineKeyboardButton("📤 تصدير العينة", callback_data="export_test")]
                 ])
                 
+                result_text = f"✅ **اكتمل الاختبار بنجاح!**\n\n"
+                
+                if collected:
+                    result_text += f"تم جمع {len(collected)} روابط كعينة.\n"
+                
+                if filtered:
+                    result_text += f"تم تصفية {len(filtered)} روابط.\n"
+                    
+                    # عرض أسباب التصفية
+                    filter_reasons = {}
+                    for item in filtered:
+                        reason = item['reason']
+                        filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+                    
+                    if filter_reasons:
+                        result_text += "\n**أسباب التصفية:**\n"
+                        for reason, count in filter_reasons.items():
+                            result_text += f"• {reason}: {count}\n"
+                
+                result_text += "\nيمكنك الآن بدء الجمع الحقيقي."
+                
                 await update.message.reply_text(
-                    f"✅ **اكتمل الاختبار بنجاح!**\n\n"
-                    f"تم جمع {len(collected)} روابط كعينة.\n"
-                    f"يمكنك الآن بدء الجمع الحقيقي.",
+                    result_text,
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
@@ -2474,12 +2775,11 @@ class TelegramBot:
                 ])
                 
                 await update.message.reply_text(
-                    "❌ **لم يتم العثور على روابط في المحادثات**\n\n"
+                    "❌ **لم يتم العثور على روابط في المجموعة**\n\n"
                     "يمكنك:\n"
-                    "• إعادة الاختبار على محادثات أخرى\n"
+                    "• إعادة الاختبار على مجموعة أخرى\n"
                     "• إضافة جلسة جديدة\n"
-                    "• البدء في الجمع الحقيقي\n\n"
-                    "**ملاحظة:** بعض المحادثات قد لا تحتوي على روابط.",
+                    "• البدء في الجمع الحقيقي",
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
@@ -2498,27 +2798,221 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🚀 **بدء جمع فوري...**")
+        await update.message.reply_text("🚀 **بدء جمع فوري مع التصفية من جميع المجموعات...**")
         
         try:
             # بدء الجمع
             await self.collection_manager.start_collection()
             
-            await asyncio.sleep(5)  # انتظار قليل
+            await asyncio.sleep(3)
             
             status = self.collection_manager.get_status()
+            
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status"),
+                 InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")]
+            ])
             
             await update.message.reply_text(
                 f"✅ **بدأ الجمع الفوري بنجاح!**\n\n"
                 f"**الحالة:** {'نشط' if status['active'] else 'متوقف'}\n"
-                f"**جاري جمع الروابط من جميع المحادثات...**\n\n"
+                f"**جاري جمع الروابط المستهدفة مع التصفية...**\n\n"
+                f"**🎯 الروابط المستهدفة:**\n"
+                f"• روابط الانضمام (انظمام/طلب انضمام)\n"
+                f"• المجموعات التي تحتوي على أعضاء\n"
+                f"• الروابط النشطة فقط\n\n"
+                f"**⏭️ الروابط المصفاة:**\n"
+                f"1. روابط البوتات\n"
+                f"2. روابط الرسائل\n"
+                f"3. روابط تحتوي على أرقام\n"
+                f"4. مجموعات تحتوي على مشتركين\n"
+                f"5. الروابط الميتة\n\n"
                 f"سيتم إعلامك عند اكتمال الدورة الأولى.",
+                reply_markup=keyboard,
                 parse_mode="Markdown"
             )
             
         except Exception as e:
             logger.error(f"خطأ في بدء الجمع الفوري: {e}")
             await update.message.reply_text(f"❌ خطأ في بدء الجمع: {str(e)[:200]}")
+    
+    async def quick_collect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /quick_collect command - جمع سريع من 5 مجموعات"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        await update.message.reply_text("⚡ **بدء جمع سريع مع التصفية من 5 مجموعات...**")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            sessions = await db.get_active_sessions(limit=1)
+            
+            if not sessions:
+                await update.message.reply_text("❌ لا توجد جلسات نشطة")
+                return
+            
+            session = sessions[0]
+            session_string = session.get('session_string', '')
+            session_name = session.get('display_name', 'غير معروف')
+            
+            if not session_string or session_string == '********':
+                await update.message.reply_text("❌ الجلسة غير متاحة")
+                return
+            
+            # فك تشفير الجلسة
+            enc_manager = EncryptionManager.get_instance()
+            decrypted_session = enc_manager.decrypt(session_string)
+            
+            client = await SessionManager.create_client(decrypted_session)
+            if not client:
+                await update.message.reply_text("❌ فشل إنشاء العميل")
+                return
+            
+            # جمع الروابط من 5 مجموعات
+            collected = []
+            filtered = []
+            groups_processed = 0
+            
+            async for dialog in client.iter_dialogs(limit=10):
+                try:
+                    entity = dialog.entity
+                    
+                    # تخطي الرسائل الخاصة
+                    if not hasattr(entity, 'title'):
+                        continue
+                    
+                    groups_processed += 1
+                    group_title = getattr(entity, 'title', 'غير معروف')
+                    
+                    await update.message.reply_text(f"🔍 جمع من المجموعة {groups_processed}: {group_title}")
+                    
+                    # جمع الروابط من المجموعة
+                    link_data_list = await AdvancedGroupValidator.extract_group_links(
+                        client, entity, max_messages=30
+                    )
+                    
+                    # معالجة الروابط المجمعة
+                    saved_count = 0
+                    filtered_count = 0
+                    for link_data in link_data_list:
+                        link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
+                        
+                        # التصفية
+                        should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(link_data['url'], link_info)
+                        if should_filter:
+                            filtered.append({
+                                'url': link_data['url'],
+                                'reason': filter_reason
+                            })
+                            filtered_count += 1
+                            continue
+                        
+                        if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
+                            
+                            link_item = {
+                                'url': link_data['url'],
+                                'platform': link_info['platform'],
+                                'link_type': 'group',
+                                'session_id': session.get('id'),
+                                'is_valid_group': True,
+                                'added_by_user': user.id,
+                                'collected_from': link_data.get('source', ''),
+                                'message_date': link_data.get('message_date', ''),
+                                'group_name': link_data.get('group_title', ''),
+                                'has_members': True
+                            }
+                            
+                            success, message, _ = await db.add_link(link_item)
+                            if success:
+                                collected.append(link_data['url'])
+                                saved_count += 1
+                    
+                    if saved_count > 0:
+                        await update.message.reply_text(f"✅ تم جمع {saved_count} رابط من {group_title}")
+                    
+                    if filtered_count > 0:
+                        await update.message.reply_text(f"⏭️ تم تصفية {filtered_count} رابط من {group_title}")
+                    
+                    # توقف بعد 5 مجموعات
+                    if groups_processed >= 5:
+                        break
+                    
+                    # تأخير بين المجموعات
+                    await asyncio.sleep(1)
+                    
+                except Exception as e:
+                    logger.debug(f"خطأ في الجمع السريع من المجموعة: {e}")
+                    continue
+            
+            await client.disconnect()
+            
+            # تحديث إحصائيات الجلسة
+            await db.conn.execute(
+                "UPDATE sessions SET last_used = CURRENT_TIMESTAMP, last_success = CURRENT_TIMESTAMP, total_uses = total_uses + 1, total_links = total_links + ? WHERE id = ?",
+                (len(collected), session['id'])
+            )
+            await db.conn.commit()
+            
+            if collected or filtered:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚀 بدء الجمع الحقيقي", callback_data="start_collect"),
+                     InlineKeyboardButton("📤 تصدير", callback_data="export_links")]
+                ])
+                
+                result_text = f"✅ **اكتمل الجمع السريع بنجاح!**\n\n"
+                result_text += f"**الإحصائيات:**\n"
+                result_text += f"• المجموعات المعالجة: {groups_processed}\n"
+                result_text += f"• الروابط المجمعة: {len(collected)}\n"
+                result_text += f"• الروابط المصفاة: {len(filtered)}\n"
+                result_text += f"• الجلسة: {session_name}\n\n"
+                
+                if filtered:
+                    # عرض أسباب التصفية
+                    filter_reasons = {}
+                    for item in filtered:
+                        reason = item['reason']
+                        filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+                    
+                    if filter_reasons:
+                        result_text += "**أسباب التصفية:**\n"
+                        for reason, count in filter_reasons.items():
+                            result_text += f"• {reason}: {count}\n"
+                        result_text += "\n"
+                
+                result_text += "يمكنك الآن:\n"
+                result_text += "• بدء الجمع الحقيقي من جميع المجموعات\n"
+                result_text += "• تصدير الروابط المجمعة\n"
+                result_text += "• الاستمرار في الجمع"
+                
+                await update.message.reply_text(
+                    result_text,
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            else:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 إعادة المحاولة", callback_data="quick_collect"),
+                     InlineKeyboardButton("➕ إضافة جلسة", callback_data="add_session")]
+                ])
+                
+                await update.message.reply_text(
+                    "❌ **لم يتم العثور على روابط في المجموعات**\n\n"
+                    "يمكنك:\n"
+                    "• إعادة المحاولة\n"
+                    "• إضافة جلسة جديدة\n"
+                    "• البدء في الجمع الحقيقي",
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            
+        except Exception as e:
+            logger.error(f"خطأ في الجمع السريع: {e}")
+            await update.message.reply_text(f"❌ خطأ في الجمع السريع: {str(e)[:200]}")
     
     async def validate_links_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /validate_links command"""
@@ -2530,54 +3024,34 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🔍 **جاري التحقق من الروابط المخزنة...**")
+        await update.message.reply_text("🔍 **جاري التحقق من الروابط المخزنة مع التصفية...**")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
             
             # الحصول على إحصائيات
-            cursor = await db.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            """)
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE platform IN ('telegram', 'whatsapp')")
             total_links = (await cursor.fetchone())[0]
             
-            cursor = await db.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND (is_group = 1 OR (platform = 'whatsapp' AND is_group = 1))
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-            """)
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp')")
             valid_groups = (await cursor.fetchone())[0]
             
-            cursor = await db.conn.execute("""
-                SELECT COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND (is_bot_link = 1 OR is_message_link = 1 OR is_phone_link = 1)
-            """)
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE has_members = 1 AND platform IN ('telegram', 'whatsapp')")
+            member_groups = (await cursor.fetchone())[0]
+            
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE filter_reason IS NOT NULL AND filter_reason != ''")
             filtered_links = (await cursor.fetchone())[0]
             
-            cursor = await db.conn.execute("""
-                SELECT platform, COUNT(*) FROM links 
-                WHERE platform IN ('telegram', 'whatsapp') 
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
-                GROUP BY platform
-            """)
+            cursor = await db.conn.execute("SELECT platform, COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp') GROUP BY platform")
             platform_stats = dict(await cursor.fetchall())
             
-            validation_text = "**🔍 نتائج التحقق من الروابط:**\n\n"
+            validation_text = "**🔍 نتائج التحقق مع التصفية:**\n\n"
             
             validation_text += f"**📊 الإحصائيات:**\n"
-            validation_text += f"• إجمالي الروابط النظيفة: {total_links:,}\n"
-            validation_text += f"• روابط مجموعات صالحة: {valid_groups:,}\n"
-            validation_text += f"• روابط تم تصفيتها: {filtered_links:,}\n"
+            validation_text += f"• إجمالي الروابط: {total_links:,}\n"
+            validation_text += f"• روابط صالحة: {valid_groups:,}\n"
+            validation_text += f"• مجموعات أعضاء: {member_groups:,}\n"
+            validation_text += f"• روابط مصفاة: {filtered_links:,}\n"
             validation_text += f"• نسبة الصلاحية: {(valid_groups/total_links*100 if total_links > 0 else 0):.1f}%\n\n"
             
             validation_text += f"**توزيع المنصات:**\n"
@@ -2586,7 +3060,7 @@ class TelegramBot:
             
             # الحصول على عينة من الروابط
             cursor = await db.conn.execute('''
-                SELECT url, platform, is_bot_link, is_message_link, is_phone_link, collected_date 
+                SELECT url, platform, has_members, filter_reason 
                 FROM links 
                 WHERE platform IN ('telegram', 'whatsapp')
                 ORDER BY collected_date DESC 
@@ -2598,21 +3072,14 @@ class TelegramBot:
             if rows:
                 validation_text += "\n**📋 آخر 5 روابط مخزنة:**\n"
                 for i, row in enumerate(rows, 1):
-                    url, platform, is_bot, is_message, is_phone, date = row
-                    
-                    if is_bot:
-                        status = "🤖 بوت"
-                    elif is_message:
-                        status = "📨 رسالة"
-                    elif is_phone:
-                        status = "📞 هاتف"
-                    else:
-                        status = "✅ نظيف"
-                    
-                    validation_text += f"{i}. {platform}: {url[:40]}... - {status}\n"
+                    url, platform, has_members, filter_reason = row
+                    status = "✅ أعضاء" if has_members else "❌ لا أعضاء"
+                    if filter_reason:
+                        status = f"⏭️ {filter_reason}"
+                    validation_text += f"{i}. {platform}: {url[:40]}... [{status}]\n"
             
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📤 تصدير النظيفة", callback_data="export_valid"),
+                [InlineKeyboardButton("📤 تصدير", callback_data="export_all"),
                  InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")]
             ])
             
@@ -2639,7 +3106,13 @@ class TelegramBot:
         data = query.data
         
         try:
-            if data == "start_collect":
+            if data == "filter_stats":
+                await self._handle_filter_stats(query)
+            elif data == "export_join_links":
+                await self._handle_export_join_links(query)
+            elif data == "export_member_groups":
+                await self._handle_export_member_groups(query)
+            elif data == "start_collect":
                 await self._handle_start_collect(query)
             elif data == "pause_collect":
                 await self._handle_pause_collect(query)
@@ -2647,8 +3120,8 @@ class TelegramBot:
                 await self._handle_stop_collect(query)
             elif data == "collect_status":
                 await self._handle_collect_status(query)
-            elif data == "collect_settings":
-                await self._handle_collect_settings(query)
+            elif data == "quick_collect":
+                await self._handle_quick_collect(query)
             elif data == "test_collection":
                 await self._handle_test_collection(query)
             elif data == "add_session":
@@ -2669,8 +3142,6 @@ class TelegramBot:
                 await self._handle_export_csv(query)
             elif data == "export_test":
                 await self._handle_export_test(query)
-            elif data == "export_valid":
-                await self._handle_export_valid(query)
             elif data == "create_backup":
                 await self._handle_create_backup(query)
             elif data == "list_backups":
@@ -2683,8 +3154,6 @@ class TelegramBot:
                 await self._handle_refresh_sessions(query)
             elif data == "show_settings":
                 await self._handle_show_settings(query)
-            elif data == "manage_collect":
-                await self._handle_manage_collect(query)
             elif data == "delete_session":
                 await self._handle_delete_session(query)
             elif data.startswith("delete_session_"):
@@ -2706,11 +3175,10 @@ class TelegramBot:
             )
         except BadRequest as e:
             if "Message is not modified" in str(e):
-                pass  # تجاهل الخطأ إذا الرسالة لم تتغير
+                pass
             elif "Can't parse entities" in str(e):
-                # إعادة إرسال الرسالة بدون تنسيق إذا كان هناك خطأ في التنسيق
                 try:
-                    text_plain = re.sub(r'[\*_`\[\]()]', '', text)  # إزالة علامات التنسيق
+                    text_plain = re.sub(r'[\*_`\[\]()]', '', text)
                     await query.edit_message_text(
                         text=text_plain,
                         reply_markup=reply_markup
@@ -2735,6 +3203,122 @@ class TelegramBot:
                 parse_mode=parse_mode
             )
     
+    async def _handle_filter_stats(self, query):
+        """Handle filter stats callback"""
+        from_user = query.from_user
+        
+        class MockUpdate:
+            def __init__(self, query):
+                self.effective_user = query.from_user
+                self.message = query.message
+        
+        mock_update = MockUpdate(query)
+        await self.filter_stats_command(mock_update, None)
+    
+    async def _handle_export_join_links(self, query):
+        """Handle export join links"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير روابط الانضمام...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url FROM links 
+                WHERE (is_join_request = 1 OR requires_join = 1) 
+                AND platform IN ('telegram', 'whatsapp')
+                AND is_valid_group = 1
+                ORDER BY collected_date DESC 
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد روابط انضمام للتصدير")
+                return
+            
+            links = [row[0] for row in rows]
+            
+            # حفظ في ملف نصي
+            filename = f"join_links_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"🎯 روابط الانضمام\nعدد الروابط: {len(links):,}"
+                )
+            
+            # حذف الملف المحلي
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط انضمام")
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير روابط الانضمام: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
+    async def _handle_export_member_groups(self, query):
+        """Handle export member groups"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير مجموعات الأعضاء...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url FROM links 
+                WHERE has_members = 1 
+                AND platform IN ('telegram', 'whatsapp')
+                AND is_valid_group = 1
+                ORDER BY collected_date DESC 
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد مجموعات أعضاء للتصدير")
+                return
+            
+            links = [row[0] for row in rows]
+            
+            # حفظ في ملف نصي
+            filename = f"member_groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"👥 مجموعات الأعضاء\nعدد الروابط: {len(links):,}"
+                )
+            
+            # حذف الملف المحلي
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} مجموعة أعضاء")
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير مجموعات الأعضاء: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
     async def _handle_start_collect(self, query):
         """Handle start collection"""
         if self.collection_manager.active:
@@ -2753,16 +3337,18 @@ class TelegramBot:
         
         await self._edit_message_safe(
             query,
-            "🚀 **بدأ الجمع الحقيقي بنجاح!**\n\n"
+            "🚀 **بدأ الجمع الحقيقي مع التصفية بنجاح!**\n\n"
             "**المميزات النشطة:**\n"
-            "✅ جمع من جميع المحادثات\n"
-            "📢 روابط تيليجرام النظيفة فقط\n"
-            "📱 روابط واتساب النظيفة فقط\n"
-            "🚫 تصفية تلقائية للروابط غير المرغوب فيها\n"
-            "🔍 جمع عميق من الرسائل والوصف\n\n"
+            "✅ جمع من جميع المجموعات\n"
+            "⏭️ تصفية 5 أنواع من الروابط\n"
+            "🎯 التركيز على روابط الانضمام\n"
+            "👥 جمع المجموعات ذات الأعضاء\n"
+            "🔍 جمع عميق من جميع الرسائل\n\n"
             "**تفاصيل:**\n"
-            "• جاري جمع الروابط من جميع المحادثات\n"
-            "• فقط الروابط النظيفة بدون بوتات أو رسائل أو أرقام\n"
+            "• جاري جمع الروابط من جميع الجلسات\n"
+            "• جاري جمع الروابط من جميع المجموعات\n"
+            "• جاري جمع الروابط من جميع الرسائل\n"
+            "• الروابط تمر بمراحل تصفية متقدمة\n"
             "• الروابط تحفظ تلقائياً في قاعدة البيانات\n"
             "• يمكنك التصدير في أي وقت\n\n"
             "⏳ **سيتم تحديث الإحصائيات تلقائياً**",
@@ -2789,7 +3375,8 @@ class TelegramBot:
             "الجلسات تبقى نشطة.\n\n"
             "**الإحصائيات الحالية:**\n"
             f"• الروابط المجمعة: {self.collection_manager.stats['total_collected']:,}\n"
-            f"• المحادثات المعالجة: {self.collection_manager.stats['valid_groups']:,}\n"
+            f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
+            f"• المجموعات المعالجة: {self.collection_manager.stats['groups_processed']:,}\n"
             f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
             f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
             reply_markup=keyboard
@@ -2815,7 +3402,8 @@ class TelegramBot:
             "تم حفظ جميع الروابط المجمعة.\n\n"
             "**الإحصائيات النهائية:**\n"
             f"• إجمالي الروابط: {self.collection_manager.stats['total_collected']:,}\n"
-            f"• محادثات معالجة: {self.collection_manager.stats['valid_groups']:,}\n"
+            f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
+            f"• مجموعات معالجة: {self.collection_manager.stats['groups_processed']:,}\n"
             f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
             f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
             reply_markup=keyboard
@@ -2826,13 +3414,14 @@ class TelegramBot:
         status = self.collection_manager.get_status()
         
         status_text = (
-            f"**📊 حالة الجمع الحقيقية**\n\n"
+            f"**📊 حالة الجمع مع التصفية**\n\n"
             f"**الحالة:** {'🔄 نشط - جمع حقيقي' if status['active'] else '🛑 متوقف'}\n"
             f"**الإيقاف المؤقت:** {'⏸️ نعم' if status['paused'] else '▶️ لا'}\n"
             f"**طلب الإيقاف:** {'✅ نعم' if status['stop_requested'] else '❌ لا'}\n\n"
-            f"**الإحصائيات الحقيقية:**\n"
+            f"**الإحصائيات مع التصفية:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
-            f"• المحادثات المعالجة: {status['stats']['valid_groups']:,}\n"
+            f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• تيليجرام: {status['stats']['telegram']:,}\n"
             f"• واتساب: {status['stats']['whatsapp']:,}\n"
             f"• الأخطاء: {status['stats']['errors']:,}\n"
@@ -2840,43 +3429,29 @@ class TelegramBot:
             f"• آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}"
         )
         
+        if status['stats']['filter_reasons']:
+            status_text += "\n\n**أسباب التصفية:**\n"
+            for reason, count in status['stats']['filter_reasons'].items():
+                status_text += f"• {reason}: {count:,}\n"
+        
         await self._edit_message_safe(query, status_text)
     
-    async def _handle_collect_settings(self, query):
-        """Handle collect settings"""
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 العودة", callback_data="manage_collect")]
-        ])
+    async def _handle_quick_collect(self, query):
+        """Handle quick collect"""
+        from_user = query.from_user
         
-        settings_text = (
-            f"**⚙️ إعدادات الجمع الحقيقي**\n\n"
-            f"**الإعدادات الحالية:**\n"
-            f"• الحد الأقصى للجلسات: {Config.MAX_CONCURRENT_SESSIONS}\n"
-            f"• الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}\n"
-            f"• الرسائل لكل بحث: {Config.MAX_MESSAGES_PER_SEARCH}\n"
-            f"• الرسائل في الجمع العميق: {Config.MAX_DEEP_MESSAGES}\n\n"
-            f"**إعدادات التصفية:**\n"
-            f"• جمع جميع المحادثات: {'✅ نعم'}\n"
-            f"• الجمع العميق: {'✅ مفعل' if Config.ENABLE_DEEP_COLLECTION else '❌ معطل'}\n\n"
-            f"**المجمع:**\n"
-            f"• تيليجرام: ✅ بدون قيود زمنية\n"
-            f"• واتساب: ✅ آخر {Config.WHATSAPP_DAYS_BACK} يوماً\n"
-            f"• منصات أخرى: ❌ لا يتم جمعها\n\n"
-            f"**الروابط المصفاة تلقائياً:**\n"
-            f"• روابط البوتات → ❌ يتم تصفيتها\n"
-            f"• روابط الرسائل → ❌ يتم تصفيتها\n"
-            f"• روابط تحتوي على أرقام هواتف → ❌ يتم تصفيتها\n"
-            f"• روابط المجموعات والقنوات → ✅ يتم جمعها"
-        )
+        class MockUpdate:
+            def __init__(self, query):
+                self.effective_user = query.from_user
+                self.message = query.message
         
-        await self._edit_message_safe(query, settings_text, reply_markup=keyboard)
+        mock_update = MockUpdate(query)
+        await self.quick_collect_command(mock_update, None)
     
     async def _handle_test_collection(self, query):
         """Handle test collection"""
-        # استخدام الأمر المباشر
         from_user = query.from_user
         
-        # إنشاء كائن Update وهمي
         class MockUpdate:
             def __init__(self, query):
                 self.effective_user = query.from_user
@@ -2898,7 +3473,7 @@ class TelegramBot:
             f"• الجلسة ستخزن مشفرة\n"
             f"• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة\n"
             f"• الجلسة يجب أن تكون نشطة\n"
-            f"• تستخدم فقط لجمع الروابط من المحادثات"
+            f"• تستخدم فقط لجمع الروابط المستهدفة مع التصفية"
         )
         
         await self._edit_message_safe(query, add_text)
@@ -2936,22 +3511,28 @@ class TelegramBot:
         db_stats = await db.get_stats_summary()
         
         stats_text = (
-            f"**📈 إحصائيات النظام الحقيقية**\n\n"
+            f"**📈 إحصائيات النظام مع التصفية**\n\n"
             f"**إحصائيات قاعدة البيانات:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
-            f"• ✅ المجموعات الصالحة: {db_stats.get('valid_groups', 0):,}\n"
+            f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
-            f"• نسبة الصلاحية: {(db_stats.get('valid_groups', 0)/db_stats.get('total_links', 1)*100 if db_stats.get('total_links', 0) > 0 else 0):.1f}%\n\n"
-            f"**توزيع المنصات (روابط نظيفة فقط):**\n"
+            f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
+            f"• نسبة النمو: {((db_stats.get('today_links', 0)/db_stats.get('total_links', 1))*100 if db_stats.get('total_links', 0) > 0 else 0):.1f}%\n\n"
+            f"**توزيع المنصات:**\n"
         )
         
         for platform, count in db_stats.get('links_by_platform', {}).items():
             stats_text += f"• {platform}: {count:,}\n"
         
+        if 'filtered_links' in db_stats and db_stats['filtered_links']:
+            stats_text += "\n**الروابط المصفاة:**\n"
+            for reason, count in db_stats['filtered_links'].items():
+                stats_text += f"• {reason}: {count:,}\n"
+        
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="show_stats"),
-             InlineKeyboardButton("📊 إحصائيات الجمع", callback_data="collect_status")]
+             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")]
         ])
         
         await self._edit_message_safe(query, stats_text, reply_markup=keyboard)
@@ -2964,13 +3545,14 @@ class TelegramBot:
         if total_links == 0:
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect"),
-                 InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")]
+                 InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect")]
             ])
             await self._edit_message_safe(
                 query,
                 "❌ **لا توجد روابط صالحة للتصدير**\n\n"
                 "يمكنك البدء في جمع الروابط باستخدام:\n"
                 "• /collect - بدء الجمع الحقيقي\n"
+                "• /quick_collect - جمع سريع من 5 مجموعات\n"
                 "• /test_collect - اختبار الجمع على مجموعة",
                 reply_markup=keyboard
             )
@@ -2979,14 +3561,16 @@ class TelegramBot:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 تيليجرام فقط", callback_data="export_telegram"),
              InlineKeyboardButton("📱 واتساب فقط", callback_data="export_whatsapp")],
+            [InlineKeyboardButton("🎯 روابط الانضمام", callback_data="export_join_links"),
+             InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
             [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
         ])
         
         export_text = (
-            f"**📤 تصدير الروابط الصالحة**\n\n"
-            f"إجمالي الروابط الصالحة: **{total_links:,}**\n\n"
+            f"**📤 تصدير الروابط بعد التصفية**\n\n"
+            f"إجمالي الروابط المجمعة: **{total_links:,}**\n\n"
             f"اختر تنسيق التصدير:"
         )
         
@@ -3018,7 +3602,7 @@ class TelegramBot:
                 await query.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📢 روابط تيليجرام (روابط نظيفة)\nعدد الروابط: {len(links):,}"
+                    caption=f"📢 روابط تيليجرام\nعدد الروابط: {len(links):,}"
                 )
             
             # حذف الملف المحلي
@@ -3059,7 +3643,7 @@ class TelegramBot:
                 await query.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📱 روابط واتساب (روابط نظيفة)\nعدد الروابط: {len(links):,}"
+                    caption=f"📱 روابط واتساب\nعدد الروابط: {len(links):,}"
                 )
             
             # حذف الملف المحلي
@@ -3122,12 +3706,9 @@ class TelegramBot:
         try:
             db = await EnhancedDatabaseManager.get_instance()
             cursor = await db.conn.execute('''
-                SELECT url, platform, members_count, collected_date 
+                SELECT url, platform, members_count, has_members, collected_date, group_name
                 FROM links 
-                WHERE platform IN ('telegram', 'whatsapp')
-                AND is_bot_link = 0 
-                AND is_message_link = 0 
-                AND is_phone_link = 0
+                WHERE platform IN ('telegram', 'whatsapp') AND is_valid_group = 1
                 LIMIT ?
             ''', (Config.MAX_EXPORT_LINKS,))
             
@@ -3143,17 +3724,18 @@ class TelegramBot:
             os.makedirs("exports", exist_ok=True)
             
             with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("URL,Platform,Members,Date\n")
+                f.write("URL,Platform,Members,HasMembers,Date,Group\n")
                 for row in rows:
-                    url, platform, members, date = row
-                    f.write(f'"{url}","{platform}",{members},"{date}"\n')
+                    url, platform, members, has_members, date, group = row
+                    members_status = "Yes" if has_members else "No"
+                    f.write(f'"{url}","{platform}",{members},"{members_status}","{date}","{group or ""}"\n')
             
             # إرسال الملف
             with open(filepath, 'rb') as f:
                 await query.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📊 ملف CSV (روابط نظيفة)\nعدد السجلات: {len(rows):,}"
+                    caption=f"📊 ملف CSV\nعدد السجلات: {len(rows):,}"
                 )
             
             # حذف الملف المحلي
@@ -3170,21 +3752,61 @@ class TelegramBot:
     
     async def _handle_export_test(self, query):
         """Handle export test links"""
-        await self._handle_export_all(query)
-    
-    async def _handle_export_valid(self, query):
-        """Handle export valid groups only"""
-        await self._handle_export_all(query)
+        await self._edit_message_safe(query, "⏳ جاري تحضير روابط الاختبار...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url FROM links 
+                WHERE source LIKE '%test%' OR source LIKE '%sample%'
+                ORDER BY collected_date DESC 
+                LIMIT 100
+            ''')
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد روابط اختبار للتصدير")
+                return
+            
+            links = [row[0] for row in rows]
+            
+            # حفظ في ملف نصي
+            filename = f"test_links_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"🧪 روابط الاختبار\nعدد الروابط: {len(links):,}"
+                )
+            
+            # حذف الملف المحلي
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط اختبار")
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير الاختبار: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
     async def _handle_create_backup(self, query):
         """Handle create backup"""
         await self._edit_message_safe(query, "⏳ جاري إنشاء نسخة احتياطية...")
         
         try:
-            # إنشاء مجلد النسخ الاحتياطية
             os.makedirs("backups", exist_ok=True)
             
-            # نسخ قاعدة البيانات
             if not os.path.exists(Config.DB_PATH):
                 await self._edit_message_safe(query, "❌ قاعدة البيانات غير موجودة")
                 return
@@ -3195,7 +3817,6 @@ class TelegramBot:
             
             shutil.copy2(Config.DB_PATH, backup_path)
             
-            # إنشاء ملف وصف
             metadata = {
                 'backup_id': hashlib.md5(timestamp.encode()).hexdigest(),
                 'timestamp': timestamp,
@@ -3294,7 +3915,6 @@ class TelegramBot:
                 for backup in to_delete:
                     try:
                         os.remove(backup['path'])
-                        # حذف ملف الوصف المرافق
                         json_path = backup['path'].replace('.db', '.json')
                         if os.path.exists(json_path):
                             os.remove(json_path)
@@ -3309,7 +3929,8 @@ class TelegramBot:
     
     async def _handle_refresh_status(self, query):
         """Handle refresh status"""
-        # استخدام الأمر المباشر
+        from_user = query.from_user
+        
         class MockUpdate:
             def __init__(self, query):
                 self.effective_user = query.from_user
@@ -3320,7 +3941,8 @@ class TelegramBot:
     
     async def _handle_refresh_sessions(self, query):
         """Handle refresh sessions"""
-        # استخدام الأمر المباشر
+        from_user = query.from_user
+        
         class MockUpdate:
             def __init__(self, query):
                 self.effective_user = query.from_user
@@ -3332,7 +3954,7 @@ class TelegramBot:
     async def _handle_show_settings(self, query):
         """Handle show settings"""
         settings_text = (
-            f"**⚙️ إعدادات النظام الحقيقي**\n\n"
+            f"**⚙️ إعدادات النظام مع التصفية**\n\n"
             f"**إعدادات الأمان:**\n"
             f"• المدراء: {len(Config.ADMIN_USER_IDS)}\n"
             f"• المستخدمون المسموحون: {len(Config.ALLOWED_USER_IDS)}\n"
@@ -3340,33 +3962,27 @@ class TelegramBot:
             f"**إعدادات الأداء:**\n"
             f"• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}\n"
             f"• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB\n\n"
+            f"**إعدادات التصفية:**\n"
+            f"• تصفية البوتات: {'✅ مفعل' if Config.FILTER_BOT_LINKS else '❌ معطل'}\n"
+            f"• تصفية الرسائل: {'✅ مفعل' if Config.FILTER_MESSAGE_LINKS else '❌ معطل'}\n"
+            f"• تصفية الأرقام: {'✅ مفعل' if Config.FILTER_PHONE_NUMBER_LINKS else '❌ معطل'}\n"
+            f"• تصفية المشتركين: {'✅ مفعل' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌ معطل'}\n"
+            f"• تصفية الميتة: {'✅ مفعل' if Config.FILTER_DEAD_LINKS else '❌ معطل'}\n\n"
+            f"**إعدادات الهدف:**\n"
+            f"• روابط الانضمام: {'✅ مفعل' if Config.TARGET_JOIN_REQUESTS else '❌ معطل'}\n"
+            f"• مجموعات الأعضاء: {'✅ مفعل' if Config.TARGET_MEMBERS_GROUPS else '❌ معطل'}\n\n"
             f"**إعدادات قاعدة البيانات:**\n"
             f"• المسار: {Config.DB_PATH}\n"
             f"• النسخ الاحتياطي: {'✅ مفعل' if Config.BACKUP_ENABLED else '❌ معطل'}\n"
             f"• عدد النسخ: {Config.MAX_BACKUPS}\n\n"
-            f"**إعدادات الجمع الحقيقي:**\n"
-            f"• جمع جميع المحادثات: {'✅ نعم'}\n"
-            f"• الرسائل في الجمع العميق: {Config.MAX_DEEP_MESSAGES}\n"
+            f"**إعدادات الجمع:**\n"
+            f"• الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}\n"
+            f"• الجمع من جميع المجموعات: {'✅ نعم'}\n"
             f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم\n"
-            f"• تيليجرام: بدون قيود زمنية\n\n"
-            f"**الروابط المصفاة تلقائياً:**\n"
-            f"• روابط البوتات: ❌ يتم تصفيتها\n"
-            f"• روابط الرسائل: ❌ يتم تصفيتها\n"
-            f"• روابط تحتوي على أرقام هواتف: ❌ يتم تصفيتها"
+            f"• تيليجرام: بدون قيود زمنية"
         )
         
         await self._edit_message_safe(query, settings_text)
-    
-    async def _handle_manage_collect(self, query):
-        """Handle manage collect"""
-        # استخدام الأمر المباشر
-        class MockUpdate:
-            def __init__(self, query):
-                self.effective_user = query.from_user
-                self.message = query.message
-        
-        mock_update = MockUpdate(query)
-        await self.collect_command(mock_update, None)
     
     async def _handle_delete_session(self, query):
         """Handle delete session"""
@@ -3405,7 +4021,6 @@ class TelegramBot:
             
             db = await EnhancedDatabaseManager.get_instance()
             
-            # الحصول على معلومات الجلسة
             cursor = await db.conn.execute(
                 'SELECT display_name FROM sessions WHERE id = ?',
                 (session_id,)
@@ -3416,7 +4031,6 @@ class TelegramBot:
                 await self._edit_message_safe(query, "❌ الجلسة غير موجودة")
                 return
             
-            # حذف الجلسة
             await db.conn.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
             await db.conn.commit()
             
@@ -3457,8 +4071,10 @@ class TelegramBot:
                 "/start - بدء البوت\n"
                 "/help - المساعدة\n"
                 "/status - حالة النظام\n"
-                "/test_collect - اختبار الجمع\n"
-                "/force_collect - بدء جمع فوري\n"
+                "/filter_stats - إحصائيات التصفية\n"
+                "/test_collect - اختبار الجمع مع التصفية\n"
+                "/quick_collect - جمع سريع من 5 مجموعات\n"
+                "/force_collect - بدء جمع فوري مع التصفية\n"
                 "أو استخدم الأزرار من رسالة الترحيب."
             )
     
@@ -3496,7 +4112,7 @@ class TelegramBot:
             'metadata': {
                 'validated_at': datetime.now().isoformat(),
                 'original_length': len(session_string),
-                'purpose': 'real_group_collection'
+                'purpose': 'real_group_collection_with_filtering'
             }
         }
         
@@ -3517,12 +4133,12 @@ class TelegramBot:
                 f"• الهاتف: {session_data['phone_number']}\n\n"
                 f"**الجلسة:**\n"
                 f"• مشفرة ومخزنة بأمان\n"
-                f"• جاهزة للجمع الحقيقي\n"
+                f"• جاهزة للجمع مع التصفية\n"
                 f"• رقم الجلسة: {details.get('session_id')}\n\n"
                 f"**ملاحظة:**\n"
-                f"هذه الجلسة ستستخدم فقط لجمع الروابط\n"
-                f"من جميع المحادثات (تيليجرام + واتساب)\n"
-                f"سيتم تصفية الروابط غير المرغوب فيها تلقائياً",
+                f"هذه الجلسة ستستخدم فقط لجمع الروابط المستهدفة\n"
+                f"مع تصفية 5 أنواع من الروابط غير المرغوبة\n"
+                f"التركيز على روابط الانضمام والمجموعات ذات الأعضاء",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
@@ -3536,7 +4152,6 @@ class TelegramBot:
             
             logger.error(f"خطأ غير معالج: {error}", exc_info=True)
             
-            # معالجة خطأ Conflict (نسخة مزدوجة)
             if isinstance(error, Conflict):
                 logger.error("⚠️ تم اكتشاف نسخة أخرى من البوت تعمل!")
                 
@@ -3652,48 +4267,6 @@ class HealthCheckServer:
             logger.info("إيقاف خادم فحص الصحة")
 
 # ======================
-# Backup Manager - مدير النسخ الاحتياطي
-# ======================
-
-class BackupManager:
-    """Backup manager"""
-    
-    @staticmethod
-    async def create_backup() -> Optional[Dict]:
-        """Create database backup"""
-        if not Config.BACKUP_ENABLED:
-            return None
-        
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_dir = "backups"
-            backup_filename = f"backup_{timestamp}.db"
-            backup_path = os.path.join(backup_dir, backup_filename)
-            
-            os.makedirs(backup_dir, exist_ok=True)
-            
-            if not os.path.exists(Config.DB_PATH):
-                return None
-            
-            shutil.copy2(Config.DB_PATH, backup_path)
-            
-            metadata = {
-                'backup_id': hashlib.md5(timestamp.encode()).hexdigest(),
-                'timestamp': timestamp,
-                'created_at': datetime.now().isoformat(),
-                'file_path': backup_path,
-                'size_bytes': os.path.getsize(backup_path)
-            }
-            
-            logger.info(f"تم إنشاء نسخة احتياطية: {backup_path}")
-            
-            return metadata
-            
-        except Exception as e:
-            logger.error(f"خطأ في إنشاء نسخة احتياطية: {e}")
-            return None
-
-# ======================
 # Main Function - الوظيفة الرئيسية
 # ======================
 
@@ -3731,13 +4304,13 @@ async def main():
         # إنشاء البوت
         bot = TelegramBot()
         
-        logger.info("🤖 بدء تشغيل بوت جمع الروابط الحقيقي...")
-        logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المحادثات")
-        logger.info(f"📢 المنصات: تيليجرام وواتساب فقط")
-        logger.info(f"🚫 التصفية: تلقائية للبوتات والرسائل والأرقام")
-        logger.info(f"⚙️ جمع جميع المحادثات: نعم")
-        logger.info(f"⚙️ واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم")
-        logger.info(f"⚙️ تيليجرام: بدون قيود زمنية")
+        logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
+        logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
+        logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
+        logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
+        logger.info(f"⚡ الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}")
+        logger.info(f"⚡ الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}")
+        logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
         
         try:
             # تشغيل البوت
@@ -3746,7 +4319,7 @@ async def main():
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
-            logger.info("📋 الأوامر المتاحة: /start, /test_collect, /collect, /status, /stats, /export")
+            logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
             
             # الحفاظ على البوت يعمل
             stop_event = asyncio.Event()
