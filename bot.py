@@ -206,6 +206,10 @@ class Config:
     # Target links - الروابط المستهدفة
     TARGET_JOIN_REQUESTS = True  # جمع روابط الانضمام فقط
     TARGET_MEMBERS_GROUPS = True  # جمع المجموعات التي تحتوي على "أعضاء"
+    
+    # Duplicate prevention - منع التكرار
+    ENABLE_DUPLICATE_PREVENTION = True  # تمكين منع تكرار الروابط
+    DUPLICATE_CHECK_METHOD = 'hash'  # طريقة التحقق: 'hash' أو 'url'
 
 # Setup logging
 logging.basicConfig(
@@ -256,11 +260,11 @@ class SingleInstanceManager:
         return self._is_running
 
 # ======================
-# Enhanced Link Processor - معالج الروابط المحسن مع الفلترة
+# Enhanced Link Processor - معالج الروابط المحسن مع الفلترة ومنع التكرار
 # ======================
 
 class EnhancedLinkProcessor:
-    """Advanced link processing with improved Telegram detection and filtering"""
+    """Advanced link processing with improved Telegram detection, filtering and duplicate prevention"""
     
     TRACKING_PARAMS = [
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
@@ -273,6 +277,19 @@ class EnhancedLinkProcessor:
         't.me', 'telegram.me', 'telegram.dog',
         'chat.whatsapp.com', 'whatsapp.com'
     ]
+    
+    @staticmethod
+    def generate_url_hash(url: str) -> str:
+        """Generate unique hash for URL to prevent duplicates"""
+        if not url:
+            return ""
+        
+        # تطبيع الرابط أولاً
+        normalized_url = EnhancedLinkProcessor.normalize_url(url)
+        
+        # إنشاء hash من الرابط المطبيع
+        url_hash = hashlib.md5(normalized_url.encode()).hexdigest()
+        return url_hash
     
     @staticmethod
     def normalize_url(url: str, aggressive: bool = False) -> str:
@@ -445,19 +462,20 @@ class EnhancedLinkProcessor:
     
     @staticmethod
     def extract_url_info(url: str) -> Dict:
-        """Extract comprehensive information from URL"""
+        """Extract comprehensive information from URL with duplicate prevention"""
         normalized_url = EnhancedLinkProcessor.normalize_url(url)
+        url_hash = EnhancedLinkProcessor.generate_url_hash(normalized_url)
         
         result = {
             'original_url': url,
             'normalized_url': normalized_url,
+            'url_hash': url_hash,
             'platform': 'unknown',
-            'url_hash': hashlib.md5(normalized_url.encode()).hexdigest() if normalized_url else '',
             'is_valid': False,
             'details': {}
         }
         
-        if not normalized_url:
+        if not normalized_url or not url_hash:
             return result
         
         try:
@@ -640,11 +658,11 @@ class EnhancedLinkProcessor:
         }
 
 # ======================
-# Enhanced Database Manager - مدير قاعدة البيانات المحسن
+# Enhanced Database Manager - مدير قاعدة البيانات المحسن مع منع التكرار
 # ======================
 
 class EnhancedDatabaseManager:
-    """Advanced database management"""
+    """Advanced database management with duplicate prevention"""
     
     _instance = None
     _lock = asyncio.Lock()
@@ -683,7 +701,7 @@ class EnhancedDatabaseManager:
         logger.info(f"✅ تم تهيئة قاعدة البيانات بنجاح: {self.db_path}")
     
     async def _create_tables(self):
-        """Create database tables"""
+        """Create database tables with duplicate prevention"""
         # جدول الجلسات
         await self.conn.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
@@ -708,7 +726,7 @@ class EnhancedDatabaseManager:
             )
         ''')
         
-        # جدول الروابط
+        # جدول الروابط مع منع التكرار
         await self.conn.execute('''
             CREATE TABLE IF NOT EXISTS links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -725,6 +743,9 @@ class EnhancedDatabaseManager:
                 collected_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_checked TIMESTAMP,
                 check_count INTEGER DEFAULT 0,
+                is_duplicate BOOLEAN DEFAULT 0,
+                duplicate_of INTEGER,
+                duplicate_count INTEGER DEFAULT 0,
                 confidence TEXT DEFAULT 'medium',
                 is_active BOOLEAN DEFAULT 1,
                 requires_join BOOLEAN DEFAULT 0,
@@ -794,7 +815,7 @@ class EnhancedDatabaseManager:
         await self._create_indexes()
     
     async def _create_indexes(self):
-        """Create database indexes"""
+        """Create database indexes for duplicate prevention"""
         indexes = [
             'CREATE INDEX IF NOT EXISTS idx_links_url_hash ON links(url_hash)',
             'CREATE INDEX IF NOT EXISTS idx_links_platform ON links(platform)',
@@ -808,7 +829,10 @@ class EnhancedDatabaseManager:
             'CREATE INDEX IF NOT EXISTS idx_links_group_name ON links(group_name)',
             'CREATE INDEX IF NOT EXISTS idx_links_has_members ON links(has_members)',
             'CREATE INDEX IF NOT EXISTS idx_links_filter_reason ON links(filter_reason)',
-            'CREATE INDEX IF NOT EXISTS idx_links_whatsapp_code ON links(whatsapp_code)'
+            'CREATE INDEX IF NOT EXISTS idx_links_whatsapp_code ON links(whatsapp_code)',
+            'CREATE INDEX IF NOT EXISTS idx_links_is_duplicate ON links(is_duplicate)',
+            'CREATE INDEX IF NOT EXISTS idx_links_duplicate_count ON links(duplicate_count)',
+            'CREATE INDEX IF NOT EXISTS idx_links_url ON links(url)'
         ]
         
         for index_sql in indexes:
@@ -820,7 +844,7 @@ class EnhancedDatabaseManager:
         await self.conn.commit()
     
     async def add_link(self, link_info: Dict) -> Tuple[bool, str, Dict]:
-        """Add link to database"""
+        """Add link to database with advanced duplicate prevention"""
         try:
             url = link_info.get('url', '')
             url_info = EnhancedLinkProcessor.extract_url_info(url)
@@ -861,19 +885,22 @@ class EnhancedDatabaseManager:
                 url_to_store = url_info['normalized_url']
                 whatsapp_code = ''
             
-            # التحقق من التكرار
+            # 🔧 التحقق من التكرار باستخدام url_hash
             cursor = await self.conn.execute(
-                'SELECT id FROM links WHERE url_hash = ?',
+                'SELECT id, url, collected_date, duplicate_count FROM links WHERE url_hash = ?',
                 (url_info['url_hash'],)
             )
             existing = await cursor.fetchone()
             
             if existing:
-                # تحديث الرابط الموجود
+                link_id, existing_url, collected_date, duplicate_count = existing
+                
+                # تحديث الرابط الموجود وإحصاء التكرار
                 await self.conn.execute('''
                     UPDATE links SET 
                     last_checked = CURRENT_TIMESTAMP,
                     check_count = check_count + 1,
+                    duplicate_count = duplicate_count + 1,
                     is_active = ?,
                     members_count = ?,
                     validation_score = ?,
@@ -888,12 +915,38 @@ class EnhancedDatabaseManager:
                     link_info.get('has_members', False),
                     link_info.get('has_subscribers', False),
                     whatsapp_code,
-                    existing[0]
+                    link_id
                 ))
+                
                 await self.conn.commit()
-                return False, "تم تحديث الرابط الموجود", {'link_id': existing[0]}
+                
+                logger.info(f"⏭️ تم تحديث الرابط المكرر: {url[:50]}... (التكرار رقم {duplicate_count + 1})")
+                return False, f"تم تحديث الرابط المكرر (التكرار رقم {duplicate_count + 1})", {'link_id': link_id, 'is_duplicate': True}
             
-            # إعداد بيانات الرابط
+            # 🔧 التحقق الإضافي باستخدام URL المطبيع (كإجراء احتياطي)
+            if Config.DUPLICATE_CHECK_METHOD == 'url':
+                cursor = await self.conn.execute(
+                    'SELECT id FROM links WHERE url = ?',
+                    (url_to_store,)
+                )
+                existing_by_url = await cursor.fetchone()
+                
+                if existing_by_url:
+                    # تحديث الرابط الموجود
+                    await self.conn.execute('''
+                        UPDATE links SET 
+                        last_checked = CURRENT_TIMESTAMP,
+                        check_count = check_count + 1,
+                        duplicate_count = duplicate_count + 1
+                        WHERE id = ?
+                    ''', (existing_by_url[0],))
+                    
+                    await self.conn.commit()
+                    
+                    logger.info(f"⏭️ تم تحديث الرابط المكرر (بالـURL): {url[:50]}...")
+                    return False, "تم تحديث الرابط المكرر", {'link_id': existing_by_url[0], 'is_duplicate': True}
+            
+            # 📌 إضافة الرابط الجديد
             cursor = await self.conn.execute('''
                 INSERT INTO links 
                 (url_hash, url, original_url, platform, link_type, telegram_type, title, 
@@ -956,7 +1009,7 @@ class EnhancedDatabaseManager:
             
             await self.conn.commit()
             
-            logger.info(f"✅ تمت إضافة رابط جديد: {url[:50]}...")
+            logger.info(f"✅ تمت إضافة رابط جديد: {url[:50]}... (Hash: {url_info['url_hash'][:8]})")
             
             return True, "تمت إضافة الرابط بنجاح", {
                 'link_id': link_id,
@@ -1020,6 +1073,84 @@ class EnhancedDatabaseManager:
         except Exception as e:
             logger.error(f"خطأ في إضافة الجلسة: {e}")
             return False, f"خطأ في الإضافة: {str(e)[:100]}", {}
+    
+    async def check_duplicate(self, url: str) -> Tuple[bool, Optional[int]]:
+        """Check if URL already exists in database"""
+        try:
+            url_info = EnhancedLinkProcessor.extract_url_info(url)
+            
+            if not url_info['is_valid']:
+                return False, None
+            
+            # التحقق باستخدام url_hash (الطريقة الأساسية)
+            cursor = await self.conn.execute(
+                'SELECT id FROM links WHERE url_hash = ?',
+                (url_info['url_hash'],)
+            )
+            existing = await cursor.fetchone()
+            
+            if existing:
+                return True, existing[0]
+            
+            # التحقق باستخدام URL المطبيع (كإجراء احتياطي)
+            normalized_url = url_info['normalized_url']
+            cursor = await self.conn.execute(
+                'SELECT id FROM links WHERE url = ?',
+                (normalized_url,)
+            )
+            existing_by_url = await cursor.fetchone()
+            
+            if existing_by_url:
+                return True, existing_by_url[0]
+            
+            return False, None
+            
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من التكرار: {e}")
+            return False, None
+    
+    async def get_duplicate_stats(self) -> Dict:
+        """Get duplicate statistics"""
+        try:
+            stats = {}
+            
+            # إجمالي الروابط المكررة
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE is_duplicate = 1")
+            stats['total_duplicates'] = (await cursor.fetchone())[0]
+            
+            # الروابط مع عدد التكرارات
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE duplicate_count > 0")
+            stats['links_with_duplicates'] = (await cursor.fetchone())[0]
+            
+            # إجمالي عدد التكرارات
+            cursor = await self.conn.execute("SELECT SUM(duplicate_count) FROM links WHERE duplicate_count > 0")
+            total_duplicate_count = (await cursor.fetchone())[0]
+            stats['total_duplicate_occurrences'] = total_duplicate_count or 0
+            
+            # أعلى الروابط تكراراً
+            cursor = await self.conn.execute('''
+                SELECT url, duplicate_count 
+                FROM links 
+                WHERE duplicate_count > 0 
+                ORDER BY duplicate_count DESC 
+                LIMIT 5
+            ''')
+            stats['most_duplicated'] = await cursor.fetchall()
+            
+            # نسبة التكرار
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE platform IN ('telegram', 'whatsapp')")
+            total_links = (await cursor.fetchone())[0]
+            
+            if total_links > 0:
+                stats['duplicate_percentage'] = (stats['total_duplicates'] / total_links) * 100
+            else:
+                stats['duplicate_percentage'] = 0
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"خطأ في الحصول على إحصائيات التكرار: {e}")
+            return {}
     
     async def update_user_stats(self, user_id: int, action: str, value: int = 1):
         """Update user statistics"""
@@ -1149,7 +1280,7 @@ class EnhancedDatabaseManager:
             return 0
     
     async def get_stats_summary(self) -> Dict:
-        """Get database statistics summary"""
+        """Get database statistics summary with duplicate stats"""
         try:
             stats = {}
             
@@ -1185,6 +1316,10 @@ class EnhancedDatabaseManager:
             cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE has_members = 1 AND platform IN ('telegram', 'whatsapp')")
             stats['groups_with_members'] = (await cursor.fetchone())[0]
             
+            # إحصائيات التكرار
+            duplicate_stats = await self.get_duplicate_stats()
+            stats.update(duplicate_stats)
+            
             return stats
             
         except Exception as e:
@@ -1213,6 +1348,9 @@ class EnhancedDatabaseManager:
                 
                 if filters.get('only_members'):
                     where_clauses.append("has_members = 1")
+                
+                if filters.get('exclude_duplicates'):
+                    where_clauses.append("is_duplicate = 0")
                 
                 if where_clauses:
                     query += " AND " + " AND ".join(where_clauses)
@@ -1544,7 +1682,7 @@ class AdvancedGroupValidator:
     
     @staticmethod
     async def extract_group_links(client: TelegramClient, entity, max_messages: int = 150) -> List[Dict]:
-        """Extract group links from entity messages with metadata and filtering"""
+        """Extract group links from entity messages with metadata, filtering and duplicate prevention"""
         links = []
         
         try:
@@ -1612,13 +1750,16 @@ class AdvancedGroupValidator:
             
             logger.info(f"✅ تمت معالجة {message_count} رسالة في مجموعة {group_info['title']}")
             
-            # إزالة التكرارات
+            # إزالة التكرارات من القائمة الحالية
             unique_links = []
-            seen = set()
+            seen_hashes = set()
             for link_data in links:
                 url = link_data['url']
-                if url not in seen:
-                    seen.add(url)
+                url_hash = EnhancedLinkProcessor.generate_url_hash(url)
+                
+                if url_hash not in seen_hashes:
+                    seen_hashes.add(url_hash)
+                    link_data['url_hash'] = url_hash  # إضافة hash إلى بيانات الرابط
                     unique_links.append(link_data)
             
             logger.info(f"✅ تم استخراج {len(unique_links)} رابط فريد من مجموعة {group_info['title']}")
@@ -1694,11 +1835,11 @@ class AdvancedGroupValidator:
         return filtered_links
 
 # ======================
-# Real Collection Manager - مدير الجمع الحقيقي مع التصفية
+# Real Collection Manager - مدير الجمع الحقيقي مع التصفية ومنع التكرار
 # ======================
 
 class RealCollectionManager:
-    """Manage real link collection from Telegram groups with filtering"""
+    """Manage real link collection from Telegram groups with filtering and duplicate prevention"""
     
     def __init__(self):
         self.active = False
@@ -1714,6 +1855,7 @@ class RealCollectionManager:
             'errors': 0,
             'sessions_used': 0,
             'filtered_links': 0,
+            'duplicates_skipped': 0,  # إضافة إحصائية جديدة
             'filter_reasons': defaultdict(int),
             'last_collection_time': None,
             'current_session': None,
@@ -1721,6 +1863,10 @@ class RealCollectionManager:
         }
         self.collection_task = None
         self.last_progress_update = datetime.now()
+        
+        # ذاكرة مؤقتة للروابط المجمعة حديثاً لمنع التكرار في نفس الدورة
+        self.recent_links_cache = set()
+        self.max_cache_size = 10000
     
     async def start_collection(self):
         """Start collection process"""
@@ -1730,8 +1876,9 @@ class RealCollectionManager:
         self.active = True
         self.paused = False
         self.stop_requested = False
+        self.recent_links_cache.clear()  # مسح الذاكرة المؤقتة عند البدء
         
-        logger.info("🚀 بدء عملية الجمع الحقيقية مع التصفية المتقدمة...")
+        logger.info("🚀 بدء عملية الجمع الحقيقية مع التصفية المتقدمة ومنع التكرار...")
         
         # بدء مهمة الجمع في الخلفية
         self.collection_task = asyncio.create_task(self._collection_loop())
@@ -1783,18 +1930,22 @@ class RealCollectionManager:
             successful = sum(1 for r in results if not isinstance(r, Exception))
             total_collected = sum(r.get('collected', 0) for r in results if isinstance(r, dict))
             total_filtered = sum(r.get('filtered', 0) for r in results if isinstance(r, dict))
+            total_duplicates = sum(r.get('duplicates_skipped', 0) for r in results if isinstance(r, dict))
             
-            logger.info(f"✅ اكتملت دورة الجمع الجماعي: {successful}/{len(tasks)} جلسات ناجحة - {total_collected} رابط مجمع - {total_filtered} رابط مصفي")
+            logger.info(f"✅ اكتملت دورة الجمع الجماعي: {successful}/{len(tasks)} جلسات ناجحة - {total_collected} رابط مجمع - {total_filtered} رابط مصفي - {total_duplicates} رابط مكرر تم تخطيه")
             
             # حفظ الإحصائيات
             await self._save_stats()
+            
+            # مسح الذاكرة المؤقتة بعد كل دورة
+            self.recent_links_cache.clear()
             
         except Exception as e:
             logger.error(f"خطأ في دورة الجمع الجماعي: {e}")
             self.stats['errors'] += 1
     
     async def _process_session_mass(self, session: Dict):
-        """Process single session with mass collection"""
+        """Process single session with mass collection and duplicate prevention"""
         try:
             session_string = session.get('session_string', '')
             session_id = session.get('id')
@@ -1817,7 +1968,7 @@ class RealCollectionManager:
             logger.info(f"📱 بدء الجمع من جلسة: {session_name}")
             
             # جمع الروابط من جميع المجموعات
-            collected, filtered_count = await self._collect_from_all_groups(client, session_id, session_name)
+            collected, filtered_count, duplicates_skipped = await self._collect_from_all_groups(client, session_id, session_name)
             
             await client.disconnect()
             
@@ -1829,12 +1980,13 @@ class RealCollectionManager:
             )
             await db.conn.commit()
             
-            logger.info(f"✅ انتهى الجمع من جلسة {session_name}: {len(collected)} رابط مجمع - {filtered_count} رابط مصفي")
+            logger.info(f"✅ انتهى الجمع من جلسة {session_name}: {len(collected)} رابط مجمع - {filtered_count} رابط مصفي - {duplicates_skipped} رابط مكرر تم تخطيه")
             
             return {
                 'status': 'success', 
                 'collected': len(collected), 
                 'filtered': filtered_count,
+                'duplicates_skipped': duplicates_skipped,
                 'session': session_name
             }
             
@@ -1843,10 +1995,11 @@ class RealCollectionManager:
             self.stats['errors'] += 1
             return {'status': 'error', 'reason': str(e)}
     
-    async def _collect_from_all_groups(self, client: TelegramClient, session_id: int, session_name: str) -> Tuple[List[Dict], int]:
-        """Collect links from all Telegram groups in session"""
+    async def _collect_from_all_groups(self, client: TelegramClient, session_id: int, session_name: str) -> Tuple[List[Dict], int, int]:
+        """Collect links from all Telegram groups in session with duplicate prevention"""
         collected = []
         filtered_count = 0
+        duplicates_skipped = 0
         groups_processed = 0
         
         try:
@@ -1880,21 +2033,25 @@ class RealCollectionManager:
                         max_messages=Config.MESSAGES_PER_GROUP
                     )
                     
-                    # معالجة الروابط المجمعة
+                    # معالجة الروابط المجمعة مع منع التكرار
                     for link_data in link_data_list:
                         link_info = await self._process_link(link_data, session_id, {'title': self.stats['current_group'], 'members_count': 0})
                         if link_info:
                             collected.append(link_info)
-                        else:
+                        elif link_info is None:
                             filtered_count += 1
+                        else:
+                            # إذا كان link_info == False، فهذا يعني أن الرابط مكرر
+                            duplicates_skipped += 1
                     
                     # تحديث الإحصائيات
                     self.stats['groups_processed'] += 1
                     self.stats['total_processed'] += len(link_data_list)
+                    self.stats['duplicates_skipped'] += duplicates_skipped
                     
                     # إرسال تحديث التقدم كل 5 مجموعات
                     if groups_processed % 5 == 0:
-                        logger.info(f"📈 التقدم: {groups_processed}/{len(all_dialogs)} مجموعة - {len(collected)} رابط مجمع - {filtered_count} رابط مصفي")
+                        logger.info(f"📈 التقدم: {groups_processed}/{len(all_dialogs)} مجموعة - {len(collected)} رابط مجمع - {filtered_count} رابط مصفي - {duplicates_skipped} رابط مكرر تم تخطيه")
                     
                     # تأخير بين المجموعات
                     await asyncio.sleep(Config.REQUEST_DELAYS['between_groups'])
@@ -1903,17 +2060,23 @@ class RealCollectionManager:
                     logger.debug(f"خطأ في جمع الروابط من المجموعة: {e}")
                     continue
             
-            logger.info(f"✅ جلسة {session_name}: تمت معالجة {groups_processed} مجموعة، تم جمع {len(collected)} رابط، تم تصفية {filtered_count} رابط")
+            logger.info(f"✅ جلسة {session_name}: تمت معالجة {groups_processed} مجموعة، تم جمع {len(collected)} رابط، تم تصفية {filtered_count} رابط، تم تخطي {duplicates_skipped} رابط مكرر")
             
         except Exception as e:
             logger.error(f"خطأ في جمع الروابط من جميع المجموعات: {e}")
         
-        return collected, filtered_count
+        return collected, filtered_count, duplicates_skipped
     
     async def _process_link(self, link_data: Dict, session_id: int, group_info: Dict) -> Optional[Dict]:
-        """Process and save a single link"""
+        """Process and save a single link with advanced duplicate prevention"""
         try:
             url = link_data['url']
+            
+            # 🔧 منع التكرار في الذاكرة المؤقتة للدورة الحالية
+            url_hash = EnhancedLinkProcessor.generate_url_hash(url)
+            if url_hash in self.recent_links_cache:
+                logger.debug(f"⏭️ تم تخطي الرابط المكرر في الذاكرة المؤقتة: {url[:50]}...")
+                return False  # إرجاع False للإشارة إلى أن الرابط مكرر
             
             # التصفية الأولية
             should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url)
@@ -1938,6 +2101,32 @@ class RealCollectionManager:
             if Config.COLLECT_ONLY_GROUPS and details.get('is_subscription'):
                 logger.debug(f"تخطي رابط اشتراك: {url}")
                 return None
+            
+            # 🔧 التحقق من التكرار في قاعدة البيانات
+            db = await EnhancedDatabaseManager.get_instance()
+            is_duplicate, existing_link_id = await db.check_duplicate(url)
+            
+            if is_duplicate:
+                logger.info(f"⏭️ تم تخطي الرابط المكرر من قاعدة البيانات: {url[:50]}... (موجود في الرابط رقم {existing_link_id})")
+                self.stats['duplicates_skipped'] += 1
+                
+                # تحديث الرابط الموجود في قاعدة البيانات
+                await db.conn.execute('''
+                    UPDATE links SET 
+                    last_checked = CURRENT_TIMESTAMP,
+                    duplicate_count = duplicate_count + 1
+                    WHERE id = ?
+                ''', (existing_link_id,))
+                await db.conn.commit()
+                
+                # إضافة إلى الذاكرة المؤقتة لمنع التكرار في نفس الدورة
+                self.recent_links_cache.add(url_hash)
+                if len(self.recent_links_cache) > self.max_cache_size:
+                    # إزالة أقدم العناصر
+                    oldest_items = list(self.recent_links_cache)[:1000]
+                    self.recent_links_cache = set(list(self.recent_links_cache)[1000:])
+                
+                return False  # إرجاع False للإشارة إلى أن الرابط مكرر
             
             # تحديد إذا كان رابط مجموعة صالحة
             is_valid_group = True
@@ -1996,7 +2185,6 @@ class RealCollectionManager:
                 'has_subscribers': False  # لا نقبل المجموعات ذات المشتركين
             }
             
-            db = await EnhancedDatabaseManager.get_instance()
             success, message, details = await db.add_link(link_info)
             
             if success:
@@ -2007,9 +2195,16 @@ class RealCollectionManager:
                 elif platform == 'whatsapp':
                     self.stats['whatsapp'] += 1
                 
+                # إضافة إلى الذاكرة المؤقتة
+                self.recent_links_cache.add(url_hash)
+                if len(self.recent_links_cache) > self.max_cache_size:
+                    # إزالة أقدم العناصر
+                    oldest_items = list(self.recent_links_cache)[:1000]
+                    self.recent_links_cache = set(list(self.recent_links_cache)[1000:])
+                
                 # تسجيل بعض الروابط في اللوج
                 if self.stats['total_collected'] % 50 == 0:
-                    logger.info(f"✅ تم حفظ {self.stats['total_collected']} رابط حتى الآن")
+                    logger.info(f"✅ تم حفظ {self.stats['total_collected']} رابط حتى الآن (تم تخطي {self.stats['duplicates_skipped']} رابط مكرر)")
                 
                 return link_info
             
@@ -2025,6 +2220,10 @@ class RealCollectionManager:
             stats_file = "collection_stats.json"
             stats_data = {
                 'stats': self.stats,
+                'duplicate_prevention': {
+                    'recent_links_cache_size': len(self.recent_links_cache),
+                    'duplicates_skipped': self.stats['duplicates_skipped']
+                },
                 'last_updated': datetime.now().isoformat()
             }
             
@@ -2040,7 +2239,11 @@ class RealCollectionManager:
             'active': self.active,
             'paused': self.paused,
             'stop_requested': self.stop_requested,
-            'stats': self.stats.copy()
+            'stats': self.stats.copy(),
+            'duplicate_prevention': {
+                'recent_links_cache_size': len(self.recent_links_cache),
+                'duplicates_skipped': self.stats['duplicates_skipped']
+            }
         }
     
     async def pause(self):
@@ -2066,6 +2269,7 @@ class RealCollectionManager:
                 logger.warning("مهلة انتظار إيقاف مهمة الجمع")
         
         self.active = False
+        self.recent_links_cache.clear()
 
 # ======================
 # Encryption Manager - مدير التشفير
@@ -2114,11 +2318,11 @@ class EncryptionManager:
             return encrypted_data
 
 # ======================
-# Telegram Bot - بوت تليجرام مع التحسينات
+# Telegram Bot - بوت تليجرام مع التحسينات ومنع التكرار
 # ======================
 
 class TelegramBot:
-    """Main Telegram bot with enhanced filtering"""
+    """Main Telegram bot with enhanced filtering and duplicate prevention"""
     
     def __init__(self):
         self.app = ApplicationBuilder().token(Config.BOT_TOKEN).build()
@@ -2144,6 +2348,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("force_collect", self.force_collect_command))
         self.app.add_handler(CommandHandler("quick_collect", self.quick_collect_command))
         self.app.add_handler(CommandHandler("filter_stats", self.filter_stats_command))
+        self.app.add_handler(CommandHandler("duplicate_stats", self.duplicate_stats_command))
         
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         
@@ -2181,7 +2386,8 @@ class TelegramBot:
             [InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_links"),
              InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
             [InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection"),
-             InlineKeyboardButton("⚙️ إحصائيات التصفية", callback_data="filter_stats")]
+             InlineKeyboardButton("⚙️ إحصائيات التصفية", callback_data="filter_stats")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
         ])
         
         welcome_text = (
@@ -2189,6 +2395,7 @@ class TelegramBot:
             "**بوت جمع روابط المجموعات الحقيقي مع التصفية المتقدمة**\n\n"
             "**المميزات الجديدة:**\n"
             "✅ جمع حقيقي من جميع المجموعات\n"
+            "🛡️ منع تكرار الروابط تلقائياً\n"
             "⏭️ تصفية 5 أنواع من الروابط:\n"
             "   • روابط البوتات\n"
             "   • روابط الرسائل\n"
@@ -2224,6 +2431,7 @@ class TelegramBot:
         stats_text += "**🔥 إحصائيات الجمع الحالية:**\n"
         stats_text += f"• الروابط المجمعة: {collection_stats['total_collected']:,}\n"
         stats_text += f"• الروابط المصفاة: {collection_stats['filtered_links']:,}\n"
+        stats_text += f"• الروابط المكررة: {collection_stats['duplicates_skipped']:,}\n"
         stats_text += f"• المجموعات المعالجة: {collection_stats['groups_processed']:,}\n"
         
         if collection_stats['filter_reasons']:
@@ -2248,7 +2456,54 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="filter_stats"),
-             InlineKeyboardButton("📊 إحصائيات عامة", callback_data="show_stats")]
+             InlineKeyboardButton("📊 إحصائيات عامة", callback_data="show_stats")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
+        ])
+        
+        await update.message.reply_text(stats_text, reply_markup=keyboard, parse_mode="Markdown")
+    
+    async def duplicate_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /duplicate_stats command"""
+        user = update.effective_user
+        
+        # التحقق من الوصول
+        if Config.ADMIN_USER_IDS and user.id not in Config.ADMIN_USER_IDS:
+            if Config.ALLOWED_USER_IDS and user.id not in Config.ALLOWED_USER_IDS:
+                await update.message.reply_text("❌ غير مصرح لك بالوصول")
+                return
+        
+        db = await EnhancedDatabaseManager.get_instance()
+        duplicate_stats = await db.get_duplicate_stats()
+        
+        collection_stats = self.collection_manager.get_status()['stats']
+        
+        stats_text = "**🔗 إحصائيات منع تكرار الروابط**\n\n"
+        
+        stats_text += "**📊 الإحصائيات العامة:**\n"
+        stats_text += f"• إجمالي الروابط المكررة: {duplicate_stats.get('total_duplicates', 0):,}\n"
+        stats_text += f"• الروابط مع تكرارات: {duplicate_stats.get('links_with_duplicates', 0):,}\n"
+        stats_text += f"• إجمالي مرات التكرار: {duplicate_stats.get('total_duplicate_occurrences', 0):,}\n"
+        stats_text += f"• نسبة التكرار: {duplicate_stats.get('duplicate_percentage', 0):.2f}%\n\n"
+        
+        stats_text += "**🔥 الجمع الحالي:**\n"
+        stats_text += f"• الروابط المكررة المتخطاة: {collection_stats['duplicates_skipped']:,}\n"
+        stats_text += f"• الذاكرة المؤقتة: {len(self.collection_manager.recent_links_cache):,} رابط\n\n"
+        
+        if duplicate_stats.get('most_duplicated'):
+            stats_text += "**🏆 أكثر الروابط تكراراً:**\n"
+            for i, (url, count) in enumerate(duplicate_stats['most_duplicated'][:5], 1):
+                short_url = url[:40] + "..." if len(url) > 40 else url
+                stats_text += f"{i}. {short_url} - {count:,} مرة\n"
+        
+        stats_text += "\n**⚙️ إعدادات منع التكرار:**\n"
+        stats_text += f"• منع التكرار: {'✅ مفعل' if Config.ENABLE_DUPLICATE_PREVENTION else '❌ معطل'}\n"
+        stats_text += f"• طريقة التحقق: {Config.DUPLICATE_CHECK_METHOD}\n"
+        stats_text += f"• الذاكرة المؤقتة: {self.collection_manager.max_cache_size:,} رابط\n"
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 تحديث", callback_data="duplicate_stats"),
+             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")],
+            [InlineKeyboardButton("📋 تصدير غير مكرر", callback_data="export_non_duplicate")]
         ])
         
         await update.message.reply_text(stats_text, reply_markup=keyboard, parse_mode="Markdown")
@@ -2256,12 +2511,13 @@ class TelegramBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = (
-            "**📖 دليل استخدام البوت - الإصدار مع التصفية**\n\n"
+            "**📖 دليل استخدام البوت - الإصدار مع منع التكرار**\n\n"
             "**الأوامر الأساسية:**\n"
             "• /start - بدء البوت ورسالة الترحيب\n"
             "• /help - عرض هذه المساعدة\n"
             "• /status - عرض حالة النظام والجمع\n"
-            "• /filter_stats - إحصائيات التصفية\n\n"
+            "• /filter_stats - إحصائيات التصفية\n"
+            "• /duplicate_stats - إحصائيات منع التكرار\n\n"
             "**إدارة الجلسات:**\n"
             "• /sessions - عرض الجلسات النشطة\n"
             "• /addsession - إضافة جلسة جديدة\n\n"
@@ -2279,6 +2535,11 @@ class TelegramBot:
             "• روابط الانضمام (انظمام/طلب انضمام)\n"
             "• المجموعات التي تحتوي على أعضاء\n"
             "• الروابط النشطة فقط\n\n"
+            "**🛡️ منع التكرار:**\n"
+            "• نظام منع تكرار تلقائي\n"
+            "• تحقق من التكرار في قاعدة البيانات\n"
+            "• ذاكرة مؤقتة لمنع التكرار في نفس الجلسة\n"
+            "• تحديث الروابط المكررة بدلاً من إضافتها\n\n"
             "**⏭️ الروابط المصفاة:**\n"
             "1. روابط البوتات\n"
             "2. روابط الرسائل\n"
@@ -2294,6 +2555,7 @@ class TelegramBot:
             "**🔒 ملاحظات:**\n"
             "• البوت يجمع فقط روابط المجموعات المستهدفة\n"
             "• التصفية التلقائية لـ 5 أنواع من الروابط\n"
+            "• منع تكرار الرواجع تلقائياً\n"
             "• التركيز على روابط الانضمام والمجموعات النشطة\n"
             "• كل رابط يتم التحقق منه قبل التخزين"
         )
@@ -2315,7 +2577,7 @@ class TelegramBot:
         db_stats = await db.get_stats_summary()
         
         status_text = (
-            f"**📊 حالة النظام مع التصفية - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**\n\n"
+            f"**📊 حالة النظام مع منع التكرار - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**\n\n"
             "**حالة الجمع:**\n"
         )
         
@@ -2325,7 +2587,7 @@ class TelegramBot:
             elif status['stop_requested']:
                 status_text += "🛑 **جاري الإيقاف...**\n"
             else:
-                status_text += "🔄 **نشط - جمع حقيقي مع تصفية**\n"
+                status_text += "🔄 **نشط - جمع حقيقي مع منع تكرار**\n"
         else:
             status_text += "🛑 **متوقف**\n"
         
@@ -2338,9 +2600,10 @@ class TelegramBot:
                 status_text += f"• المجموعة: {status['stats']['current_group']}\n"
         
         status_text += (
-            f"\n**إحصائيات الجمع مع التصفية:**\n"
+            f"\n**إحصائيات الجمع مع منع التكرار:**\n"
             f"• 📦 المجموع المجمع: {status['stats']['total_collected']:,}\n"
             f"• ⏭️ الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• 🔗 الروابط المكررة: {status['stats']['duplicates_skipped']:,}\n"
             f"• 👥 المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• 📢 تيليجرام: {status['stats']['telegram']:,}\n"
             f"• 📱 واتساب: {status['stats']['whatsapp']:,}\n"
@@ -2350,6 +2613,7 @@ class TelegramBot:
             f"**إحصائيات قاعدة البيانات:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
             f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
+            f"• 🔗 الروابط المكررة: {db_stats.get('total_duplicates', 0):,}\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
         )
         
@@ -2365,7 +2629,8 @@ class TelegramBot:
             [InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect"),
              InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect")],
             [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
-             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")]
+             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
         ])
         
         await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="Markdown")
@@ -2385,7 +2650,7 @@ class TelegramBot:
         
         user_stats = await db.get_user_stats(user.id)
         
-        stats_text = "**📈 إحصائيات النظام مع التصفية**\n\n**إحصائيات المستخدم:**\n"
+        stats_text = "**📈 إحصائيات النظام مع منع التكرار**\n\n**إحصائيات المستخدم:**\n"
         
         if user_stats:
             stats_text += (
@@ -2401,6 +2666,8 @@ class TelegramBot:
             f"**إحصائيات النظام:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
             f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
+            f"• 🔗 الروابط المكررة: {db_stats.get('total_duplicates', 0):,}\n"
+            f"• 📈 نسبة التكرار: {db_stats.get('duplicate_percentage', 0):.2f}%\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
             f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
@@ -2464,7 +2731,7 @@ class TelegramBot:
         await update.message.reply_text(sessions_text, reply_markup=keyboard, parse_mode="Markdown")
     
     async def export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /export command"""
+        """Handle /export command with duplicate filtering options"""
         user = update.effective_user
         
         # التحقق من الوصول
@@ -2499,7 +2766,8 @@ class TelegramBot:
              InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
-            [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
+            [InlineKeyboardButton("🛡️ روابط غير مكررة", callback_data="export_non_duplicate"),
+             InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
         ])
         
         export_text = (
@@ -2511,11 +2779,12 @@ class TelegramBot:
             "• 🎯 روابط الانضمام فقط\n"
             "• 👥 مجموعات ذات أعضاء فقط\n"
             "• 📄 جميع الروابط (نصي)\n"
-            "• 📊 CSV كامل المعلومات\n\n"
+            "• 📊 CSV كامل المعلومات\n"
+            "• 🛡️ روابط غير مكررة فقط\n\n"
             "**ملاحظات:**\n"
             f"• الحد الأقصى للتصدير: {Config.MAX_EXPORT_LINKS:,} رابط\n"
             "• الروابط جاهزة للاستخدام المباشر\n"
-            "• كل نوع تصدير منفصل\n"
+            "• خيارات منع التكرار متاحة\n"
             "• الروابط تنسيقها نظيف وجاهز للاستخدام"
         )
         
@@ -2573,23 +2842,25 @@ class TelegramBot:
             [InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect"),
              InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status")],
             [InlineKeyboardButton("⚡ جمع سريع", callback_data="quick_collect"),
-             InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")]
+             InlineKeyboardButton("🧪 اختبار الجمع", callback_data="test_collection")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
         ])
         
-        collect_text = "**🚀 إدارة عملية الجمع مع التصفية**\n\n**الحالة الحالية:**\n"
+        collect_text = "**🚀 إدارة عملية الجمع مع منع التكرار**\n\n**الحالة الحالية:**\n"
         
         if status['active']:
             if status['paused']:
                 collect_text += "⏸️ **موقف مؤقتاً**\n"
             else:
-                collect_text += "🔄 **نشط - جمع حقيقي مع تصفية**\n"
+                collect_text += "🔄 **نشط - جمع حقيقي مع منع تكرار**\n"
         else:
             collect_text += "🛑 **متوقف**\n"
         
         collect_text += (
-            f"\n**الإحصائيات مع التصفية:**\n"
+            f"\n**الإحصائيات مع منع التكرار:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
             f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• الروابط المكررة: {status['stats']['duplicates_skipped']:,}\n"
             f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• التليجرام: {status['stats']['telegram']:,}\n"
             f"• الواتساب: {status['stats']['whatsapp']:,}\n"
@@ -2598,6 +2869,11 @@ class TelegramBot:
             "• روابط الانضمام (انظمام/طلب انضمام)\n"
             "• المجموعات التي تحتوي على أعضاء\n"
             "• الروابط النشطة فقط\n\n"
+            "**🛡️ نظام منع التكرار:**\n"
+            "• تحقق من التكرار في قاعدة البيانات\n"
+            "• ذاكرة مؤقتة للروابط المجمعة حديثاً\n"
+            "• تحديث الروابط المكررة بدلاً من إضافتها\n"
+            "• إحصاء عدد مرات التكرار لكل رابط\n\n"
             "**⏭️ الروابط المصفاة:**\n"
             "1. روابط البوتات\n"
             "2. روابط الرسائل\n"
@@ -2639,7 +2915,7 @@ class TelegramBot:
             "7. سيرسل لك كود الجلسة (session string)\n\n"
             "**أرسل كود الجلسة الآن:**\n"
             "(يمكنك نسخ الكود كاملاً وإرساله)\n\n"
-            "**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط المستهدفة مع التصفية"
+            "**ملاحظة:** الجلسة تستخدم فقط لجمع الروابط المستهدفة مع منع التكرار"
         )
         
         await update.message.reply_text(add_text, parse_mode="Markdown")
@@ -2654,7 +2930,7 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🧪 **جاري اختبار الجمع مع التصفية على مجموعة واحدة...**")
+        await update.message.reply_text("🧪 **جاري اختبار الجمع مع التصفية ومنع التكرار على مجموعة واحدة...**")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -2684,6 +2960,7 @@ class TelegramBot:
             # اختبار الجمع من أول مجموعة
             collected = []
             filtered = []
+            duplicates_skipped = []
             groups_found = 0
             
             async for dialog in client.iter_dialogs(limit=10):
@@ -2717,6 +2994,7 @@ class TelegramBot:
                         # حفظ الروابط كعينة
                         saved_count = 0
                         filtered_count = 0
+                        duplicate_count = 0
                         for link_data in link_data_list:
                             link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
                             
@@ -2728,6 +3006,16 @@ class TelegramBot:
                                     'reason': filter_reason
                                 })
                                 filtered_count += 1
+                                continue
+                            
+                            # التحقق من التكرار
+                            is_duplicate, existing_id = await db.check_duplicate(link_data['url'])
+                            if is_duplicate:
+                                duplicates_skipped.append({
+                                    'url': link_data['url'],
+                                    'existing_id': existing_id
+                                })
+                                duplicate_count += 1
                                 continue
                             
                             if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
@@ -2755,6 +3043,9 @@ class TelegramBot:
                         
                         if filtered_count > 0:
                             await update.message.reply_text(f"⏭️ تم تصفية {filtered_count} رابط من {group_title}")
+                        
+                        if duplicate_count > 0:
+                            await update.message.reply_text(f"🔗 تم تخطي {duplicate_count} رابط مكرر من {group_title}")
                     
                     # اختبار مجموعة واحدة فقط
                     break
@@ -2765,7 +3056,7 @@ class TelegramBot:
             
             await client.disconnect()
             
-            if collected or filtered:
+            if collected or filtered or duplicates_skipped:
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚀 بدء الجمع الحقيقي", callback_data="start_collect"),
                      InlineKeyboardButton("📤 تصدير العينة", callback_data="export_test")]
@@ -2789,6 +3080,9 @@ class TelegramBot:
                         result_text += "\n**أسباب التصفية:**\n"
                         for reason, count in filter_reasons.items():
                             result_text += f"• {reason}: {count}\n"
+                
+                if duplicates_skipped:
+                    result_text += f"تم تخطي {len(duplicates_skipped)} رابط مكرر.\n"
                 
                 result_text += "\nيمكنك الآن بدء الجمع الحقيقي."
                 
@@ -2827,7 +3121,7 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🚀 **بدء جمع فوري مع التصفية من جميع المجموعات...**")
+        await update.message.reply_text("🚀 **بدء جمع فوري مع التصفية ومنع التكرار من جميع المجموعات...**")
         
         try:
             # بدء الجمع
@@ -2839,17 +3133,22 @@ class TelegramBot:
             
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status"),
-                 InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")]
+                 InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")],
+                [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
             ])
             
             await update.message.reply_text(
                 f"✅ **بدأ الجمع الفوري بنجاح!**\n\n"
                 f"**الحالة:** {'نشط' if status['active'] else 'متوقف'}\n"
-                f"**جاري جمع الروابط المستهدفة مع التصفية...**\n\n"
+                f"**جاري جمع الروابط المستهدفة مع منع التكرار...**\n\n"
                 f"**🎯 الروابط المستهدفة:**\n"
                 f"• روابط الانضمام (انظمام/طلب انضمام)\n"
                 f"• المجموعات التي تحتوي على أعضاء\n"
                 f"• الروابط النشطة فقط\n\n"
+                f"**🛡️ نظام منع التكرار:**\n"
+                f"• تحقق من التكرار في قاعدة البيانات\n"
+                f"• ذاكرة مؤقتة للروابط المجمعة حديثاً\n"
+                f"• تحديث الروابط المكررة بدلاً من إضافتها\n\n"
                 f"**⏭️ الروابط المصفاة:**\n"
                 f"1. روابط البوتات\n"
                 f"2. روابط الرسائل\n"
@@ -2875,7 +3174,7 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("⚡ **بدء جمع سريع مع التصفية من 5 مجموعات...**")
+        await update.message.reply_text("⚡ **بدء جمع سريع مع التصفية ومنع التكرار من 5 مجموعات...**")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -2905,6 +3204,7 @@ class TelegramBot:
             # جمع الروابط من 5 مجموعات
             collected = []
             filtered = []
+            duplicates_skipped = []
             groups_processed = 0
             
             async for dialog in client.iter_dialogs(limit=10):
@@ -2928,6 +3228,7 @@ class TelegramBot:
                     # معالجة الروابط المجمعة
                     saved_count = 0
                     filtered_count = 0
+                    duplicate_count = 0
                     for link_data in link_data_list:
                         link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
                         
@@ -2939,6 +3240,16 @@ class TelegramBot:
                                 'reason': filter_reason
                             })
                             filtered_count += 1
+                            continue
+                        
+                        # التحقق من التكرار
+                        is_duplicate, existing_id = await db.check_duplicate(link_data['url'])
+                        if is_duplicate:
+                            duplicates_skipped.append({
+                                'url': link_data['url'],
+                                'existing_id': existing_id
+                            })
+                            duplicate_count += 1
                             continue
                         
                         if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
@@ -2967,6 +3278,9 @@ class TelegramBot:
                     if filtered_count > 0:
                         await update.message.reply_text(f"⏭️ تم تصفية {filtered_count} رابط من {group_title}")
                     
+                    if duplicate_count > 0:
+                        await update.message.reply_text(f"🔗 تم تخطي {duplicate_count} رابط مكرر من {group_title}")
+                    
                     # توقف بعد 5 مجموعات
                     if groups_processed >= 5:
                         break
@@ -2987,7 +3301,7 @@ class TelegramBot:
             )
             await db.conn.commit()
             
-            if collected or filtered:
+            if collected or filtered or duplicates_skipped:
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚀 بدء الجمع الحقيقي", callback_data="start_collect"),
                      InlineKeyboardButton("📤 تصدير", callback_data="export_links")]
@@ -2998,6 +3312,7 @@ class TelegramBot:
                 result_text += f"• المجموعات المعالجة: {groups_processed}\n"
                 result_text += f"• الروابط المجمعة: {len(collected)}\n"
                 result_text += f"• الروابط المصفاة: {len(filtered)}\n"
+                result_text += f"• الروابط المكررة: {len(duplicates_skipped)}\n"
                 result_text += f"• الجلسة: {session_name}\n\n"
                 
                 if filtered:
@@ -3053,7 +3368,7 @@ class TelegramBot:
                 await update.message.reply_text("❌ غير مصرح لك بالوصول")
                 return
         
-        await update.message.reply_text("🔍 **جاري التحقق من الروابط المخزنة مع التصفية...**")
+        await update.message.reply_text("🔍 **جاري التحقق من الروابط المخزنة مع التصفية ومنع التكرار...**")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
@@ -3071,16 +3386,20 @@ class TelegramBot:
             cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE filter_reason IS NOT NULL AND filter_reason != ''")
             filtered_links = (await cursor.fetchone())[0]
             
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE is_duplicate = 1")
+            duplicate_links = (await cursor.fetchone())[0]
+            
             cursor = await db.conn.execute("SELECT platform, COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp') GROUP BY platform")
             platform_stats = dict(await cursor.fetchall())
             
-            validation_text = "**🔍 نتائج التحقق مع التصفية:**\n\n"
+            validation_text = "**🔍 نتائج التحقق مع منع التكرار:**\n\n"
             
             validation_text += f"**📊 الإحصائيات:**\n"
             validation_text += f"• إجمالي الروابط: {total_links:,}\n"
             validation_text += f"• روابط صالحة: {valid_groups:,}\n"
             validation_text += f"• مجموعات أعضاء: {member_groups:,}\n"
             validation_text += f"• روابط مصفاة: {filtered_links:,}\n"
+            validation_text += f"• روابط مكررة: {duplicate_links:,}\n"
             validation_text += f"• نسبة الصلاحية: {(valid_groups/total_links*100 if total_links > 0 else 0):.1f}%\n\n"
             
             validation_text += f"**توزيع المنصات:**\n"
@@ -3089,7 +3408,7 @@ class TelegramBot:
             
             # الحصول على عينة من الروابط
             cursor = await db.conn.execute('''
-                SELECT url, platform, has_members, filter_reason 
+                SELECT url, platform, has_members, filter_reason, is_duplicate
                 FROM links 
                 WHERE platform IN ('telegram', 'whatsapp')
                 ORDER BY collected_date DESC 
@@ -3101,15 +3420,21 @@ class TelegramBot:
             if rows:
                 validation_text += "\n**📋 آخر 5 روابط مخزنة:**\n"
                 for i, row in enumerate(rows, 1):
-                    url, platform, has_members, filter_reason = row
-                    status = "✅ أعضاء" if has_members else "❌ لا أعضاء"
+                    url, platform, has_members, filter_reason, is_duplicate = row
                     if filter_reason:
                         status = f"⏭️ {filter_reason}"
+                    elif is_duplicate:
+                        status = "🔗 مكرر"
+                    elif has_members:
+                        status = "✅ أعضاء"
+                    else:
+                        status = "❌ لا أعضاء"
                     validation_text += f"{i}. {platform}: {url[:40]}... [{status}]\n"
             
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📤 تصدير", callback_data="export_all"),
-                 InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")]
+                 InlineKeyboardButton("🚀 بدء الجمع", callback_data="start_collect")],
+                [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
             ])
             
             await update.message.reply_text(validation_text, reply_markup=keyboard, parse_mode="Markdown")
@@ -3137,10 +3462,14 @@ class TelegramBot:
         try:
             if data == "filter_stats":
                 await self._handle_filter_stats(query)
+            elif data == "duplicate_stats":
+                await self._handle_duplicate_stats(query)
             elif data == "export_join_links":
                 await self._handle_export_join_links(query)
             elif data == "export_member_groups":
                 await self._handle_export_member_groups(query)
+            elif data == "export_non_duplicate":
+                await self._handle_export_non_duplicate(query)
             elif data == "start_collect":
                 await self._handle_start_collect(query)
             elif data == "pause_collect":
@@ -3243,6 +3572,18 @@ class TelegramBot:
         
         mock_update = MockUpdate(query)
         await self.filter_stats_command(mock_update, None)
+    
+    async def _handle_duplicate_stats(self, query):
+        """Handle duplicate stats callback"""
+        from_user = query.from_user
+        
+        class MockUpdate:
+            def __init__(self, query):
+                self.effective_user = query.from_user
+                self.message = query.message
+        
+        mock_update = MockUpdate(query)
+        await self.duplicate_stats_command(mock_update, None)
     
     async def _handle_export_join_links(self, query):
         """Handle export join links"""
@@ -3348,6 +3689,58 @@ class TelegramBot:
             logger.error(f"خطأ في تصدير مجموعات الأعضاء: {e}")
             await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
+    async def _handle_export_non_duplicate(self, query):
+        """Handle export non-duplicate links"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير الروابط غير المكررة...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url FROM links 
+                WHERE platform IN ('telegram', 'whatsapp')
+                AND is_valid_group = 1
+                AND is_duplicate = 0
+                ORDER BY collected_date DESC 
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد روابط غير مكررة للتصدير")
+                return
+            
+            links = [row[0] for row in rows]
+            
+            # حفظ في ملف نصي
+            filename = f"non_duplicate_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"🛡️ روابط غير مكررة\nعدد الروابط: {len(links):,}"
+                )
+            
+            # حذف الملف المحلي
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط غير مكرر")
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير الروابط غير المكررة: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
     async def _handle_start_collect(self, query):
         """Handle start collection"""
         if self.collection_manager.active:
@@ -3361,23 +3754,27 @@ class TelegramBot:
             [InlineKeyboardButton("⏸️ إيقاف مؤقت", callback_data="pause_collect"),
              InlineKeyboardButton("⏹️ إيقاف", callback_data="stop_collect")],
             [InlineKeyboardButton("📊 حالة الجمع", callback_data="collect_status"),
-             InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_links")]
+             InlineKeyboardButton("📤 تصدير الروابط", callback_data="export_links")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
         ])
         
         await self._edit_message_safe(
             query,
-            "🚀 **بدأ الجمع الحقيقي مع التصفية بنجاح!**\n\n"
+            "🚀 **بدأ الجمع الحقيقي مع منع التكرار بنجاح!**\n\n"
             "**المميزات النشطة:**\n"
             "✅ جمع من جميع المجموعات\n"
+            "🛡️ منع تكرار الروابط تلقائياً\n"
             "⏭️ تصفية 5 أنواع من الروابط\n"
             "🎯 التركيز على روابط الانضمام\n"
             "👥 جمع المجموعات ذات الأعضاء\n"
             "🔍 جمع عميق من جميع الرسائل\n\n"
-            "**تفاصيل:**\n"
+            "**تفاصيل منع التكرار:**\n"
             "• جاري جمع الروابط من جميع الجلسات\n"
             "• جاري جمع الروابط من جميع المجموعات\n"
             "• جاري جمع الروابط من جميع الرسائل\n"
             "• الروابط تمر بمراحل تصفية متقدمة\n"
+            "• يتم التحقق من التكرار في قاعدة البيانات\n"
+            "• يتم تحديث الروابط المكررة بدلاً من إضافتها\n"
             "• الروابط تحفظ تلقائياً في قاعدة البيانات\n"
             "• يمكنك التصدير في أي وقت\n\n"
             "⏳ **سيتم تحديث الإحصائيات تلقائياً**",
@@ -3405,6 +3802,7 @@ class TelegramBot:
             "**الإحصائيات الحالية:**\n"
             f"• الروابط المجمعة: {self.collection_manager.stats['total_collected']:,}\n"
             f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
+            f"• الروابط المكررة: {self.collection_manager.stats['duplicates_skipped']:,}\n"
             f"• المجموعات المعالجة: {self.collection_manager.stats['groups_processed']:,}\n"
             f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
             f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
@@ -3432,6 +3830,7 @@ class TelegramBot:
             "**الإحصائيات النهائية:**\n"
             f"• إجمالي الروابط: {self.collection_manager.stats['total_collected']:,}\n"
             f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
+            f"• الروابط المكررة: {self.collection_manager.stats['duplicates_skipped']:,}\n"
             f"• مجموعات معالجة: {self.collection_manager.stats['groups_processed']:,}\n"
             f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
             f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
@@ -3443,13 +3842,14 @@ class TelegramBot:
         status = self.collection_manager.get_status()
         
         status_text = (
-            f"**📊 حالة الجمع مع التصفية**\n\n"
+            f"**📊 حالة الجمع مع منع التكرار**\n\n"
             f"**الحالة:** {'🔄 نشط - جمع حقيقي' if status['active'] else '🛑 متوقف'}\n"
             f"**الإيقاف المؤقت:** {'⏸️ نعم' if status['paused'] else '▶️ لا'}\n"
             f"**طلب الإيقاف:** {'✅ نعم' if status['stop_requested'] else '❌ لا'}\n\n"
-            f"**الإحصائيات مع التصفية:**\n"
+            f"**الإحصائيات مع منع التكرار:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
             f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
+            f"• الروابط المكررة: {status['stats']['duplicates_skipped']:,}\n"
             f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• تيليجرام: {status['stats']['telegram']:,}\n"
             f"• واتساب: {status['stats']['whatsapp']:,}\n"
@@ -3502,7 +3902,7 @@ class TelegramBot:
             f"• الجلسة ستخزن مشفرة\n"
             f"• يمكنك إضافة حتى {Config.MAX_SESSIONS_PER_USER} جلسة\n"
             f"• الجلسة يجب أن تكون نشطة\n"
-            f"• تستخدم فقط لجمع الروابط المستهدفة مع التصفية"
+            f"• تستخدم فقط لجمع الروابط المستهدفة مع منع التكرار"
         )
         
         await self._edit_message_safe(query, add_text)
@@ -3540,10 +3940,12 @@ class TelegramBot:
         db_stats = await db.get_stats_summary()
         
         stats_text = (
-            f"**📈 إحصائيات النظام مع التصفية**\n\n"
+            f"**📈 إحصائيات النظام مع منع التكرار**\n\n"
             f"**إحصائيات قاعدة البيانات:**\n"
             f"• 🔗 إجمالي الروابط: {db_stats.get('total_links', 0):,}\n"
             f"• 📈 روابط اليوم: {db_stats.get('today_links', 0):,}\n"
+            f"• 🔗 الروابط المكررة: {db_stats.get('total_duplicates', 0):,}\n"
+            f"• 📈 نسبة التكرار: {db_stats.get('duplicate_percentage', 0):.2f}%\n"
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
             f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
@@ -3561,7 +3963,8 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="show_stats"),
-             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")]
+             InlineKeyboardButton("📊 إحصائيات التصفية", callback_data="filter_stats")],
+            [InlineKeyboardButton("🔗 إحصائيات التكرار", callback_data="duplicate_stats")]
         ])
         
         await self._edit_message_safe(query, stats_text, reply_markup=keyboard)
@@ -3594,7 +3997,8 @@ class TelegramBot:
              InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
-            [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
+            [InlineKeyboardButton("🛡️ روابط غير مكررة", callback_data="export_non_duplicate"),
+             InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
         ])
         
         export_text = (
@@ -3735,7 +4139,7 @@ class TelegramBot:
         try:
             db = await EnhancedDatabaseManager.get_instance()
             cursor = await db.conn.execute('''
-                SELECT url, platform, members_count, has_members, collected_date, group_name
+                SELECT url, platform, members_count, has_members, collected_date, group_name, is_duplicate
                 FROM links 
                 WHERE platform IN ('telegram', 'whatsapp') AND is_valid_group = 1
                 LIMIT ?
@@ -3753,11 +4157,12 @@ class TelegramBot:
             os.makedirs("exports", exist_ok=True)
             
             with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("URL,Platform,Members,HasMembers,Date,Group\n")
+                f.write("URL,Platform,Members,HasMembers,Date,Group,IsDuplicate\n")
                 for row in rows:
-                    url, platform, members, has_members, date, group = row
+                    url, platform, members, has_members, date, group, is_duplicate = row
                     members_status = "Yes" if has_members else "No"
-                    f.write(f'"{url}","{platform}",{members},"{members_status}","{date}","{group or ""}"\n')
+                    duplicate_status = "Yes" if is_duplicate else "No"
+                    f.write(f'"{url}","{platform}",{members},"{members_status}","{date}","{group or ""}","{duplicate_status}"\n')
             
             # إرسال الملف
             with open(filepath, 'rb') as f:
@@ -3983,7 +4388,7 @@ class TelegramBot:
     async def _handle_show_settings(self, query):
         """Handle show settings"""
         settings_text = (
-            f"**⚙️ إعدادات النظام مع التصفية**\n\n"
+            f"**⚙️ إعدادات النظام مع منع التكرار**\n\n"
             f"**إعدادات الأمان:**\n"
             f"• المدراء: {len(Config.ADMIN_USER_IDS)}\n"
             f"• المستخدمون المسموحون: {len(Config.ALLOWED_USER_IDS)}\n"
@@ -3991,6 +4396,10 @@ class TelegramBot:
             f"**إعدادات الأداء:**\n"
             f"• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}\n"
             f"• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB\n\n"
+            f"**إعدادات منع التكرار:**\n"
+            f"• منع التكرار: {'✅ مفعل' if Config.ENABLE_DUPLICATE_PREVENTION else '❌ معطل'}\n"
+            f"• طريقة التحقق: {Config.DUPLICATE_CHECK_METHOD}\n"
+            f"• الذاكرة المؤقتة: {self.collection_manager.max_cache_size:,} رابط\n\n"
             f"**إعدادات التصفية:**\n"
             f"• تصفية البوتات: {'✅ مفعل' if Config.FILTER_BOT_LINKS else '❌ معطل'}\n"
             f"• تصفية الرسائل: {'✅ مفعل' if Config.FILTER_MESSAGE_LINKS else '❌ معطل'}\n"
@@ -4101,9 +4510,10 @@ class TelegramBot:
                 "/help - المساعدة\n"
                 "/status - حالة النظام\n"
                 "/filter_stats - إحصائيات التصفية\n"
-                "/test_collect - اختبار الجمع مع التصفية\n"
+                "/duplicate_stats - إحصائيات منع التكرار\n"
+                "/test_collect - اختبار الجمع مع منع التكرار\n"
                 "/quick_collect - جمع سريع من 5 مجموعات\n"
-                "/force_collect - بدء جمع فوري مع التصفية\n"
+                "/force_collect - بدء جمع فوري مع منع التكرار\n"
                 "أو استخدم الأزرار من رسالة الترحيب."
             )
     
@@ -4141,7 +4551,7 @@ class TelegramBot:
             'metadata': {
                 'validated_at': datetime.now().isoformat(),
                 'original_length': len(session_string),
-                'purpose': 'real_group_collection_with_filtering'
+                'purpose': 'real_group_collection_with_duplicate_prevention'
             }
         }
         
@@ -4162,11 +4572,12 @@ class TelegramBot:
                 f"• الهاتف: {session_data['phone_number']}\n\n"
                 f"**الجلسة:**\n"
                 f"• مشفرة ومخزنة بأمان\n"
-                f"• جاهزة للجمع مع التصفية\n"
+                f"• جاهزة للجمع مع منع التكرار\n"
                 f"• رقم الجلسة: {details.get('session_id')}\n\n"
                 f"**ملاحظة:**\n"
                 f"هذه الجلسة ستستخدم فقط لجمع الروابط المستهدفة\n"
                 f"مع تصفية 5 أنواع من الروابط غير المرغوبة\n"
+                f"مع نظام منع تكرار تلقائي\n"
                 f"التركيز على روابط الانضمام والمجموعات ذات الأعضاء",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
@@ -4214,7 +4625,11 @@ class TelegramBot:
                 
         except Exception as e:
             logger.error(f"خطأ في معالج الأخطاء: {e}")
-            
+
+# ======================
+# REMOVED Health Check Server - تم إزالته لتجنب مشاكل المنافذ
+# ======================
+
 # ======================
 # Main Function - الوظيفة الرئيسية
 # ======================
@@ -4222,7 +4637,7 @@ class TelegramBot:
 async def main():
     """Main function"""
     try:
-        logger.info(f"🚀 تشغيل البوت مع التصفية المتقدمة وروابط واتساب المحفوظة كما هي")
+        logger.info(f"🚀 تشغيل البوت مع التصفية المتقدمة ومنع تكرار الروابط وروابط واتساب المحفوظة كما هي")
         
         # التحقق من المتغيرات البيئية المطلوبة
         required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
@@ -4251,14 +4666,16 @@ async def main():
         # إنشاء البوت
         bot = TelegramBot()
         
-        logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
+        logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة ومنع التكرار...")
         logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
+        logger.info(f"🛡️ نظام منع التكرار - تجنب جمع الروابط المكررة")
         logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
         logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
         logger.info(f"📱 واتساب: الروابط تحفظ كما هي دون تغيير")
         logger.info(f"⚡ الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}")
         logger.info(f"⚡ الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}")
         logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
+        logger.info(f"🔗 منع التكرار: {Config.ENABLE_DUPLICATE_PREVENTION}")
         
         try:
             # تشغيل البوت
@@ -4267,7 +4684,8 @@ async def main():
             await bot.app.updater.start_polling()
             
             logger.info("✅ البوت يعمل بنجاح!")
-            logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
+            logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /duplicate_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
+            logger.info("🛡️ نظام منع التكرار: مفعّل ويحمي قاعدة البيانات من الروابط المكررة")
             logger.info("📱 روابط واتساب: يتم حفظها كما هي دون تغيير")
             
             # الحفاظ على البوت يعمل
