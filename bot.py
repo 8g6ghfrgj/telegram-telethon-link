@@ -1,5 +1,4 @@
-[file name]: bot.py
-[file content begin]
+
 import os
 import sys
 import subprocess
