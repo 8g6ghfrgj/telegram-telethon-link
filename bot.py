@@ -1,3 +1,5 @@
+[file name]: bot.py
+[file content begin]
 import os
 import sys
 import subprocess
@@ -79,10 +81,6 @@ from telethon.errors import (
 )
 
 # ======================
-# REMOVED FastAPI imports for Render compatibility
-# ======================
-
-# ======================
 # Configuration - تهيئة الإعدادات
 # ======================
 
@@ -154,7 +152,7 @@ class Config:
     DB_POOL_SIZE = 5
     
     # WhatsApp collection - جمع واتساب
-    WHATSAPP_DAYS_BACK = 60
+    WHATSAPP_DAYS_BACK = 60  # جمع روابط واتساب من آخر 60 يوماً فقط
     
     # Link verification - التحقق من الروابط
     MIN_GROUP_MEMBERS = 1  # الحد الأدنى للأعضاء
@@ -176,14 +174,14 @@ class Config:
     EXPORT_CHUNK_SIZE = 5000
     
     # Advanced settings - إعدادات متقدمة
-    TELEGRAM_NO_TIME_LIMIT = True
+    TELEGRAM_NO_TIME_LIMIT = True  # جمع الروابط من أي وقت
     JOIN_REQUEST_CHECK_DELAY = 30
     ENABLE_ADVANCED_VALIDATION = True
     
     # Collection settings - إعدادات الجمع الحقيقي
     COLLECT_ONLY_GROUPS = True  # جمع المجموعات فقط
     MIN_MEMBERS_FOR_GROUP = 1   # الحد الأدنى للأعضاء
-    COLLECT_ACTIVE_LINKS_ONLY = True
+    COLLECT_ACTIVE_LINKS_ONLY = True  # جمع الروابط النشطة فقط
     ENABLE_DEEP_COLLECTION = True
     MAX_DEEP_MESSAGES = 150     # زيادة عدد الرسائل في الجمع العميق
     COLLECT_ONLY_TELEGRAM_WHATSAPP = True
@@ -196,16 +194,16 @@ class Config:
     WHATSAPP_KEYWORDS = ['chat.whatsapp.com', 'whatsapp.com']
     ALL_KEYWORDS = TELEGRAM_KEYWORDS + WHATSAPP_KEYWORDS
     
-    # Filter settings - إعدادات الفلترة الجديدة
+    # Filter settings - إعدادات الفلترة الجديدة (حسب متطلباتك)
     FILTER_BOT_LINKS = True  # تجاهل روابط البوتات
-    FILTER_MESSAGE_LINKS = True  # تجاهل روابط الرسائل
+    FILTER_MESSAGE_LINKS = False  # تعديل: الآن نجمع رابط رسالة واحدة فقط من كل مجموعة
     FILTER_PHONE_NUMBER_LINKS = True  # تجاهل روابط تحتوي على أرقام
-    FILTER_SUBSCRIPTION_GROUPS = True  # تجاهل المجموعات التي تحتوي على "مشتركين"
+    FILTER_SUBSCRIPTION_GROUPS = True  # تجاهل المجموعات التي تحتوي على "مشتركين" (القنوات)
     FILTER_DEAD_LINKS = True  # تجاهل الروابط الميتة
     
     # Target links - الروابط المستهدفة
-    TARGET_JOIN_REQUESTS = True  # جمع روابط الانضمام فقط
-    TARGET_MEMBERS_GROUPS = True  # جمع المجموعات التي تحتوي على "أعضاء"
+    TARGET_MEMBERS_GROUPS = True  # تجميع المجموعات التي تحتوي على أعضاء فقط
+    COLLECT_ONE_MESSAGE_PER_GROUP = True  # جمع رابط رسالة واحدة فقط من كل مجموعة
 
 # Setup logging
 logging.basicConfig(
@@ -398,20 +396,10 @@ class EnhancedLinkProcessor:
             if Config.FILTER_BOT_LINKS and 'bot' in url.lower():
                 return True, "رابط بوت"
             
-            # 2. تجاهل روابط الرسائل (تحتوي على /c/ أو تحتوي على أرقام طويلة في المسار)
-            if Config.FILTER_MESSAGE_LINKS:
-                parsed = urlparse(url.lower())
-                path = parsed.path.strip('/')
-                path_parts = path.split('/')
-                
-                # روابط القنوات مع أرقام الرسائل: t.me/c/xxxx/1234
-                if 't.me/c/' in url.lower() or 'telegram.me/c/' in url.lower():
-                    if len(path_parts) >= 3 and path_parts[2].isdigit():
-                        return True, "رابط رسالة"
-                
-                # روابط المجموعات مع أرقام الرسائل: t.me/groupname/1234
-                if len(path_parts) == 2 and path_parts[1].isdigit() and len(path_parts[1]) > 3:
-                    return True, "رابط رسالة"
+            # 2. تجاهل روابط الرسائل (تعديل: الآن نجمع رابط رسالة واحدة فقط من كل مجموعة)
+            if Config.COLLECT_ONE_MESSAGE_PER_GROUP:
+                # سنقوم بالتحكم في ذلك في دالة الجمع، هنا نجمعها أولاً
+                pass
             
             # 3. تجاهل الروابط التي تحتوي على أرقام هواتف
             if Config.FILTER_PHONE_NUMBER_LINKS:
@@ -426,16 +414,29 @@ class EnhancedLinkProcessor:
                     if re.search(pattern, url, re.IGNORECASE):
                         return True, "رابط يحتوي على رقم هاتف"
             
-            # 4. تجاهل المجموعات التي تحتوي على "مشتركين" (سيتم التحقق لاحقاً بالواجهة)
-            # هذه الفلترة ستتم في GroupValidator
+            # 4. تجاهل المجموعات التي تحتوي على "مشتركين" (القنوات)
+            if Config.FILTER_SUBSCRIPTION_GROUPS:
+                # هذه الفلترة ستتم في GroupValidator
+                pass
             
             # 5. تجاهل الروابط الميتة (سيتم التحقق لاحقاً)
+            if Config.FILTER_DEAD_LINKS:
+                # هذه الفلترة ستتم في GroupValidator
+                pass
             
-            # التحقق من أن الرابط هو رابط انضمام للمجموعة
-            if Config.TARGET_JOIN_REQUESTS:
+            # 6. تجاهل روابط t.me/me (روابط الشخصية)
+            if 't.me/me' in url.lower() or 'telegram.me/me' in url.lower():
+                return True, "رابط شخصي t.me/me"
+            
+            # التحقق من أن الرابط هو رابط مجموعة تحتوي على أعضاء
+            if Config.TARGET_MEMBERS_GROUPS:
                 details = link_info.get('details', {})
-                if not details.get('is_join_request', False) and not details.get('is_group', False):
-                    return True, "ليس رابط انضمام للمجموعة"
+                if not details.get('is_group', False) and not details.get('is_join_request', False):
+                    return True, "ليس رابط مجموعة"
+                
+                # التحقق إذا كان رابط قناة (تحتوي على مشتركين)
+                if details.get('is_channel', False) or details.get('is_subscription', False):
+                    return True, "رابط قناة (مشتركين)"
             
             return False, ""
             
@@ -502,7 +503,8 @@ class EnhancedLinkProcessor:
             'is_subscription': False,
             'is_message_link': False,
             'is_bot_link': False,
-            'has_phone_number': False
+            'has_phone_number': False,
+            'is_personal_link': False  # رابط شخصي t.me/me
         }
         
         path = parsed.path.strip('/')
@@ -511,6 +513,12 @@ class EnhancedLinkProcessor:
         
         segments = path.split('/')
         result['path_segments'] = segments
+        
+        # كشف روابط t.me/me الشخصية
+        if path.lower() == 'me':
+            result['is_personal_link'] = True
+            result['is_valid'] = False
+            return result
         
         # كشف روابط البوتات
         if 'bot' in url.lower():
@@ -521,7 +529,8 @@ class EnhancedLinkProcessor:
         # كشف روابط الرسائل
         if len(segments) >= 2 and segments[-1].isdigit() and len(segments[-1]) > 3:
             result['is_message_link'] = True
-            result['is_valid'] = False
+            # تعديل: الآن نجمع روابط الرسائل أيضاً
+            result['is_valid'] = True
             return result
         
         # كشف روابط تحتوي على أرقام هواتف
@@ -574,7 +583,7 @@ class EnhancedLinkProcessor:
                 channel_name = match.group(1)
                 result['is_channel'] = True
                 result['is_broadcast'] = True
-                result['is_valid'] = True
+                result['is_valid'] = False  # لا نجمع القنوات
                 result['username'] = channel_name
                 result['is_subscription'] = True
                 return result
@@ -602,7 +611,7 @@ class EnhancedLinkProcessor:
             if segments[0].lower() in ['c', 'channel', 's']:
                 result['is_channel'] = True
                 result['is_broadcast'] = True
-                result['is_valid'] = True
+                result['is_valid'] = False  # لا نجمع القنوات
                 result['is_subscription'] = True
             elif segments[0].lower() == 'joinchat':
                 result['is_join_request'] = True
@@ -749,6 +758,10 @@ class EnhancedDatabaseManager:
                 has_members BOOLEAN DEFAULT 0,
                 has_subscribers BOOLEAN DEFAULT 0,
                 whatsapp_code TEXT,
+                is_message_link BOOLEAN DEFAULT 0,
+                is_recent_whatsapp BOOLEAN DEFAULT 1,
+                link_age_days INTEGER DEFAULT 0,
+                group_source_hash TEXT,  # تجنب التكرار من نفس المصدر
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE SET NULL
             )
         ''')
@@ -808,7 +821,9 @@ class EnhancedDatabaseManager:
             'CREATE INDEX IF NOT EXISTS idx_links_group_name ON links(group_name)',
             'CREATE INDEX IF NOT EXISTS idx_links_has_members ON links(has_members)',
             'CREATE INDEX IF NOT EXISTS idx_links_filter_reason ON links(filter_reason)',
-            'CREATE INDEX IF NOT EXISTS idx_links_whatsapp_code ON links(whatsapp_code)'
+            'CREATE INDEX IF NOT EXISTS idx_links_whatsapp_code ON links(whatsapp_code)',
+            'CREATE INDEX IF NOT EXISTS idx_links_is_message_link ON links(is_message_link)',
+            'CREATE INDEX IF NOT EXISTS idx_links_group_source_hash ON links(group_source_hash)'
         ]
         
         for index_sql in indexes:
@@ -857,14 +872,33 @@ class EnhancedDatabaseManager:
                 # الحفاظ على الرابط الأصلي لواتساب
                 url_to_store = url_info.get('original_url', url_info['normalized_url'])
                 whatsapp_code = details.get('invite_code', '')
+                
+                # التحقق من تاريخ الرابط لواتساب
+                message_date = link_info.get('message_date', '')
+                is_recent_whatsapp = True
+                
+                if message_date:
+                    try:
+                        msg_date = datetime.fromisoformat(message_date.replace('Z', '+00:00'))
+                        days_diff = (datetime.now() - msg_date).days
+                        is_recent_whatsapp = days_diff <= Config.WHATSAPP_DAYS_BACK
+                    except:
+                        is_recent_whatsapp = True
             else:
                 url_to_store = url_info['normalized_url']
                 whatsapp_code = ''
+                is_recent_whatsapp = True
+            
+            # التحقق من التكرار باستخدام hash المصدر للمجموعة
+            group_source_hash = None
+            group_name = link_info.get('group_name', '')
+            if group_name:
+                group_source_hash = hashlib.md5(f"{group_name}_{url_info['url_hash']}".encode()).hexdigest()
             
             # التحقق من التكرار
             cursor = await self.conn.execute(
-                'SELECT id FROM links WHERE url_hash = ?',
-                (url_info['url_hash'],)
+                'SELECT id FROM links WHERE url_hash = ? OR group_source_hash = ?',
+                (url_info['url_hash'], group_source_hash)
             )
             existing = await cursor.fetchone()
             
@@ -879,7 +913,10 @@ class EnhancedDatabaseManager:
                     validation_score = ?,
                     has_members = ?,
                     has_subscribers = ?,
-                    whatsapp_code = ?
+                    whatsapp_code = ?,
+                    is_message_link = ?,
+                    is_recent_whatsapp = ?,
+                    group_source_hash = ?
                     WHERE id = ?
                 ''', (
                     link_info.get('is_active', True),
@@ -888,6 +925,9 @@ class EnhancedDatabaseManager:
                     link_info.get('has_members', False),
                     link_info.get('has_subscribers', False),
                     whatsapp_code,
+                    details.get('is_message_link', False),
+                    is_recent_whatsapp,
+                    group_source_hash,
                     existing[0]
                 ))
                 await self.conn.commit()
@@ -902,8 +942,9 @@ class EnhancedDatabaseManager:
                  tags, added_by_user, source, is_channel, is_group, is_join_request, 
                  is_supergroup, is_subscription, is_valid_group, last_validated,
                  collected_from, message_date, group_name, group_id, filter_reason,
-                 has_members, has_subscribers, whatsapp_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 has_members, has_subscribers, whatsapp_code, is_message_link,
+                 is_recent_whatsapp, group_source_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 url_info['url_hash'],
                 url_to_store,
@@ -938,7 +979,10 @@ class EnhancedDatabaseManager:
                 filter_reason or '',
                 link_info.get('has_members', False),
                 link_info.get('has_subscribers', False),
-                whatsapp_code
+                whatsapp_code,
+                details.get('is_message_link', False),
+                is_recent_whatsapp,
+                group_source_hash
             ))
             
             link_id = cursor.lastrowid
@@ -1141,7 +1185,7 @@ class EnhancedDatabaseManager:
     async def get_links_count(self) -> int:
         """Get total links count"""
         try:
-            cursor = await self.conn.execute('SELECT COUNT(*) FROM links WHERE platform IN ("telegram", "whatsapp")')
+            cursor = await self.conn.execute('SELECT COUNT(*) FROM links WHERE platform IN ("telegram", "whatsapp") AND is_valid_group = 1')
             result = await cursor.fetchone()
             return result[0] if result else 0
         except Exception as e:
@@ -1185,6 +1229,10 @@ class EnhancedDatabaseManager:
             cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE has_members = 1 AND platform IN ('telegram', 'whatsapp')")
             stats['groups_with_members'] = (await cursor.fetchone())[0]
             
+            # إحصائيات واتساب الحديثة
+            cursor = await self.conn.execute("SELECT COUNT(*) FROM links WHERE platform = 'whatsapp' AND is_recent_whatsapp = 1")
+            stats['recent_whatsapp'] = (await cursor.fetchone())[0]
+            
             return stats
             
         except Exception as e:
@@ -1194,7 +1242,7 @@ class EnhancedDatabaseManager:
     async def export_links(self, filters: Dict = None, limit: int = 1000) -> List[str]:
         """Export links"""
         try:
-            query = 'SELECT url FROM links WHERE platform IN ("telegram", "whatsapp")'
+            query = 'SELECT url FROM links WHERE platform IN ("telegram", "whatsapp") AND is_valid_group = 1'
             params = []
             
             if filters:
@@ -1213,6 +1261,9 @@ class EnhancedDatabaseManager:
                 
                 if filters.get('only_members'):
                     where_clauses.append("has_members = 1")
+                
+                if filters.get('only_recent_whatsapp'):
+                    where_clauses.append("is_recent_whatsapp = 1")
                 
                 if where_clauses:
                     query += " AND " + " AND ".join(where_clauses)
@@ -1407,9 +1458,9 @@ class AdvancedGroupValidator:
                 else:
                     result['join_type'] = 'unknown'
                 
-                # الفلترة: تجاهل المجموعات التي تحتوي على "مشتركين"
+                # الفلترة: تجاهل المجموعات التي تحتوي على "مشتركين" (القنوات)
                 if Config.FILTER_SUBSCRIPTION_GROUPS and result['has_subscribers']:
-                    result['filter_reason'] = 'مجموعة تحتوي على مشتركين'
+                    result['filter_reason'] = 'قناة (تحتوي على مشتركين)'
                     result['is_valid'] = False
                     return result
                 
@@ -1493,7 +1544,7 @@ class AdvancedGroupValidator:
                     'is_valid': True,
                     'is_group': True,
                     'requires_join': True,
-                    'has_members': True,  # نفترض أن روابط الانضمام تحتوي على أعضاء
+                    'has_members': True,
                     'members_count': 1,
                     'filter_reason': ''
                 }
@@ -1565,6 +1616,8 @@ class AdvancedGroupValidator:
             
             # جمع الروابط من الرسائل
             message_count = 0
+            message_links_collected = 0  # عداد لروابط الرسائل من هذه المجموعة
+            
             async for message in client.iter_messages(entity, limit=max_messages):
                 try:
                     message_count += 1
@@ -1574,6 +1627,15 @@ class AdvancedGroupValidator:
                     if message.text:
                         extracted = AdvancedGroupValidator._extract_links_from_text(message.text)
                         for link in extracted:
+                            link_info = EnhancedLinkProcessor.extract_url_info(link)
+                            
+                            # التحقق إذا كان رابط رسالة
+                            if link_info['details'].get('is_message_link', False):
+                                message_links_collected += 1
+                                # تجميع رابط رسالة واحدة فقط من كل مجموعة
+                                if message_links_collected > 1:
+                                    continue
+                            
                             links.append({
                                 'url': link,
                                 'source': 'message_text',
@@ -1591,6 +1653,15 @@ class AdvancedGroupValidator:
                                     if hasattr(button, 'url'):
                                         extracted = AdvancedGroupValidator._extract_links_from_text(button.url)
                                         for link in extracted:
+                                            link_info = EnhancedLinkProcessor.extract_url_info(link)
+                                            
+                                            # التحقق إذا كان رابط رسالة
+                                            if link_info['details'].get('is_message_link', False):
+                                                message_links_collected += 1
+                                                # تجميع رابط رسالة واحدة فقط من كل مجموعة
+                                                if message_links_collected > 1:
+                                                    continue
+                                            
                                             links.append({
                                                 'url': link,
                                                 'source': 'button',
@@ -1617,30 +1688,14 @@ class AdvancedGroupValidator:
             seen = set()
             for link_data in links:
                 url = link_data['url']
-                if url not in seen:
-                    seen.add(url)
+                url_hash = hashlib.md5(url.encode()).hexdigest()
+                if url_hash not in seen:
+                    seen.add(url_hash)
                     unique_links.append(link_data)
             
             logger.info(f"✅ تم استخراج {len(unique_links)} رابط فريد من مجموعة {group_info['title']}")
             
-            # تصفية الروابط
-            filtered_links = []
-            for link_data in unique_links:
-                url = link_data['url']
-                url_info = EnhancedLinkProcessor.extract_url_info(url)
-                
-                # التصفية الأولية
-                should_filter, filter_reason = EnhancedLinkProcessor.should_filter_link(url, url_info)
-                if should_filter:
-                    logger.debug(f"⏭️ تم تصفية الرابط: {url[:50]}... - السبب: {filter_reason}")
-                    continue
-                
-                # إضافة الرابط بعد التصفية
-                filtered_links.append(link_data)
-            
-            logger.info(f"✅ بعد التصفية: {len(filtered_links)} رابط صالح")
-            
-            return filtered_links
+            return unique_links
             
         except Exception as e:
             logger.error(f"خطأ في استخراج روابط المجموعة: {e}")
@@ -1717,7 +1772,13 @@ class RealCollectionManager:
             'filter_reasons': defaultdict(int),
             'last_collection_time': None,
             'current_session': None,
-            'current_group': None
+            'current_group': None,
+            'message_links_collected': 0,
+            'recent_whatsapp_collected': 0,
+            'members_groups_collected': 0,
+            'channels_filtered': 0,
+            'bot_links_filtered': 0,
+            'personal_links_filtered': 0
         }
         self.collection_task = None
         self.last_progress_update = datetime.now()
@@ -1920,6 +1981,15 @@ class RealCollectionManager:
             if should_filter:
                 self.stats['filtered_links'] += 1
                 self.stats['filter_reasons'][filter_reason] += 1
+                
+                # تحديث إحصائيات التصفية التفصيلية
+                if 'بوت' in filter_reason:
+                    self.stats['bot_links_filtered'] += 1
+                elif 'قناة' in filter_reason:
+                    self.stats['channels_filtered'] += 1
+                elif 'شخصي' in filter_reason:
+                    self.stats['personal_links_filtered'] += 1
+                
                 return None
             
             url_info = EnhancedLinkProcessor.extract_url_info(url)
@@ -1935,30 +2005,48 @@ class RealCollectionManager:
                 return None
             
             # تخطي القنوات إذا كان مطلوباً
-            if Config.COLLECT_ONLY_GROUPS and details.get('is_subscription'):
-                logger.debug(f"تخطي رابط اشتراك: {url}")
+            if Config.FILTER_SUBSCRIPTION_GROUPS and details.get('is_subscription'):
+                logger.debug(f"تخطي رابط قناة: {url}")
+                self.stats['channels_filtered'] += 1
                 return None
+            
+            # التحقق من روابط واتساب - فقط الروابط من آخر 60 يوماً
+            if platform == 'whatsapp':
+                message_date = link_data.get('message_date', '')
+                if message_date:
+                    try:
+                        msg_date = datetime.fromisoformat(message_date.replace('Z', '+00:00'))
+                        days_diff = (datetime.now() - msg_date).days
+                        if days_diff > Config.WHATSAPP_DAYS_BACK:
+                            logger.debug(f"تخطي رابط واتساب قديم ({days_diff} يوم): {url}")
+                            return None
+                        else:
+                            self.stats['recent_whatsapp_collected'] += 1
+                    except:
+                        pass
             
             # تحديد إذا كان رابط مجموعة صالحة
             is_valid_group = True
             
             if platform == 'telegram':
-                # التركيز على روابط الانضمام والمجموعات ذات الأعضاء
+                # التركيز على المجموعات ذات الأعضاء فقط
                 is_valid_group = (
                     (details.get('is_group', True) or details.get('is_join_request', False)) and 
                     not details.get('is_channel', False) and
                     not details.get('is_subscription', False) and
                     not details.get('is_bot_link', False) and
-                    not details.get('is_message_link', False) and
                     not details.get('has_phone_number', False)
                 )
+                
+                # تحديث إحصائيات المجموعات ذات الأعضاء
+                if is_valid_group:
+                    self.stats['members_groups_collected'] += 1
+                    
+                # تحديث إحصائيات روابط الرسائل
+                if details.get('is_message_link', False):
+                    self.stats['message_links_collected'] += 1
             elif platform == 'whatsapp':
                 is_valid_group = True
-            
-            # التحقق من أن الرابط يحتوي على انضمام أو أعضاء
-            if Config.TARGET_JOIN_REQUESTS and not details.get('is_join_request', False):
-                # إذا لم يكن رابط انضمام، نحتاج للتحقق من أنه يحتوي على أعضاء
-                pass
             
             link_info = {
                 'url': url,
@@ -1993,7 +2081,8 @@ class RealCollectionManager:
                 'group_name': link_data.get('group_title', ''),
                 'group_id': link_data.get('group_id', 0),
                 'has_members': True,  # نفترض أن جميع الروابط المجمعة تحتوي على أعضاء
-                'has_subscribers': False  # لا نقبل المجموعات ذات المشتركين
+                'has_subscribers': False,  # لا نقبل المجموعات ذات المشتركين
+                'is_message_link': details.get('is_message_link', False)
             }
             
             db = await EnhancedDatabaseManager.get_instance()
@@ -2189,16 +2278,14 @@ class TelegramBot:
             "**بوت جمع روابط المجموعات الحقيقي مع التصفية المتقدمة**\n\n"
             "**المميزات الجديدة:**\n"
             "✅ جمع حقيقي من جميع المجموعات\n"
-            "⏭️ تصفية 5 أنواع من الروابط:\n"
-            "   • روابط البوتات\n"
-            "   • روابط الرسائل\n"
-            "   • روابط تحتوي على أرقام\n"
-            "   • مجموعات تحتوي على مشتركين\n"
-            "   • الروابط الميتة\n\n"
-            "🎯 **الروابط المستهدفة فقط:**\n"
-            "• روابط الانضمام (انظمام/طلب انضمام)\n"
-            "• المجموعات التي تحتوي على أعضاء\n"
-            "• الروابط النشطة فقط\n\n"
+            "🎯 **روابط تيليجرام:**\n"
+            "   • مجموعات تحتوي على أعضاء فقط\n"
+            "   • تجنب: البوتات + القنوات + t.me/me\n"
+            "   • رابط رسالة واحدة من كل مجموعة\n"
+            "   • جمع بدون قيود زمنية\n\n"
+            "📱 **روابط واتساب:**\n"
+            "   • من آخر 60 يوماً فقط\n"
+            "   • تجنب التكرار من جميع الجلسات\n\n"
             "**🚀 اختر من الأزرار أدناه لبدء الجمع الحقيقي!**"
         )
         
@@ -2223,8 +2310,10 @@ class TelegramBot:
         
         stats_text += "**🔥 إحصائيات الجمع الحالية:**\n"
         stats_text += f"• الروابط المجمعة: {collection_stats['total_collected']:,}\n"
+        stats_text += f"• مجموعات الأعضاء: {collection_stats['members_groups_collected']:,}\n"
+        stats_text += f"• روابط رسائل: {collection_stats['message_links_collected']:,}\n"
+        stats_text += f"• واتساب حديثة: {collection_stats['recent_whatsapp_collected']:,}\n"
         stats_text += f"• الروابط المصفاة: {collection_stats['filtered_links']:,}\n"
-        stats_text += f"• المجموعات المعالجة: {collection_stats['groups_processed']:,}\n"
         
         if collection_stats['filter_reasons']:
             stats_text += "\n**أسباب التصفية:**\n"
@@ -2238,13 +2327,17 @@ class TelegramBot:
                 stats_text += f"  - {reason}: {count:,}\n"
         
         stats_text += f"• المجموعات ذات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
+        stats_text += f"• واتساب حديثة: {db_stats.get('recent_whatsapp', 0):,}\n"
         
         stats_text += "\n**⚙️ إعدادات التصفية النشطة:**\n"
         stats_text += f"• تصفية البوتات: {'✅' if Config.FILTER_BOT_LINKS else '❌'}\n"
-        stats_text += f"• تصفية الرسائل: {'✅' if Config.FILTER_MESSAGE_LINKS else '❌'}\n"
+        stats_text += f"• تصفية الرسائل: {'❌ (رابط واحد فقط)' if not Config.FILTER_MESSAGE_LINKS else '✅'}\n"
         stats_text += f"• تصفية الأرقام: {'✅' if Config.FILTER_PHONE_NUMBER_LINKS else '❌'}\n"
-        stats_text += f"• تصفية المشتركين: {'✅' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌'}\n"
-        stats_text += f"• تصفية الروابط الميتة: {'✅' if Config.FILTER_DEAD_LINKS else '❌'}\n"
+        stats_text += f"• تصفية القنوات: {'✅' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌'}\n"
+        stats_text += f"• تصفية الميتة: {'✅' if Config.FILTER_DEAD_LINKS else '❌'}\n"
+        stats_text += f"• واتساب من: آخر {Config.WHATSAPP_DAYS_BACK} يوم فقط\n"
+        stats_text += f"• تيليجرام: جمع بدون قيود زمنية\n"
+        stats_text += f"• رابط رسالة: واحد من كل مجموعة"
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 تحديث", callback_data="filter_stats"),
@@ -2257,6 +2350,19 @@ class TelegramBot:
         """Handle /help command"""
         help_text = (
             "**📖 دليل استخدام البوت - الإصدار مع التصفية**\n\n"
+            "**🎯 الروابط المستهدفة (تيليجرام):**\n"
+            "• مجموعات تحتوي على أعضاء فقط\n"
+            "• رابط رسالة واحدة من كل مجموعة\n"
+            "• جمع من أي وقت (بدون قيود زمنية)\n\n"
+            "**⏭️ الروابط المصفاة (تيليجرام):**\n"
+            "1. روابط البوتات\n"
+            "2. القنوات (المشتركين)\n"
+            "3. روابط t.me/me الشخصية\n"
+            "4. روابط تحتوي على أرقام هواتف\n"
+            "5. الروابط الميتة\n\n"
+            "**📱 روابط واتساب:**\n"
+            "• من آخر 60 يوماً فقط\n"
+            "• تجنب التكرار من جميع الجلسات\n\n"
             "**الأوامر الأساسية:**\n"
             "• /start - بدء البوت ورسالة الترحيب\n"
             "• /help - عرض هذه المساعدة\n"
@@ -2275,16 +2381,6 @@ class TelegramBot:
             "**الإدارة:**\n"
             "• /stats - إحصائيات النظام\n"
             "• /backup - إنشاء نسخة احتياطية\n\n"
-            "**🎯 الروابط المستهدفة فقط:**\n"
-            "• روابط الانضمام (انظمام/طلب انضمام)\n"
-            "• المجموعات التي تحتوي على أعضاء\n"
-            "• الروابط النشطة فقط\n\n"
-            "**⏭️ الروابط المصفاة:**\n"
-            "1. روابط البوتات\n"
-            "2. روابط الرسائل\n"
-            "3. روابط تحتوي على أرقام هواتف\n"
-            "4. مجموعات تحتوي على مشتركين\n"
-            "5. الروابط الميتة\n\n"
             "**📌 كيفية البدء:**\n"
             "1. أضف جلسة تيليجرام باستخدام /addsession\n"
             "2. اختبر الجمع باستخدام /test_collect\n"
@@ -2294,7 +2390,6 @@ class TelegramBot:
             "**🔒 ملاحظات:**\n"
             "• البوت يجمع فقط روابط المجموعات المستهدفة\n"
             "• التصفية التلقائية لـ 5 أنواع من الروابط\n"
-            "• التركيز على روابط الانضمام والمجموعات النشطة\n"
             "• كل رابط يتم التحقق منه قبل التخزين"
         )
         await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -2340,6 +2435,9 @@ class TelegramBot:
         status_text += (
             f"\n**إحصائيات الجمع مع التصفية:**\n"
             f"• 📦 المجموع المجمع: {status['stats']['total_collected']:,}\n"
+            f"• 👥 مجموعات أعضاء: {status['stats']['members_groups_collected']:,}\n"
+            f"• 📝 روابط رسائل: {status['stats']['message_links_collected']:,}\n"
+            f"• 📱 واتساب حديثة: {status['stats']['recent_whatsapp_collected']:,}\n"
             f"• ⏭️ الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
             f"• 👥 المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• 📢 تيليجرام: {status['stats']['telegram']:,}\n"
@@ -2404,6 +2502,7 @@ class TelegramBot:
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
             f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
+            f"• 📱 واتساب حديثة: {db_stats.get('recent_whatsapp', 0):,}\n"
         )
         
         # إحصائيات المنصات
@@ -2494,9 +2593,9 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 تيليجرام فقط", callback_data="export_telegram"),
-             InlineKeyboardButton("📱 واتساب فقط", callback_data="export_whatsapp")],
-            [InlineKeyboardButton("🎯 روابط الانضمام", callback_data="export_join_links"),
-             InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
+             InlineKeyboardButton("📱 واتساب حديثة", callback_data="export_whatsapp")],
+            [InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups"),
+             InlineKeyboardButton("📝 روابط الرسائل", callback_data="export_message_links")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
             [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
@@ -2507,9 +2606,9 @@ class TelegramBot:
             f"إجمالي الروابط المجمعة: **{total_links:,}**\n\n"
             "**خيارات التصدير:**\n"
             "• 📢 روابط تيليجرام فقط\n"
-            "• 📱 روابط واتساب فقط\n"
-            "• 🎯 روابط الانضمام فقط\n"
+            "• 📱 روابط واتساب حديثة (60 يوم)\n"
             "• 👥 مجموعات ذات أعضاء فقط\n"
+            "• 📝 روابط الرسائل (رابط واحد لكل مجموعة)\n"
             "• 📄 جميع الروابط (نصي)\n"
             "• 📊 CSV كامل المعلومات\n\n"
             "**ملاحظات:**\n"
@@ -2589,25 +2688,31 @@ class TelegramBot:
         collect_text += (
             f"\n**الإحصائيات مع التصفية:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
+            f"• مجموعات أعضاء: {status['stats']['members_groups_collected']:,}\n"
+            f"• روابط رسائل: {status['stats']['message_links_collected']:,}\n"
+            f"• واتساب حديثة: {status['stats']['recent_whatsapp_collected']:,}\n"
             f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
             f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
             f"• التليجرام: {status['stats']['telegram']:,}\n"
             f"• الواتساب: {status['stats']['whatsapp']:,}\n"
             f"• الأخطاء: {status['stats']['errors']:,}\n\n"
-            "**🎯 الروابط المستهدفة:**\n"
-            "• روابط الانضمام (انظمام/طلب انضمام)\n"
-            "• المجموعات التي تحتوي على أعضاء\n"
-            "• الروابط النشطة فقط\n\n"
+            "**🎯 الروابط المستهدفة (تيليجرام):**\n"
+            "• مجموعات تحتوي على أعضاء فقط\n"
+            "• رابط رسالة واحدة من كل مجموعة\n"
+            "• جمع بدون قيود زمنية (حتى 2015)\n\n"
             "**⏭️ الروابط المصفاة:**\n"
             "1. روابط البوتات\n"
-            "2. روابط الرسائل\n"
-            "3. روابط تحتوي على أرقام\n"
-            "4. مجموعات تحتوي على مشتركين\n"
+            "2. القنوات (تحتوي على مشتركين)\n"
+            "3. روابط t.me/me الشخصية\n"
+            "4. روابط تحتوي على أرقام هواتف\n"
             "5. الروابط الميتة\n\n"
+            "**📱 روابط واتساب:**\n"
+            "• من آخر 60 يوماً فقط\n"
+            "• تجنب التكرار من جميع الجلسات\n\n"
             f"**الإعدادات:**\n"
             f"• الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}\n"
             f"• الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}\n"
-            f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم\n"
+            f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم فقط\n"
             f"• تيليجرام: بدون قيود زمنية"
         )
         
@@ -2717,6 +2822,8 @@ class TelegramBot:
                         # حفظ الروابط كعينة
                         saved_count = 0
                         filtered_count = 0
+                        message_link_count = 0
+                        
                         for link_data in link_data_list:
                             link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
                             
@@ -2730,6 +2837,17 @@ class TelegramBot:
                                 filtered_count += 1
                                 continue
                             
+                            # التحقق من روابط الرسائل - نجمع رابط واحد فقط
+                            if link_info['details'].get('is_message_link', False):
+                                message_link_count += 1
+                                if message_link_count > 1:
+                                    filtered.append({
+                                        'url': link_data['url'],
+                                        'reason': 'رابط رسالة إضافي (واحد فقط من كل مجموعة)'
+                                    })
+                                    filtered_count += 1
+                                    continue
+                            
                             if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
                                 
                                 link_item = {
@@ -2742,8 +2860,26 @@ class TelegramBot:
                                     'collected_from': link_data.get('source', ''),
                                     'message_date': link_data.get('message_date', ''),
                                     'group_name': link_data.get('group_title', ''),
-                                    'has_members': True
+                                    'has_members': True,
+                                    'is_message_link': link_info['details'].get('is_message_link', False)
                                 }
+                                
+                                # التحقق من روابط واتساب التاريخية
+                                if link_info['platform'] == 'whatsapp':
+                                    message_date = link_data.get('message_date', '')
+                                    if message_date:
+                                        try:
+                                            msg_date = datetime.fromisoformat(message_date.replace('Z', '+00:00'))
+                                            days_diff = (datetime.now() - msg_date).days
+                                            if days_diff > Config.WHATSAPP_DAYS_BACK:
+                                                filtered.append({
+                                                    'url': link_data['url'],
+                                                    'reason': f'رابط واتساب قديم ({days_diff} يوم)'
+                                                })
+                                                filtered_count += 1
+                                                continue
+                                        except:
+                                            pass
                                 
                                 success, message, _ = await db.add_link(link_item)
                                 if success:
@@ -2847,14 +2983,14 @@ class TelegramBot:
                 f"**الحالة:** {'نشط' if status['active'] else 'متوقف'}\n"
                 f"**جاري جمع الروابط المستهدفة مع التصفية...**\n\n"
                 f"**🎯 الروابط المستهدفة:**\n"
-                f"• روابط الانضمام (انظمام/طلب انضمام)\n"
-                f"• المجموعات التي تحتوي على أعضاء\n"
-                f"• الروابط النشطة فقط\n\n"
+                f"• مجموعات تيليجرام تحتوي على أعضاء فقط\n"
+                f"• رابط رسالة واحدة من كل مجموعة\n"
+                f"• روابط واتساب من آخر 60 يوماً فقط\n\n"
                 f"**⏭️ الروابط المصفاة:**\n"
                 f"1. روابط البوتات\n"
-                f"2. روابط الرسائل\n"
-                f"3. روابط تحتوي على أرقام\n"
-                f"4. مجموعات تحتوي على مشتركين\n"
+                f"2. القنوات (تحتوي على مشتركين)\n"
+                f"3. روابط t.me/me الشخصية\n"
+                f"4. روابط تحتوي على أرقام هواتف\n"
                 f"5. الروابط الميتة\n\n"
                 f"سيتم إعلامك عند اكتمال الدورة الأولى.",
                 reply_markup=keyboard,
@@ -2928,6 +3064,8 @@ class TelegramBot:
                     # معالجة الروابط المجمعة
                     saved_count = 0
                     filtered_count = 0
+                    message_link_count = 0
+                    
                     for link_data in link_data_list:
                         link_info = EnhancedLinkProcessor.extract_url_info(link_data['url'])
                         
@@ -2941,6 +3079,17 @@ class TelegramBot:
                             filtered_count += 1
                             continue
                         
+                        # التحقق من روابط الرسائل - نجمع رابط واحد فقط
+                        if link_info['details'].get('is_message_link', False):
+                            message_link_count += 1
+                            if message_link_count > 1:
+                                filtered.append({
+                                    'url': link_data['url'],
+                                    'reason': 'رابط رسالة إضافي (واحد فقط من كل مجموعة)'
+                                })
+                                filtered_count += 1
+                                continue
+                        
                         if link_info['is_valid'] and link_info['platform'] in ['telegram', 'whatsapp']:
                             
                             link_item = {
@@ -2953,8 +3102,26 @@ class TelegramBot:
                                 'collected_from': link_data.get('source', ''),
                                 'message_date': link_data.get('message_date', ''),
                                 'group_name': link_data.get('group_title', ''),
-                                'has_members': True
+                                'has_members': True,
+                                'is_message_link': link_info['details'].get('is_message_link', False)
                             }
+                            
+                            # التحقق من روابط واتساب التاريخية
+                            if link_info['platform'] == 'whatsapp':
+                                message_date = link_data.get('message_date', '')
+                                if message_date:
+                                    try:
+                                        msg_date = datetime.fromisoformat(message_date.replace('Z', '+00:00'))
+                                        days_diff = (datetime.now() - msg_date).days
+                                        if days_diff > Config.WHATSAPP_DAYS_BACK:
+                                            filtered.append({
+                                                'url': link_data['url'],
+                                                'reason': f'رابط واتساب قديم ({days_diff} يوم)'
+                                            })
+                                            filtered_count += 1
+                                            continue
+                                    except:
+                                        pass
                             
                             success, message, _ = await db.add_link(link_item)
                             if success:
@@ -3071,6 +3238,12 @@ class TelegramBot:
             cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE filter_reason IS NOT NULL AND filter_reason != ''")
             filtered_links = (await cursor.fetchone())[0]
             
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE is_message_link = 1 AND platform IN ('telegram', 'whatsapp')")
+            message_links = (await cursor.fetchone())[0]
+            
+            cursor = await db.conn.execute("SELECT COUNT(*) FROM links WHERE platform = 'whatsapp' AND is_recent_whatsapp = 1")
+            recent_whatsapp = (await cursor.fetchone())[0]
+            
             cursor = await db.conn.execute("SELECT platform, COUNT(*) FROM links WHERE is_valid_group = 1 AND platform IN ('telegram', 'whatsapp') GROUP BY platform")
             platform_stats = dict(await cursor.fetchall())
             
@@ -3080,6 +3253,8 @@ class TelegramBot:
             validation_text += f"• إجمالي الروابط: {total_links:,}\n"
             validation_text += f"• روابط صالحة: {valid_groups:,}\n"
             validation_text += f"• مجموعات أعضاء: {member_groups:,}\n"
+            validation_text += f"• روابط رسائل: {message_links:,}\n"
+            validation_text += f"• واتساب حديثة: {recent_whatsapp:,}\n"
             validation_text += f"• روابط مصفاة: {filtered_links:,}\n"
             validation_text += f"• نسبة الصلاحية: {(valid_groups/total_links*100 if total_links > 0 else 0):.1f}%\n\n"
             
@@ -3089,7 +3264,7 @@ class TelegramBot:
             
             # الحصول على عينة من الروابط
             cursor = await db.conn.execute('''
-                SELECT url, platform, has_members, filter_reason 
+                SELECT url, platform, has_members, filter_reason, is_message_link, is_recent_whatsapp
                 FROM links 
                 WHERE platform IN ('telegram', 'whatsapp')
                 ORDER BY collected_date DESC 
@@ -3101,10 +3276,19 @@ class TelegramBot:
             if rows:
                 validation_text += "\n**📋 آخر 5 روابط مخزنة:**\n"
                 for i, row in enumerate(rows, 1):
-                    url, platform, has_members, filter_reason = row
-                    status = "✅ أعضاء" if has_members else "❌ لا أعضاء"
+                    url, platform, has_members, filter_reason, is_message_link, is_recent_whatsapp = row
+                    status = ""
                     if filter_reason:
                         status = f"⏭️ {filter_reason}"
+                    elif is_message_link:
+                        status = "📝 رابط رسالة"
+                    elif platform == 'whatsapp' and not is_recent_whatsapp:
+                        status = "📱 واتساب قديم"
+                    elif has_members:
+                        status = "✅ مجموعة أعضاء"
+                    else:
+                        status = "❌ لا أعضاء"
+                    
                     validation_text += f"{i}. {platform}: {url[:40]}... [{status}]\n"
             
             keyboard = InlineKeyboardMarkup([
@@ -3141,6 +3325,8 @@ class TelegramBot:
                 await self._handle_export_join_links(query)
             elif data == "export_member_groups":
                 await self._handle_export_member_groups(query)
+            elif data == "export_message_links":
+                await self._handle_export_message_links(query)
             elif data == "start_collect":
                 await self._handle_start_collect(query)
             elif data == "pause_collect":
@@ -3348,6 +3534,58 @@ class TelegramBot:
             logger.error(f"خطأ في تصدير مجموعات الأعضاء: {e}")
             await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
     
+    async def _handle_export_message_links(self, query):
+        """Handle export message links"""
+        await self._edit_message_safe(query, "⏳ جاري تحضير روابط الرسائل...")
+        
+        try:
+            db = await EnhancedDatabaseManager.get_instance()
+            cursor = await db.conn.execute('''
+                SELECT url FROM links 
+                WHERE is_message_link = 1 
+                AND platform IN ('telegram', 'whatsapp')
+                AND is_valid_group = 1
+                ORDER BY collected_date DESC 
+                LIMIT ?
+            ''', (Config.MAX_EXPORT_LINKS,))
+            
+            rows = await cursor.fetchall()
+            
+            if not rows:
+                await self._edit_message_safe(query, "❌ لا توجد روابط رسائل للتصدير")
+                return
+            
+            links = [row[0] for row in rows]
+            
+            # حفظ في ملف نصي
+            filename = f"message_links_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filepath = os.path.join("exports", filename)
+            os.makedirs("exports", exist_ok=True)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for link in links:
+                    f.write(f"{link}\n")
+            
+            # إرسال الملف
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📝 روابط الرسائل\nعدد الروابط: {len(links):,}"
+                )
+            
+            # حذف الملف المحلي
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط رسالة")
+            
+        except Exception as e:
+            logger.error(f"خطأ في تصدير روابط الرسائل: {e}")
+            await self._edit_message_safe(query, f"❌ حدث خطأ في التصدير: {str(e)[:100]}")
+    
     async def _handle_start_collect(self, query):
         """Handle start collection"""
         if self.collection_manager.active:
@@ -3369,9 +3607,9 @@ class TelegramBot:
             "🚀 **بدأ الجمع الحقيقي مع التصفية بنجاح!**\n\n"
             "**المميزات النشطة:**\n"
             "✅ جمع من جميع المجموعات\n"
-            "⏭️ تصفية 5 أنواع من الروابط\n"
-            "🎯 التركيز على روابط الانضمام\n"
-            "👥 جمع المجموعات ذات الأعضاء\n"
+            "🎯 مجموعات تيليجرام تحتوي على أعضاء فقط\n"
+            "📝 رابط رسالة واحدة من كل مجموعة\n"
+            "📱 واتساب من آخر 60 يوماً فقط\n"
             "🔍 جمع عميق من جميع الرسائل\n\n"
             "**تفاصيل:**\n"
             "• جاري جمع الروابط من جميع الجلسات\n"
@@ -3404,10 +3642,11 @@ class TelegramBot:
             "الجلسات تبقى نشطة.\n\n"
             "**الإحصائيات الحالية:**\n"
             f"• الروابط المجمعة: {self.collection_manager.stats['total_collected']:,}\n"
+            f"• مجموعات أعضاء: {self.collection_manager.stats['members_groups_collected']:,}\n"
+            f"• روابط رسائل: {self.collection_manager.stats['message_links_collected']:,}\n"
+            f"• واتساب حديثة: {self.collection_manager.stats['recent_whatsapp_collected']:,}\n"
             f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
-            f"• المجموعات المعالجة: {self.collection_manager.stats['groups_processed']:,}\n"
-            f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
-            f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
+            f"• المجموعات المعالجة: {self.collection_manager.stats['groups_processed']:,}",
             reply_markup=keyboard
         )
     
@@ -3431,10 +3670,11 @@ class TelegramBot:
             "تم حفظ جميع الروابط المجمعة.\n\n"
             "**الإحصائيات النهائية:**\n"
             f"• إجمالي الروابط: {self.collection_manager.stats['total_collected']:,}\n"
+            f"• مجموعات أعضاء: {self.collection_manager.stats['members_groups_collected']:,}\n"
+            f"• روابط رسائل: {self.collection_manager.stats['message_links_collected']:,}\n"
+            f"• واتساب حديثة: {self.collection_manager.stats['recent_whatsapp_collected']:,}\n"
             f"• الروابط المصفاة: {self.collection_manager.stats['filtered_links']:,}\n"
-            f"• مجموعات معالجة: {self.collection_manager.stats['groups_processed']:,}\n"
-            f"• تيليجرام: {self.collection_manager.stats['telegram']:,}\n"
-            f"• واتساب: {self.collection_manager.stats['whatsapp']:,}",
+            f"• مجموعات معالجة: {self.collection_manager.stats['groups_processed']:,}",
             reply_markup=keyboard
         )
     
@@ -3449,13 +3689,17 @@ class TelegramBot:
             f"**طلب الإيقاف:** {'✅ نعم' if status['stop_requested'] else '❌ لا'}\n\n"
             f"**الإحصائيات مع التصفية:**\n"
             f"• الروابط المجمعة: {status['stats']['total_collected']:,}\n"
+            f"• مجموعات أعضاء: {status['stats']['members_groups_collected']:,}\n"
+            f"• روابط رسائل: {status['stats']['message_links_collected']:,}\n"
+            f"• واتساب حديثة: {status['stats']['recent_whatsapp_collected']:,}\n"
             f"• الروابط المصفاة: {status['stats']['filtered_links']:,}\n"
             f"• المجموعات المعالجة: {status['stats']['groups_processed']:,}\n"
-            f"• تيليجرام: {status['stats']['telegram']:,}\n"
-            f"• واتساب: {status['stats']['whatsapp']:,}\n"
+            f"• التليجرام: {status['stats']['telegram']:,}\n"
+            f"• الواتساب: {status['stats']['whatsapp']:,}\n"
             f"• الأخطاء: {status['stats']['errors']:,}\n"
             f"• الجلسات المستخدمة: {status['stats']['sessions_used']}\n"
-            f"• آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}"
+            f"• آخر جمع: {status['stats']['last_collection_time'] or 'لم يبدأ'}\n"
+            f"• الروابط المعالجة: {status['stats']['total_processed']:,}"
         )
         
         if status['stats']['filter_reasons']:
@@ -3547,6 +3791,7 @@ class TelegramBot:
             f"• 💼 الجلسات النشطة: {db_stats.get('active_sessions', 0)}\n"
             f"• 👥 المستخدمين: {db_stats.get('total_users', 0)}\n"
             f"• 👥 مجموعات الأعضاء: {db_stats.get('groups_with_members', 0):,}\n"
+            f"• 📱 واتساب حديثة: {db_stats.get('recent_whatsapp', 0):,}\n"
             f"• نسبة النمو: {((db_stats.get('today_links', 0)/db_stats.get('total_links', 1))*100 if db_stats.get('total_links', 0) > 0 else 0):.1f}%\n\n"
             f"**توزيع المنصات:**\n"
         )
@@ -3589,9 +3834,9 @@ class TelegramBot:
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 تيليجرام فقط", callback_data="export_telegram"),
-             InlineKeyboardButton("📱 واتساب فقط", callback_data="export_whatsapp")],
-            [InlineKeyboardButton("🎯 روابط الانضمام", callback_data="export_join_links"),
-             InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups")],
+             InlineKeyboardButton("📱 واتساب حديثة", callback_data="export_whatsapp")],
+            [InlineKeyboardButton("👥 مجموعات الأعضاء", callback_data="export_member_groups"),
+             InlineKeyboardButton("📝 روابط الرسائل", callback_data="export_message_links")],
             [InlineKeyboardButton("📄 جميع الروابط", callback_data="export_all"),
              InlineKeyboardButton("📊 CSV كامل", callback_data="export_csv")],
             [InlineKeyboardButton("🔄 تحديث", callback_data="export_links")]
@@ -3648,14 +3893,14 @@ class TelegramBot:
     
     async def _handle_export_whatsapp(self, query):
         """Handle export WhatsApp links"""
-        await self._edit_message_safe(query, "⏳ جاري تحضير ملف واتساب...")
+        await self._edit_message_safe(query, "⏳ جاري تحضير ملف واتساب حديثة...")
         
         try:
             db = await EnhancedDatabaseManager.get_instance()
-            links = await db.export_links({'platform': 'whatsapp'}, Config.MAX_EXPORT_LINKS)
+            links = await db.export_links({'platform': 'whatsapp', 'only_recent_whatsapp': True}, Config.MAX_EXPORT_LINKS)
             
             if not links:
-                await self._edit_message_safe(query, "❌ لا توجد روابط واتساب صالحة للتصدير")
+                await self._edit_message_safe(query, "❌ لا توجد روابط واتساب حديثة للتصدير")
                 return
             
             # حفظ في ملف نصي
@@ -3672,7 +3917,7 @@ class TelegramBot:
                 await query.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📱 روابط واتساب\nعدد الروابط: {len(links):,}"
+                    caption=f"📱 روابط واتساب حديثة (آخر {Config.WHATSAPP_DAYS_BACK} يوم)\nعدد الروابط: {len(links):,}"
                 )
             
             # حذف الملف المحلي
@@ -3681,7 +3926,7 @@ class TelegramBot:
             except:
                 pass
             
-            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط واتساب")
+            await self._edit_message_safe(query, f"✅ تم تصدير {len(links):,} رابط واتساب حديثة")
             
         except Exception as e:
             logger.error(f"خطأ في تصدير واتساب: {e}")
@@ -3713,7 +3958,7 @@ class TelegramBot:
                 await query.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📦 جميع الروابط (تيليجرام + واتساب)\nعدد الروابط: {len(links):,}"
+                    caption=f"📦 جميع الروابط (تيليجرام + واتساب حديثة)\nعدد الروابط: {len(links):,}"
                 )
             
             # حذف الملف المحلي
@@ -3735,7 +3980,7 @@ class TelegramBot:
         try:
             db = await EnhancedDatabaseManager.get_instance()
             cursor = await db.conn.execute('''
-                SELECT url, platform, members_count, has_members, collected_date, group_name
+                SELECT url, platform, members_count, has_members, collected_date, group_name, is_message_link, is_recent_whatsapp
                 FROM links 
                 WHERE platform IN ('telegram', 'whatsapp') AND is_valid_group = 1
                 LIMIT ?
@@ -3753,11 +3998,13 @@ class TelegramBot:
             os.makedirs("exports", exist_ok=True)
             
             with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("URL,Platform,Members,HasMembers,Date,Group\n")
+                f.write("URL,Platform,Members,HasMembers,Date,Group,IsMessageLink,IsRecentWhatsApp\n")
                 for row in rows:
-                    url, platform, members, has_members, date, group = row
+                    url, platform, members, has_members, date, group, is_message_link, is_recent_whatsapp = row
                     members_status = "Yes" if has_members else "No"
-                    f.write(f'"{url}","{platform}",{members},"{members_status}","{date}","{group or ""}"\n')
+                    message_link_status = "Yes" if is_message_link else "No"
+                    recent_whatsapp_status = "Yes" if is_recent_whatsapp else "No"
+                    f.write(f'"{url}","{platform}",{members},"{members_status}","{date}","{group or ""}","{message_link_status}","{recent_whatsapp_status}"\n')
             
             # إرسال الملف
             with open(filepath, 'rb') as f:
@@ -3993,13 +4240,15 @@ class TelegramBot:
             f"• الذاكرة القصوى: {Config.MAX_MEMORY_MB} MB\n\n"
             f"**إعدادات التصفية:**\n"
             f"• تصفية البوتات: {'✅ مفعل' if Config.FILTER_BOT_LINKS else '❌ معطل'}\n"
-            f"• تصفية الرسائل: {'✅ مفعل' if Config.FILTER_MESSAGE_LINKS else '❌ معطل'}\n"
+            f"• تصفية الرسائل: {'❌ (رابط واحد فقط)' if not Config.FILTER_MESSAGE_LINKS else '✅'}\n"
             f"• تصفية الأرقام: {'✅ مفعل' if Config.FILTER_PHONE_NUMBER_LINKS else '❌ معطل'}\n"
-            f"• تصفية المشتركين: {'✅ مفعل' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌ معطل'}\n"
-            f"• تصفية الميتة: {'✅ مفعل' if Config.FILTER_DEAD_LINKS else '❌ معطل'}\n\n"
+            f"• تصفية القنوات: {'✅ مفعل' if Config.FILTER_SUBSCRIPTION_GROUPS else '❌ معطل'}\n"
+            f"• تصفية الميتة: {'✅ مفعل' if Config.FILTER_DEAD_LINKS else '❌ معطل'}\n"
+            f"• رابط رسالة واحد: {'✅ مفعل' if Config.COLLECT_ONE_MESSAGE_PER_GROUP else '❌ معطل'}\n\n"
             f"**إعدادات الهدف:**\n"
-            f"• روابط الانضمام: {'✅ مفعل' if Config.TARGET_JOIN_REQUESTS else '❌ معطل'}\n"
-            f"• مجموعات الأعضاء: {'✅ مفعل' if Config.TARGET_MEMBERS_GROUPS else '❌ معطل'}\n\n"
+            f"• مجموعات الأعضاء فقط: {'✅ مفعل' if Config.TARGET_MEMBERS_GROUPS else '❌ معطل'}\n"
+            f"• واتساب من: آخر {Config.WHATSAPP_DAYS_BACK} يوم فقط\n"
+            f"• تيليجرام: جمع بدون قيود زمنية\n\n"
             f"**إعدادات قاعدة البيانات:**\n"
             f"• المسار: {Config.DB_PATH}\n"
             f"• النسخ الاحتياطي: {'✅ مفعل' if Config.BACKUP_ENABLED else '❌ معطل'}\n"
@@ -4007,8 +4256,8 @@ class TelegramBot:
             f"**إعدادات الجمع:**\n"
             f"• الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}\n"
             f"• الجمع من جميع المجموعات: {'✅ نعم'}\n"
-            f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم\n"
-            f"• تيليجرام: بدون قيود زمنية"
+            f"• واتساب من آخر: {Config.WHATSAPP_DAYS_BACK} يوم فقط\n"
+            f"• تيليجرام: جمع بدون قيود زمنية"
         )
         
         await self._edit_message_safe(query, settings_text)
@@ -4167,7 +4416,7 @@ class TelegramBot:
                 f"**ملاحظة:**\n"
                 f"هذه الجلسة ستستخدم فقط لجمع الروابط المستهدفة\n"
                 f"مع تصفية 5 أنواع من الروابط غير المرغوبة\n"
-                f"التركيز على روابط الانضمام والمجموعات ذات الأعضاء",
+                f"التركيز على مجموعات الأعضاء فقط",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
@@ -4216,17 +4465,13 @@ class TelegramBot:
             logger.error(f"خطأ في معالج الأخطاء: {e}")
 
 # ======================
-# REMOVED Health Check Server - تم إزالته لتجنب مشاكل المنافذ
-# ======================
-
-# ======================
 # Main Function - الوظيفة الرئيسية
 # ======================
 
 async def main():
     """Main function"""
     try:
-        logger.info(f"🚀 تشغيل البوت مع التصفية المتقدمة وروابط واتساب المحفوظة كما هي")
+        logger.info(f"🚀 تشغيل البوت مع التصفية المتقدمة")
         
         # التحقق من المتغيرات البيئية المطلوبة
         required_env_vars = ['BOT_TOKEN', 'API_ID', 'API_HASH']
@@ -4256,10 +4501,9 @@ async def main():
         bot = TelegramBot()
         
         logger.info("🤖 بدء تشغيل بوت جمع الروابط مع التصفية المتقدمة...")
-        logger.info(f"🔥 الإعدادات المحسنة - جمع حقيقي من جميع المجموعات")
-        logger.info(f"🎯 الهدف: روابط الانضمام والمجموعات ذات الأعضاء فقط")
-        logger.info(f"⏭️ التصفية: 5 أنواع من الروابط غير المرغوبة")
-        logger.info(f"📱 واتساب: الروابط تحفظ كما هي دون تغيير")
+        logger.info(f"🎯 **تيليجرام:** مجموعات أعضاء فقط + رابط رسالة واحد من كل مجموعة + بدون قيود زمنية")
+        logger.info(f"📱 **واتساب:** من آخر {Config.WHATSAPP_DAYS_BACK} يوم فقط + تجنب التكرار")
+        logger.info(f"⏭️ **التصفية:** البوتات + القنوات + t.me/me + الأرقام + الروابط الميتة")
         logger.info(f"⚡ الرسائل لكل مجموعة: {Config.MESSAGES_PER_GROUP}")
         logger.info(f"⚡ الجلسات المتزامنة: {Config.MAX_CONCURRENT_SESSIONS}")
         logger.info(f"⚡ الدردشات لكل جلسة: {Config.MAX_DIALOGS_PER_SESSION}")
@@ -4272,7 +4516,6 @@ async def main():
             
             logger.info("✅ البوت يعمل بنجاح!")
             logger.info("📋 الأوامر المتاحة: /start, /filter_stats, /test_collect, /quick_collect, /collect, /status, /stats, /export")
-            logger.info("📱 روابط واتساب: يتم حفظها كما هي دون تغيير")
             
             # الحفاظ على البوت يعمل
             stop_event = asyncio.Event()
@@ -4336,3 +4579,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"❌ خطأ قاتل: {e}", exc_info=True)
         sys.exit(1)
+[file content end]
